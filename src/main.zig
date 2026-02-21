@@ -154,7 +154,52 @@ fn capturePackets(handle: *PcapT, packetArena: *PacketArena, size: usize) !void 
     }
 }
 
+fn capture(handle: *PcapT) !void {
+    var header: ?*PcapPktHeader = undefined;
+
+    var raw_packet = RawPacket.init();
+
+    var captured: usize = 0;
+
+    var buffer: [65536]u8 = undefined;
+    var fba: std.heap.FixedBufferAllocator = .init(&buffer);
+    const allocator = fba.allocator();
+
+    var total: usize = 0;
+
+    var pkt_ptr: ?*u8 = undefined; // this is the pointer passed to pcap (pcap takes the pointer and does its' own allocation procedure)
+
+    while (total >= 0) : (captured += 1) {
+        const res = pcap_next_ex(handle, &header.?, &pkt_ptr.?);
+
+        if (res <= 0) {
+            std.debug.print("[ERR] Timeout or no packet.\n", .{});
+            continue;
+        }
+        if (pkt_ptr) |raw_pkt| {
+            const h = header.?; // non-null
+
+            raw_packet.timestamp_ms = @intCast(h.ts_usec);
+
+            raw_packet.timestamp_s = @intCast(h.ts_sec);
+
+            raw_packet.raw_len = h.len;
+
+            const memory = try allocator.alloc(u8, @intCast(h.len));
+
+            defer allocator.free(memory);
+
+            @memmove(memory.ptr, std.mem.asBytes(raw_pkt));
+
+            total += @intCast(raw_packet.raw_len);
+
+            print("Alloc'd 1 {d} byte packet in fixed buffer. ptr: 0x{x}. BufSize: {any}\n", .{ raw_packet.raw_len, @intFromPtr(memory.ptr), memory.len });
+        }
+    }
+}
+
 pub fn main() !void {
+    print("starting...", .{});
     var packetArena = PacketArena.init(std.heap.page_allocator);
     defer packetArena.deinit();
 
@@ -199,7 +244,7 @@ pub fn main() !void {
 
     print("Opened device.\n", .{});
 
-    try capturePackets(handle, &packetArena, 5);
+    try capture(handle);
 }
 
 //zig build-exe src\main.zig -I"C:\Users\user\Downloads\npcap-sdk-1.15\Include" -I"%INCLUDE%" -L"C:\Users\user\Downloads\npcap-sdk-1.15\Lib\x64" -lPacket -lwpcap
