@@ -37,11 +37,11 @@ pub fn main() !void {
     const interfaces = PcapWrapper.Interfaces.init();
 
     if (interfaces) |ifaces| {
-        const device_list = try ifaces.array_list(&allocator);
+        const device_list = try ifaces.list(&allocator);
 
         if (device_list.items.len > 0) {
             for (device_list.items) |device| {
-                print("{s}\n", .{device});
+                print("{s}\n", .{device.name});
             }
         } else {
             print("failed to get devices.\n", .{});

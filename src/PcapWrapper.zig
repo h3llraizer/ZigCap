@@ -27,6 +27,22 @@ pub const Interface = struct {
     desc: [*:0]const u8,
     handle: *PcapT,
 
+    pub fn init(name: [*:0]const u8, desc: [*:0]const u8) Interface {
+        return Interface{ .name = name, .desc = desc, .handle = undefined };
+    }
+
+    pub fn open(device_name: [*:0]const u8) ?Interface {
+        var errbuf: [256:0]u8 = .{0} ** 256;
+        const handle = pcap_open_live(device_name, 65535, 1, 1000, &errbuf);
+
+        if (handle == null) {
+            std.debug.print("Failed to open device {s}: {s}\n", .{ device_name, &errbuf });
+            return null;
+        }
+
+        return Interface{ .name = device_name, .handle = handle.? };
+    }
+
     pub fn capture(self: Interface) !void {
         var header: ?*PcapPktHeader = undefined;
 
@@ -72,7 +88,9 @@ pub const Interface = struct {
     }
 
     pub fn deinit(self: Interface) !void {
-        pcap_close(self.handle);
+        if (self.handle) {
+            pcap_close(self.handle);
+        }
     }
 };
 
@@ -95,16 +113,18 @@ pub const Interfaces = struct {
         };
     }
 
-    pub fn array_list(self: Interfaces, allocator: *std.mem.Allocator) !std.ArrayList([*:0]const u8) {
-        var list: std.ArrayList([*:0]const u8) = .empty;
+    pub fn list(self: Interfaces, allocator: *std.mem.Allocator) !std.ArrayList(Interface) {
+        var iface_list: std.ArrayList(Interface) = .empty;
         var dev = self.pcap;
         while (dev) |d| : (dev = d.next) {
-            //const name = d.name orelse "(no name)";
+            const name = d.name orelse "(no name)";
             const desc = d.description orelse "(no description)";
-            try list.append(allocator.*, desc);
+            const iface = Interface.init(name, desc);
+
+            try iface_list.append(allocator.*, iface);
         }
 
-        return list;
+        return iface_list;
     }
 
     pub fn find(self: Interfaces, wifiIfaceDesc: [*:0]const u8) ?([*:0]const u8) {
@@ -119,18 +139,6 @@ pub const Interfaces = struct {
         }
 
         return null;
-    }
-
-    pub fn open(device_name: [*:0]const u8) ?Interface {
-        var errbuf: [256:0]u8 = .{0} ** 256;
-        const handle = pcap_open_live(device_name, 65535, 1, 1000, &errbuf);
-
-        if (handle == null) {
-            std.debug.print("Failed to open device {s}: {s}\n", .{ device_name, &errbuf });
-            return null;
-        }
-
-        return Interface{ .name = device_name, .handle = handle.? };
     }
 
     pub fn deinit(self: Interfaces) !void {
