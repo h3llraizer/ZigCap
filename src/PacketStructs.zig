@@ -37,11 +37,6 @@ pub const EthHeader = struct {
     ethertype: u16, // network byte order (big-endian)
 };
 
-//pub const EthLayer = struct {
-//
-//
-//};
-
 pub const Packet = struct {
     raw_packet: *RawPacket,
 

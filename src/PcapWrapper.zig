@@ -56,6 +56,8 @@ extern fn pcap_open_live(device: [*:0]const u8, snaplen: c_int, promisc: c_int, 
 extern fn pcap_next_ex(handle: *PcapT, header: **PcapPktHeader, pkt_data: **u8) callconv(.c) c_int;
 extern fn pcap_close(handle: *PcapT) callconv(.c) void;
 
+extern fn pcap_open_offline(fname: [*:0]const u8, errbuf: [*:0]const u8) ?*PcapT;
+
 // packet header
 pub const PcapPktHeader = extern struct {
     ts_sec: c_int,
@@ -63,6 +65,55 @@ pub const PcapPktHeader = extern struct {
     caplen: c_int,
     len: c_int,
 };
+
+fn open_file(path: []const u8, allocator: *std.mem.Allocator) !*PcapT {
+    var errbuf: [256:0]u8 = .{0} ** 256;
+
+    // ensure path is null-terminated
+    const path_z = try allocator.dupeZ(u8, path);
+    defer allocator.free(path_z);
+
+    const handle = pcap_open_offline(path_z.ptr, &errbuf);
+    if (handle) |h| {
+        return h;
+    } else {
+        return error.OpenFailed;
+    }
+
+    //return handle;
+}
+
+pub fn parse_pcap_file(path: []const u8, allocator: *std.mem.Allocator) !void {
+    const handle = try open_file(path, allocator);
+
+    var header: ?*PcapPktHeader = undefined;
+    var pkt_ptr: ?*u8 = undefined;
+
+    while (true) {
+        const res = pcap_next_ex(handle, &header.?, &pkt_ptr.?);
+
+        if (res == 1) {
+            // packet received
+            const h = header orelse continue;
+            const pkt = pkt_ptr orelse continue;
+
+            var raw_packet = RawPacket.init();
+
+            raw_packet.raw_data = pkt;
+
+            print("Packet received. Length: {d}\n", .{h.len});
+
+            //parsePacket(pkt, h.len);
+
+        } else if (res == 0) {
+            // 0 = timeout (not relevant for offline file)
+            continue;
+        } else {
+            // <0 = EOF or error
+            break;
+        }
+    }
+}
 
 pub const IPv4 = struct {
     asBytes: [4]u8,
@@ -177,7 +228,7 @@ pub const Interface = struct {
 
                 callback_fn(&raw_packet);
 
-                print("Alloc'd 1 {d} byte packet in fixed buffer. ptr: 0x{x}. BufSize: {any}\n", .{ raw_packet.raw_len, @intFromPtr(memory.ptr), memory.len });
+                //print("Alloc'd 1 {d} byte packet in fixed buffer. ptr: 0x{x}. BufSize: {any}\n", .{ raw_packet.raw_len, @intFromPtr(memory.ptr), memory.len });
             }
         }
     }

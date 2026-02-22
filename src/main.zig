@@ -8,6 +8,12 @@ pub fn packet_callback(raw_packet: *PacketStructs.RawPacket) void {
 }
 
 pub fn main() !void {
+    const pcap_file: []const u8 = "C:\\users\\user\\captures\\udp_traffic.pcap";
+    var allocator = std.heap.page_allocator;
+    try PcapWrapper.parse_pcap_file(pcap_file, &allocator);
+}
+
+pub fn live() void {
     print("starting...\n", .{});
 
     const ip: []const u8 = "192.168.1.225";
