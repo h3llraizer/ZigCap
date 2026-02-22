@@ -5,7 +5,7 @@ pub const RawPacket = struct {
     timestamp_s: u32,
     timestamp_ms: u32,
     raw_data: *u8,
-    raw_len: c_int,
+    raw_len: u32,
 
     pub fn init() RawPacket {
         var p: RawPacket = undefined;
@@ -14,6 +14,14 @@ pub const RawPacket = struct {
         p.timestamp_ms = undefined;
 
         return p;
+    }
+
+    pub fn init_cpy(tm_s: u32, tm_ms: u32, raw_data: *u8, raw_len: u32) RawPacket {
+        const raw: *u8 = undefined;
+
+        @memmove(raw, std.mem.asBytes(raw_data));
+
+        return RawPacket{ .timestamp_s = tm_s, .timestamp_ms = tm_ms, .raw_data = raw, .raw_len = raw_len };
     }
 
     pub fn copyInit(buf: [*]u8, len: usize, timestamp_sec: u32, timestamp_msec: u32) RawPacket {

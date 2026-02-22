@@ -83,7 +83,7 @@ fn open_file(path: []const u8, allocator: *std.mem.Allocator) !*PcapT {
     //return handle;
 }
 
-pub fn parse_pcap_file(path: []const u8, allocator: *std.mem.Allocator) !void {
+pub fn parse_pcap_file(path: []const u8, allocator: *std.mem.Allocator, parser_cb: fn (*RawPacket) void) !void {
     const handle = try open_file(path, allocator);
 
     var header: ?*PcapPktHeader = undefined;
@@ -97,14 +97,9 @@ pub fn parse_pcap_file(path: []const u8, allocator: *std.mem.Allocator) !void {
             const h = header orelse continue;
             const pkt = pkt_ptr orelse continue;
 
-            var raw_packet = RawPacket.init();
+            var raw_packet = RawPacket.init_cpy(@intCast(h.*.ts_usec), @intCast(h.*.ts_sec), pkt, @intCast(h.*.caplen));
 
-            raw_packet.raw_data = pkt;
-
-            print("Packet received. Length: {d}\n", .{h.len});
-
-            //parsePacket(pkt, h.len);
-
+            parser_cb(&raw_packet);
         } else if (res == 0) {
             // 0 = timeout (not relevant for offline file)
             continue;
@@ -216,7 +211,7 @@ pub const Interface = struct {
 
                 raw_packet.timestamp_s = @intCast(h.ts_sec);
 
-                raw_packet.raw_len = h.len;
+                raw_packet.raw_len = @intCast(h.len);
 
                 const memory = try allocator.alloc(u8, @intCast(h.len));
 
