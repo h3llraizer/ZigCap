@@ -3,51 +3,28 @@ const print = std.debug.print;
 const PacketStructs = @import("PacketStructs.zig");
 const PcapWrapper = @import("PcapWrapper.zig");
 
-const PacketArena = struct {
-    arena: std.heap.ArenaAllocator,
-
-    pub fn init(backing_allocator: std.mem.Allocator) PacketArena {
-        return PacketArena{
-            .arena = std.heap.ArenaAllocator.init(backing_allocator),
-        };
-    }
-
-    pub fn deinit(self: *PacketArena) void {
-        _ = self.arena.deinit();
-    }
-
-    pub fn allocOne(self: *PacketArena, packet: PacketStructs.RawPacket) !*PacketStructs.RawPacket {
-        const p = try self.arena.allocator().create(PacketStructs.RawPacket);
-        p.* = packet; // copy into arena
-        return p;
-    }
-};
+pub fn packet_callback(raw_packet: *PacketStructs.RawPacket) !void {
+    print("Packet received. Length: {any}\n", .{raw_packet.raw_len});
+}
 
 pub fn main() !void {
-    print("starting...", .{});
+    print("starting...\n", .{});
 
-    const wifiIfaceDesc: [*:0]const u8 = "Intel(R) Dual Band Wireless-AC 3165";
-
-    const wifiIfaceName: ?[*:0]const u8 = undefined;
+    const ip: []const u8 = "192.168.1.225";
 
     var allocator = std.heap.page_allocator;
 
-    print("wifi_Iface_Desc: {s} WiFi_iface_name {any} allocator {any}", .{ wifiIfaceDesc, wifiIfaceName, allocator.ptr });
+    var interfaces = PcapWrapper.Interfaces.init() catch |err| {
+        print("Failed to init interfaces: {s}.\n", .{@errorName(err)});
+        return err;
+    };
 
-    const interfaces = PcapWrapper.Interfaces.init();
+    const device_list = try interfaces.list_all(&allocator);
 
-    if (interfaces) |ifaces| {
-        const device_list = try ifaces.list(&allocator);
-
-        if (device_list.items.len > 0) {
-            for (device_list.items) |device| {
-                print("{s}\n", .{device.name});
-            }
-        } else {
-            print("failed to get devices.\n", .{});
+    if (device_list.items.len > 0) {
+        const main_iface = interfaces.find_by_ip(ip);
+        if (main_iface) |iface| {
+            print("Found:\n{s}\n", .{iface.toString(&allocator)});
         }
-    } else {
-        print("failed to initialise pcap interfaces.\n", .{});
-        return;
     }
 }
