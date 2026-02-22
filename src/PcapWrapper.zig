@@ -83,7 +83,7 @@ pub const Interface = struct {
     name: []u8,
     desc: []u8,
     ipv4: std.ArrayList(IPv4),
-    handle: *PcapT,
+    handle: ?*PcapT = null,
 
     pub fn init(name: []const u8, desc: []const u8, ipv4: std.ArrayList(IPv4), allocator: *std.mem.Allocator) !Interface {
         const name_copy = try allocator.alloc(u8, name.len);
@@ -100,21 +100,28 @@ pub const Interface = struct {
         };
     }
 
-    pub fn open(self: Interface) bool {
+    pub fn open(self: *Interface, allocator: *std.mem.Allocator) !void {
         var errbuf: [256:0]u8 = .{0} ** 256;
-        const handle = pcap_open_live(self.name, 65535, 1, 1000, &errbuf);
+
+        const c_name = try allocator.dupeZ(u8, self.name);
+        defer allocator.free(c_name);
+
+        const handle = pcap_open_live(c_name, 65535, 1, 1000, &errbuf);
 
         if (handle == null) {
             print("Failed to open device {s}: {s}\n", .{ self.name, &errbuf });
-            return false;
+            return;
         }
 
-        return true;
+        self.handle = handle;
     }
 
     pub fn isOpened(self: Interface) bool {
         print("Checking {s}\n", .{self.desc});
-        return true;
+        if (self.handle != null) {
+            return true;
+        }
+        return false;
     }
 
     pub fn toString(self: Interface, allocator: *std.mem.Allocator) []const u8 {
@@ -129,7 +136,7 @@ pub const Interface = struct {
         print("{s}\n", .{self.desc});
     }
 
-    pub fn capture(self: Interface) !void {
+    pub fn capture(self: Interface, callback_fn: fn (*RawPacket) void) !void {
         var header: ?*PcapPktHeader = undefined;
 
         var raw_packet = RawPacket.init();
@@ -145,7 +152,7 @@ pub const Interface = struct {
         var pkt_ptr: ?*u8 = undefined; // this is the pointer passed to pcap (pcap takes the pointer and does its' own allocation procedure)
 
         while (total >= 0) : (captured += 1) {
-            const res = pcap_next_ex(self.handle, &header.?, &pkt_ptr.?);
+            const res = pcap_next_ex(self.handle.?, &header.?, &pkt_ptr.?);
 
             if (res <= 0) {
                 std.debug.print("[ERR] Timeout or no packet.\n", .{});
@@ -167,6 +174,8 @@ pub const Interface = struct {
                 @memmove(memory.ptr, std.mem.asBytes(raw_pkt));
 
                 total += @intCast(raw_packet.raw_len);
+
+                callback_fn(&raw_packet);
 
                 print("Alloc'd 1 {d} byte packet in fixed buffer. ptr: 0x{x}. BufSize: {any}\n", .{ raw_packet.raw_len, @intFromPtr(memory.ptr), memory.len });
             }
