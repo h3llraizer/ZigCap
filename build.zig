@@ -13,6 +13,8 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    exe.linkLibC();
+
     exe.addIncludePath(.{
         .cwd_relative = "C:/Users/user/Downloads/npcap-sdk-1.15/Include",
     });
