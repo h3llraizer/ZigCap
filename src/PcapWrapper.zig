@@ -62,6 +62,7 @@ pub const Interface = struct {
     desc: []u8,
     ipv4: std.ArrayList(IPv4),
     handle: ?*pcap.pcap_t = null,
+    link_type: ?c_int,
 
     pub fn init(name: []const u8, desc: []const u8, ipv4: std.ArrayList(IPv4), allocator: *std.mem.Allocator) !Interface {
         const name_copy = try allocator.alloc(u8, name.len);
@@ -70,12 +71,7 @@ pub const Interface = struct {
         const desc_copy = try allocator.alloc(u8, desc.len);
         std.mem.copyForwards(u8, desc_copy, desc);
 
-        return Interface{
-            .name = name_copy,
-            .desc = desc_copy,
-            .ipv4 = ipv4,
-            .handle = undefined,
-        };
+        return Interface{ .name = name_copy, .desc = desc_copy, .ipv4 = ipv4, .handle = undefined, .link_type = null };
     }
 
     pub fn open(self: *Interface, allocator: *std.mem.Allocator) !void {
@@ -92,6 +88,7 @@ pub const Interface = struct {
         }
 
         self.handle = handle;
+        self.link_type = pcap.pcap_datalink(handle);
     }
 
     pub fn isOpened(self: Interface) bool {
@@ -134,9 +131,11 @@ pub const Interface = struct {
                 continue;
             }
             if (header) |h| {
-                print("pkt len: {any}\n", .{h.*.len});
+                //print("pkt len: {any}\n", .{h.*.len});
 
-                const raw_packet = try RawPacket.init(h.*.ts.tv_usec, h.*.ts.tv_sec, pkt_ptr[0..h.*.len], h.*.len, allocator);
+                //                print("Link-layer type: {s}\n", pcap.pcap_datalink_val_to_name(dlt));
+
+                const raw_packet = try RawPacket.init(h.*.ts.tv_usec, h.*.ts.tv_sec, pkt_ptr[0..h.*.len], h.*.len, self.link_type.?, allocator);
 
                 callback_fn(raw_packet, allocator);
 
