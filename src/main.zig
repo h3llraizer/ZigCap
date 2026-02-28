@@ -2,6 +2,7 @@ const std = @import("std");
 const print = std.debug.print;
 const PacketStructs = @import("PacketStructs.zig");
 const PcapWrapper = @import("PcapWrapper.zig");
+const ProtocolType = @import("ProtocolEnums.zig").ProtocolType;
 const Packet = PacketStructs.Packet;
 const EthLayer = PacketStructs.EthLayer;
 
@@ -47,6 +48,41 @@ pub fn parseUDPHeader(packet: []const u8) !void {
     std.debug.print("Length: {d}, Checksum: {x}\n", .{ length, checksum });
 }
 
+pub fn getUDPSrcPort(packet: []const u8) !u16 {
+    if (packet.len < 8) {
+        return error.InvalidPacket;
+    }
+
+    const src_port = std.mem.readInt(u16, packet[0..2], .big);
+
+    return src_port;
+}
+
+pub fn getUDPDstPort(packet: []const u8) !u16 {
+    if (packet.len < 8) {
+        return error.InvalidPacket;
+    }
+
+    const dst_port = std.mem.readInt(u16, packet[2..4], .big);
+
+    return dst_port;
+}
+
+pub fn getDnsFlags(flags: u16) PacketStructs.DNSFlags {
+    const dns_flags: PacketStructs.DNSFlags = .{
+        .QR = (flags >> 15) & 0x1,
+        .OPCODE = (flags >> 11) & 0xF,
+        .AA = (flags >> 10) & 0x1,
+        .TC = (flags >> 9) & 0x1,
+        .RD = (flags >> 8) & 0x1,
+        .RA = (flags >> 7) & 0x1,
+        .Z = (flags >> 4) & 0x7, // reserved
+        .RCODE = flags & 0xF,
+    };
+
+    return dns_flags;
+}
+
 pub fn parseDnsHeader(payload: []const u8) !void {
     if (payload.len < 12) {
         return error.InvalidPacket;
@@ -54,7 +90,7 @@ pub fn parseDnsHeader(payload: []const u8) !void {
 
     // DNS fields are big-endian (network byte order)
     const transaction_id = std.mem.readInt(u16, payload[0..2], .big);
-    const flags = std.mem.readInt(u16, payload[2..4], .big);
+    const flags = getDnsFlags(std.mem.readInt(u16, payload[2..4], .big));
     const qdcount = std.mem.readInt(u16, payload[4..6], .big);
     const ancount = std.mem.readInt(u16, payload[6..8], .big);
     const nscount = std.mem.readInt(u16, payload[8..10], .big);
@@ -62,50 +98,36 @@ pub fn parseDnsHeader(payload: []const u8) !void {
 
     std.debug.print("DNS Header:\n", .{});
     std.debug.print("Transaction ID: {d}\n", .{transaction_id});
-    std.debug.print("Flags: {x}\n", .{flags});
+    //std.debug.print("Flags: {x}\n", .{flags});
+    std.debug.print("QR Type: {s}\n", .{if (flags.QR == 0) "query" else "response"});
     std.debug.print("Questions: {d}, Answers: {d}, Authority: {d}, Additional: {d}\n", .{ qdcount, ancount, nscount, arcount });
 }
 
-const PacketType = enum {
-    Eth,
-    IPv4,
-    UDP,
-    DNS,
-
-    /// Returns true if this raw packet contains a UDP layer (IPv4 + Protocol 17)
-    pub fn isUDP(raw_packet: *PacketStructs.RawPacket) bool {
-        const ETH_HEADER_LEN = 14;
-
-        // Check packet is long enough for Ethernet + IPv4 minimum header
-        if (raw_packet.raw_len < ETH_HEADER_LEN + 20) return false;
-
-        // Check Ethernet type = IPv4
-        const eth_type = std.mem.readInt(u16, raw_packet.raw_data[12..14], .big);
-        if (eth_type != 0x0800) return false;
-
-        // IPv4 protocol field (byte 9 in IPv4 header)
-        const protocol = raw_packet.raw_data[ETH_HEADER_LEN + 9];
-        return protocol == 17;
+pub fn parseEthHeader(payload: []const u8) !void {
+    if (payload.len < 12) {
+        return error.InvalidLength;
     }
 
-    /// Returns true if this packet is DNS (UDP port 53)
-    pub fn isDNS(raw_packet: *PacketStructs.RawPacket) bool {
-        if (!PacketType.isUDP(raw_packet)) return false;
+    const dst = payload[0..6];
+    const src = payload[6..12];
 
-        const ip_start = 14;
-        const version_ihl = raw_packet.raw_data[ip_start];
-        const ihl = version_ihl & 0x0F;
-        const ip_header_len = ihl * 4;
-
-        const udp_start = ip_start + ip_header_len;
-        if (raw_packet.raw_len < udp_start + 8) return false;
-
-        const src_port = std.mem.readInt(u16, raw_packet.raw_data[udp_start .. udp_start + 2], .Big);
-        const dst_port = std.mem.readInt(u16, raw_packet.raw_data[udp_start + 2 .. udp_start + 4], .Big);
-
-        return src_port == 53 or dst_port == 53;
+    std.debug.print("Dst: ", .{});
+    var i: usize = 0;
+    for (dst) |b| {
+        if (i != 0) std.debug.print(":", .{});
+        std.debug.print("{x}", .{b});
+        i += 1;
     }
-};
+
+    i = 0;
+    std.debug.print(" Src: ", .{});
+    for (src) |b| {
+        if (i != 0) std.debug.print(":", .{});
+        std.debug.print("{x}", .{b});
+        i += 1;
+    }
+    std.debug.print("\n", .{});
+}
 
 pub fn packet_callback(raw_packet: *PacketStructs.RawPacket, allocator: *std.mem.Allocator) void {
     defer raw_packet.deinit(allocator);
@@ -115,8 +137,66 @@ pub fn packet_callback(raw_packet: *PacketStructs.RawPacket, allocator: *std.mem
     packet.parse_layers(allocator) catch |err| {
         print("Error parsing layers {s}\n", .{@errorName(err)});
     };
+    //
+    //    const eth_layer = packet.get_layer(ProtocolType.Ethernet);
+    //
+    //    if (eth_layer) |eth| {
+    //        parseEthHeader(eth.raw) catch |err| {
+    //            print("Error printing Eth layer: {s}\n", .{@errorName(err)});
+    //        };
+    //    }
+    //
+    //    const ip_layer = packet.get_layer(ProtocolType.IPv4);
+    //
+    //    if (ip_layer) |ip| {
+    //        parseIPv4Header(ip.raw) catch |err| {
+    //            print("Error printing IP layer: {s}\n", .{@errorName(err)});
+    //            return;
+    //        };
+    //    }
 
-    packet.print_layers();
+    const udp_layer = packet.get_layer(ProtocolType.UDP);
+
+    if (udp_layer) |udp| {
+        //        parseUDPHeader(udp.raw) catch |err| {
+        //            print("Error printing UDP layer: {s}\n", .{@errorName(err)});
+        //            return;
+        //        };
+
+        const src_port = getUDPSrcPort(udp.raw) catch |err| {
+            print("Error getting src port: {s}\n", .{@errorName(err)});
+            return;
+        };
+        const dst_port = getUDPDstPort(udp.raw) catch |err| {
+            print("Error getting dst port: {s}\n", .{@errorName(err)});
+            return;
+        };
+
+        if (src_port == 53 or dst_port == 53) {
+            print("got dns packet.\n", .{});
+            const generic_payload = packet.get_layer(ProtocolType.GenericPayload);
+
+            if (generic_payload) |generic_layer| {
+                const transformed_layer = packet.transform_layer(generic_layer, PacketStructs.DNSHeader) catch |err| {
+                    print("Error transforming layer: {s}\n", .{@errorName(err)});
+                    return;
+                };
+
+                if (transformed_layer) |layer| {
+                    print("{any}\n", .{layer.len});
+                    parseDnsHeader(layer.raw) catch |err| {
+                        print("Error parsing DNS header: {s}\n", .{@errorName(err)});
+                        return;
+                    };
+                } else {
+                    print("transform_layer returned null.\n", .{});
+                }
+            } else {
+                print("Packet has no generic layer to transform.\n", .{});
+                return;
+            }
+        }
+    }
 }
 
 pub fn main() !void {
