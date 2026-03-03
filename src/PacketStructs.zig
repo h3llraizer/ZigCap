@@ -5,6 +5,10 @@ const ProtocolEnums = @import("ProtocolEnums.zig");
 const ProtocolType = ProtocolEnums.ProtocolType;
 const EtherType = ProtocolEnums.EtherType;
 const IPv4Protocol = ProtocolEnums.IPv4Protocol;
+const Eth = @import("Eth.zig");
+const IPv4 = @import("IPv4.zig");
+const TCP = @import("TCP.zig");
+const UDP = @import("UDP.zig");
 
 pub const RawPacket = struct {
     timestamp_s: u32,
@@ -57,102 +61,11 @@ pub const RawPacket = struct {
     }
 };
 
-pub const EthHeader = packed struct {
-    dst0: u8,
-    dst1: u8,
-    dst2: u8,
-    dst3: u8,
-    dst4: u8,
-    dst5: u8,
-
-    src0: u8,
-    src1: u8,
-    src2: u8,
-    src3: u8,
-    src4: u8,
-    src5: u8,
-
-    eth_type: u16, //// BigEndian
-};
-
-pub const MacAddressing = struct { dst: [6]u8, src: [6]u8 };
-
-pub const MacAddress = struct { addr: [6]u8 };
-
-pub fn create_macs(eth_hdr: *EthHeader) MacAddressing {
-    var src_mac: MacAddress = {};
-    src_mac.addr[0] = eth_hdr.src0;
-    src_mac.addr[1] = eth_hdr.src1;
-    src_mac.addr[2] = eth_hdr.src2;
-    src_mac.addr[3] = eth_hdr.src3;
-    src_mac.addr[4] = eth_hdr.src4;
-    src_mac.addr[5] = eth_hdr.src5;
-
-    var dst_mac: MacAddress = {};
-    dst_mac.addr[0] = eth_hdr.dst0;
-    dst_mac.addr[1] = eth_hdr.dst1;
-    dst_mac.addr[2] = eth_hdr.dst2;
-    dst_mac.addr[3] = eth_hdr.dst3;
-    dst_mac.addr[4] = eth_hdr.dst4;
-    dst_mac.addr[5] = eth_hdr.dst5;
-
-    return MacAddressing{ .dst = dst_mac, .src = src_mac };
-}
-
-pub const IPv4Header = packed struct {
-    version_ihl: u8,
-    dscp_ecn: u8,
-    total_length: u16,
-    identification: u16,
-    flags_fragment: u16,
-    ttl: u8,
-    protocol: u8,
-    checksum: u16,
-    src_ip0: u8,
-    src_ip1: u8,
-    src_ip2: u8,
-    src_ip3: u8,
-
-    dst_ip0: u8,
-    dst_ip1: u8,
-    dst_ip2: u8,
-    dst_ip3: u8,
-};
-
-pub const TCPHeader = packed struct {
-    src_port: u16,
-    dst_port: u16,
-    seq_num: u32,
-    ack_num: u32,
-    data_offset_reserved_flags: u16,
-    window: u16,
-    checksum: u16,
-    urgent_ptr: u16,
-};
-
-pub const UDPHeader = packed struct {
-    src_port: u16,
-    dst_port: u16,
-    length: u16,
-    checksum: u16,
-};
-
-pub const DNSFlags = packed struct { QR: u16, OPCODE: u16, AA: u16, TC: u16, RD: u16, RA: u16, Z: u16, RCODE: u16 };
-
-pub const DNSHeader = packed struct {
-    id: u16,
-    flags: u16,
-    qdcount: u16,
-    ancount: u16,
-    nscount: u16,
-    arcount: u16,
-};
-
 const ProtocolHeader = union(enum) {
-    eth: EthHeader,
-    ipv4: IPv4Header,
-    tcp: TCPHeader,
-    udp: UDPHeader,
+    eth: Eth.EthHeader,
+    ipv4: IPv4.IPv4Header,
+    tcp: TCP.TCPHeader,
+    udp: UDP.UDPHeader,
 };
 
 pub const Layer = struct {
@@ -184,7 +97,7 @@ pub const Packet = struct {
 
         // --- Ethernet ---
         if (self.raw_packet.raw_data.len < 14) return error.InvalidPacket;
-        const eth_ptr: *align(1) const EthHeader = @ptrCast(self.raw_packet.raw_data.ptr);
+        const eth_ptr: *align(1) const Eth.EthHeader = @ptrCast(self.raw_packet.raw_data.ptr);
 
         const eth_layer = try allocator.create(Layer);
         eth_layer.raw = self.raw_packet.raw_data[0..14];
@@ -202,7 +115,7 @@ pub const Packet = struct {
         // --- IPv4 (if EtherType is IP) --
         if (std.mem.bigToNative(u16, eth_ptr.*.eth_type) == @intFromEnum(EtherType.IP)) {
             if (self.raw_packet.raw_data.len < self.offset + 20) return error.InvalidPacket;
-            const ipv4_ptr: *align(1) const IPv4Header = @ptrCast(&self.raw_packet.raw_data[self.offset]);
+            const ipv4_ptr: *align(1) const IPv4.IPv4Header = @ptrCast(&self.raw_packet.raw_data[self.offset]);
             const ihl = (ipv4_ptr.*.version_ihl & 0x0F) * 4;
 
             const ip_layer = try allocator.create(Layer);
@@ -316,64 +229,3 @@ pub const Packet = struct {
         return null;
     }
 };
-
-//pub const Packet = struct {
-//    raw_packet: *RawPacket,
-//    offset: usize = 0,
-//    first_layer: ?*Layer,
-//    last_layer: ?*Layer,
-//
-//    /// Initialize from a RawPacket pointer
-//    pub fn init(raw_packet: *RawPacket) Packet {
-//        return .{ .raw_packet = raw_packet, .offset = 0, .first_layer = null, .last_layer = null };
-//    }
-//
-//    /// Get the packets first layer
-//    pub fn get_first_layer(self: Packet) ?*Layer {
-//        return self.first_layer;
-//    }
-//
-//    //// Get the packets last layer
-//    pub fn get_last_layer(self: Packet) ?*Layer {
-//        return self.last_layer;
-//    }
-//
-//    /// Returns next n bytes and advances cursor
-//    pub fn next(self: *Packet, n: usize) ![]const u8 {
-//        const raw = self.raw_packet.bytes;
-//        if (self.offset + n > raw.len)
-//            return error.InvalidPacket;
-//
-//        const slice = raw[self.offset .. self.offset + n];
-//        self.offset += n;
-//        return slice;
-//    }
-//
-//    /// Peek n bytes without advancing
-//    pub fn peek(self: *Packet, n: usize) ![]const u8 {
-//        const raw = self.raw_packet.bytes;
-//        if (self.offset + n > raw.len)
-//            return error.InvalidPacket;
-//
-//        return raw[self.offset .. self.offset + n];
-//    }
-//
-//    /// Skip n bytes
-//    pub fn skip(self: *Packet, n: usize) !void {
-//        const raw = self.raw_packet.bytes;
-//        if (self.offset + n > raw.len)
-//            return error.InvalidPacket;
-//
-//        self.offset += n;
-//    }
-//
-//    /// Remaining unread bytes
-//    pub fn remaining(self: *Packet) usize {
-//        return self.raw_packet.bytes.len - self.offset;
-//    }
-//
-//    /// Reset cursor
-//    pub fn reset(self: *Packet) void {
-//        self.offset = 0;
-//    }
-//};
