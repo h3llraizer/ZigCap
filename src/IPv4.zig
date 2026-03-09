@@ -1,4 +1,10 @@
 const std = @import("std");
+const print = std.debug.print;
+
+const LayerProtocols = @import("Layer.zig").LayerProtocols;
+
+pub const MaxHeaderLength = 60;
+pub const MinHeaderLength = 20;
 
 pub const IPv4Header = packed struct {
     version_ihl: u8,
@@ -9,6 +15,7 @@ pub const IPv4Header = packed struct {
     ttl: u8,
     protocol: u8,
     checksum: u16,
+
     src_ip0: u8,
     src_ip1: u8,
     src_ip2: u8,
@@ -18,6 +25,40 @@ pub const IPv4Header = packed struct {
     dst_ip1: u8,
     dst_ip2: u8,
     dst_ip3: u8,
+};
+
+pub const IPv4Layer = struct {
+    hdr: *align(1) IPv4Header,
+    const Protocol = LayerProtocols{ .Network = .IPv4 };
+
+    pub fn init(raw: *[20]u8, allocator: std.mem.Allocator) !*IPv4Layer {
+        const i = try allocator.create(IPv4Layer);
+        i.hdr = @ptrCast(raw);
+        return i;
+    }
+
+    pub fn to_string(self: *IPv4Layer) void {
+        inline for (@typeInfo(IPv4Header).@"struct".fields) |f| {
+            print("{s} : {any} : ", .{
+                f.name,
+                f.type,
+            });
+            if (f.type == u16) {
+                print("{d}\n", .{std.mem.bigToNative(f.type, @field(self.hdr, f.name))});
+            } else {
+                print("{d}\n", .{@field(self.hdr, f.name)});
+            }
+        }
+    }
+
+    pub fn get_protocol(self: *IPv4Layer) LayerProtocols {
+        _ = self;
+        return IPv4Layer.Protocol;
+    }
+
+    pub fn deinit(self: *IPv4Layer, allocator: std.mem.Allocator) void {
+        allocator.destroy(self);
+    }
 };
 
 pub fn parseIPv4Header(packet: []const u8) !void {

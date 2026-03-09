@@ -2,27 +2,33 @@ const std = @import("std");
 const print = std.debug.print;
 const allocPrint = std.fmt.allocPrint;
 const ProtocolEnums = @import("ProtocolEnums.zig");
+const LinkLayerType = ProtocolEnums.LinkLayerType;
 const ProtocolType = ProtocolEnums.ProtocolType;
 const EtherType = ProtocolEnums.EtherType;
 const IPv4Protocol = ProtocolEnums.IPv4Protocol;
 const Eth = @import("Eth.zig");
 const IPv4 = @import("IPv4.zig");
+const IPv4Layer = IPv4.IPv4Layer;
 const TCP = @import("TCP.zig");
 const UDP = @import("UDP.zig");
+const UDPLayer = UDP.UDPLayer;
+const Layers = @import("Layer.zig");
+const Layer = Layers.Layer;
 
 pub const RawPacket = struct {
-    timestamp_s: u32,
-    timestamp_ms: u32,
+    timestamp_s: i64,
+    timestamp_ms: i64,
     raw_data: []u8,
     raw_len: u32,
-    link_type: c_int,
+    link_type: ProtocolEnums.LinkLayerType,
+    additional: ?*anyopaque, // Optional additional member to store any data of the developers choosing
 
-    pub fn init(ts_usec: c_long, ts_sec: c_long, raw: []const u8, len: c_uint, link_type: c_int, allocator: *std.mem.Allocator) !*RawPacket {
+    pub fn init(ts_usec: i64, ts_sec: i64, raw: []const u8, len: c_uint, link_type: ProtocolEnums.LinkLayerType, allocator: std.mem.Allocator) !*RawPacket {
         var p: *RawPacket = try allocator.create(RawPacket);
 
-        p.timestamp_ms = @intCast(ts_usec);
+        p.timestamp_ms = ts_usec;
 
-        p.timestamp_s = @intCast(ts_sec);
+        p.timestamp_s = ts_sec;
 
         p.raw_len = @intCast(len);
 
@@ -55,7 +61,7 @@ pub const RawPacket = struct {
         std.debug.print("\n", .{});
     }
 
-    pub fn deinit(self: *RawPacket, allocator: *std.mem.Allocator) void {
+    pub fn deinit(self: *RawPacket, allocator: std.mem.Allocator) void {
         allocator.free(self.raw_data);
         allocator.destroy(self);
     }
@@ -68,14 +74,33 @@ const ProtocolHeader = union(enum) {
     udp: UDP.UDPHeader,
 };
 
-pub const Layer = struct {
-    raw: []const u8,
-    len: usize,
-    protocol: ProtocolEnums.ProtocolType,
-    protocol_header: ?*align(1) const anyopaque,
-    prev: ?*Layer,
-    next: ?*Layer,
-};
+fn parse_raw(raw_pkt: *RawPacket, allocator: std.mem.Allocator) !*Layer {
+    if (raw_pkt.raw_data.len < 20) {
+        return error.IPLayerTooSmall;
+    }
+    const ip_version = raw_pkt.raw_data[0] >> 4;
+
+    const network_layer: *Layer = try allocator.create(Layer);
+
+    switch (ip_version) {
+        4 => network_layer.* = Layer.create(try IPv4Layer.init(raw_pkt.raw_data[0..20], allocator)),
+        6 => return error.IPv6NotImplemented,
+        else => return error.InvalidIPVersion,
+    }
+
+    const transport_type = Layers.TPtr(*IPv4Layer, network_layer.layer_type).hdr.protocol;
+
+    const transport_layer: *Layer = try allocator.create(Layer);
+
+    switch (transport_type) {
+        17 => transport_layer.* = Layer.create(try UDPLayer.init(raw_pkt.raw_data[20..28], allocator)),
+        else => return error.UnhandledTransportVersion,
+    }
+
+    network_layer.next = transport_layer;
+
+    return network_layer;
+}
 
 pub const Packet = struct {
     raw_packet: *RawPacket,
@@ -83,16 +108,37 @@ pub const Packet = struct {
     first_layer: ?*Layer,
     last_layer: ?*Layer,
 
-    pub fn init(raw_packet: *RawPacket) Packet {
-        return .{
-            .raw_packet = raw_packet,
-            .offset = 0,
-            .first_layer = null,
-            .last_layer = null,
-        };
+    pub fn init(raw_packet: *RawPacket, allocator: std.mem.Allocator) !*Packet {
+        var packet = try allocator.create(Packet);
+
+        packet.raw_packet = raw_packet;
+        packet.offset = 0;
+        packet.first_layer = null;
+        packet.last_layer = null;
+
+        return packet;
     }
 
-    pub fn parse_layers(self: *Packet, allocator: *std.mem.Allocator) !void {
+    pub inline fn get_layer_t(self: *Packet, layer_type: anytype) void {
+        const LayerType = @TypeOf(layer_type);
+        //Layers.TPtr(LayerType, layer_type);
+        var layer = self.first_layer;
+        while (layer) |l| {
+            print("{s}", .{@typeName(LayerType)});
+            //          if (@TypeOf(l.layer_type) == LayerType) {
+            //              return l;
+            //          }
+            layer = l.next;
+        }
+
+        //        return null;
+    }
+
+    pub fn parse_all_layers(self: *Packet, allocator: std.mem.Allocator) !void {
+        self.first_layer = try parse_raw(self.raw_packet, allocator);
+    }
+
+    pub fn parse_layers(self: *Packet, allocator: std.mem.Allocator) !void {
         var current_layer: ?*Layer = null;
 
         // --- Ethernet ---

@@ -137,6 +137,8 @@ pub const Interface = struct {
 
                 const raw_packet = try RawPacket.init(h.*.ts.tv_usec, h.*.ts.tv_sec, pkt_ptr[0..h.*.len], h.*.len, self.link_type.?, allocator);
 
+                // remember to realloc the buffer to avoid wasting memory
+
                 callback_fn(raw_packet, allocator);
 
                 total += 1;

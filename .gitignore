@@ -1,2 +1,24 @@
-.zig-cache*
-*.tmp*
+# Zig build artifacts
+.zig-cache/
+zig-cache/
+zig-out/
+out/
+
+# Vim swap files
+*.swp
+*.swo
+*.swn
+
+# Temporary files
+*.tmp
+*.temp
+
+# OS / editor stuff (optional)
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+
+*.exe
+*.pdb
