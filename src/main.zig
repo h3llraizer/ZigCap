@@ -6,8 +6,16 @@ const LayerProtocols = @import("Layer.zig").LayerProtocols;
 const LinkLayerProtocols = @import("Layer.zig").LinkLayerProtocols;
 const RawPacket = @import("RawPacket.zig").RawPacket;
 
-const UDPLayer = @import("UDP.zig").UDPLayer;
 const EthLayer = @import("Eth.zig").EthLayer;
+const EthType = @import("Eth.zig").EthType;
+const MacAddress = @import("Eth.zig").MacAddress;
+
+const IPv4Layer = @import("IPv4.zig").IPv4Layer;
+const IPv4Address = @import("IPv4.zig").IPv4Address;
+
+const UDPLayer = @import("UDP.zig").UDPLayer;
+const DNSLayer = @import("DNS.zig").DNSLayer;
+const DNS = @import("DNS.zig");
 
 const raw: [87]u8 = .{ 0x14, 0x4f, 0x8a, 0xa4, 0x15, 0x7d, 0x38, 0x6, 0xe6, 0x92, 0x63, 0xac, 0x8, 0x0, 0x45, 0x0, 0x0, 0x49, 0x5d, 0xf7, 0x40, 0x0, 0x40, 0x11, 0x57, 0x7d, 0xc0, 0xa8, 0x1, 0xfe, 0xc0, 0xa8, 0x1, 0xe1, 0x0, 0x35, 0xfd, 0xdf, 0x0, 0x35, 0x9d, 0xff, 0x3a, 0xd0, 0x81, 0x80, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x7, 0x7a, 0x69, 0x67, 0x6c, 0x61, 0x6e, 0x67, 0x3, 0x6f, 0x72, 0x67, 0x0, 0x0, 0x1, 0x0, 0x1, 0xc0, 0xc, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x1, 0x2c, 0x0, 0x4, 0x41, 0x6d, 0x69, 0xb2 };
 
@@ -23,9 +31,17 @@ pub fn main() !void {
     const packet = try Packet.init_from_raw(raw_pkt, allocator);
     defer packet.deinit(allocator);
 
-    try packet.parse_link_layer(allocator);
-
-    try packet.parse_layers(allocator);
+    //    const dns_layer: *DNSLayer = packet.get_layer_of_type(LayerProtocols{ .Application = .DNS }, DNSLayer) orelse {
+    //        print("DNSLayer not found.\n", .{});
+    //        return;
+    //    };
+    //
+    //    var query = dns_layer.get_first_query();
+    //    while (query) |q| {
+    //        const qname = try DNS.decodeQname(allocator, q.qname);
+    //        print("Query: {s}\n", .{qname});
+    //        query = q.next;
+    //    }
 }
 
 //pub fn pcap_test() !void {

@@ -2,6 +2,12 @@ const std = @import("std");
 const print = std.debug.print;
 
 const LayerProtocols = @import("Layer.zig").LayerProtocols;
+const Layer = @import("Layer.zig").Layer;
+
+const TransportProtocol = @import("Layer.zig").TransportProtocols;
+
+const TCPLayer = @import("TCP.zig").TCPLayer;
+const UDPLayer = @import("UDP.zig").UDPLayer;
 
 pub const HeaderSize = 40;
 
@@ -50,12 +56,17 @@ pub const IPv6Header = packed struct {
 
 pub const IPv6Layer = struct {
     hdr: *align(1) IPv6Header,
+    payload: []u8,
     const Protocol = LayerProtocols{ .Network = .IPv6 };
 
-    pub fn init(raw: *[HeaderSize]u8, allocator: std.mem.Allocator) !*IPv6Layer {
-        const i = try allocator.create(IPv6Layer);
-        i.hdr = @ptrCast(raw);
-        return i;
+    pub fn init(raw: []u8, allocator: std.mem.Allocator) !*IPv6Layer {
+        if (raw.len < HeaderSize) return error.RawTooSmallForIPv6;
+
+        const self = try allocator.create(IPv6Layer);
+
+        self.hdr = @ptrCast(raw);
+        self.payload = raw[HeaderSize..];
+        return self;
     }
 
     pub fn to_string(self: *IPv6Layer) void {
@@ -70,6 +81,33 @@ pub const IPv6Layer = struct {
                 print("{d}\n", .{@field(self.hdr, f.name)});
             }
         }
+    }
+
+    pub fn parse_next_layer(self: *IPv6Layer, allocator: std.mem.Allocator) ?*Layer {
+        const transport_type: TransportProtocol = self.get_transport_type() catch return null;
+
+        const packet_layer: *Layer = allocator.create(Layer) catch return null;
+
+        switch (transport_type) {
+            TransportProtocol.TCP => {
+                const tcp_layer = TCPLayer.init(self.payload[HeaderSize..], allocator) catch return null;
+                packet_layer.* = Layer.implBy(tcp_layer);
+            },
+            TransportProtocol.UDP => {
+                const udp_layer = UDPLayer.init(self.payload[HeaderSize..], allocator) catch return null;
+                packet_layer.* = Layer.implBy(udp_layer);
+            },
+            else => {
+                print("Unhandled Transport layer.\n", .{});
+                return null;
+            },
+        }
+
+        return packet_layer;
+    }
+
+    pub fn get_transport_type(self: *IPv6Layer) !TransportProtocol {
+        return try std.meta.intToEnum(TransportProtocol, self.hdr.next_header);
     }
 
     pub fn get_protocol(self: *IPv6Layer) LayerProtocols {

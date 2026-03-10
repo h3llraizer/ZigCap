@@ -1,6 +1,9 @@
 const std = @import("std");
 const print = std.debug.print;
 
+const LayerProtocols = @import("Layer.zig").LayerProtocols;
+const Layer = @import("Layer.zig").Layer;
+
 pub const QueryType = enum(u16) {
     A = 1, // IPv4 address record
     NS = 2, // Name Server record
@@ -162,11 +165,12 @@ pub const DNSQueryError = error{
 
 };
 
-const DNSLayer = struct {
+pub const DNSLayer = struct {
     raw: []u8,
     DnsHeader: ?*align(1) DNSHeader,
     queries: ?*DNSQuery,
     answers: ?*DNSAnswer,
+    const Protocol = LayerProtocols{ .Application = .DNS };
 
     //// Creates a DNS layer from an existing buffer // rename this to from_buf
     pub fn init(raw: []u8, allocator: std.mem.Allocator) !*DNSLayer {
@@ -207,16 +211,15 @@ const DNSLayer = struct {
         return dns_layer;
     }
 
-    pub fn print_hdr(self: *DNSLayer) !void {
+    pub fn print_hdr(self: *DNSLayer) void {
         inline for (@typeInfo(DNSHeader).@"struct".fields) |f| {
-            print("{s} : {any} : ", .{
+            print("{s}:", .{
                 f.name,
-                f.type,
             });
             if (f.type == u16) {
-                print("{d}\n", .{std.mem.bigToNative(f.type, @field(self.DnsHeader.?, f.name))});
+                print("{d}, ", .{std.mem.bigToNative(f.type, @field(self.DnsHeader.?, f.name))});
             } else {
-                print("{d}\n", .{@field(self.DnsHeader.?, f.name)});
+                print("{d}, ", .{@field(self.DnsHeader.?, f.name)});
             }
         }
     }
@@ -426,8 +429,26 @@ const DNSLayer = struct {
             }
         }
     }
+
+    /// Does nothing for this layer
+    pub fn parse_next_layer(self: *DNSLayer, allocator: std.mem.Allocator) ?*Layer {
+        _ = self;
+        _ = allocator;
+        return null;
+    }
+
+    pub fn get_protocol(self: *DNSLayer) LayerProtocols {
+        _ = self;
+        return DNSLayer.Protocol;
+    }
+
+    pub fn deinit(self: *DNSLayer, allocator: std.mem.Allocator) void {
+        allocator.destroy(self);
+    }
 };
 
+/// Creates a domain name from a DNS label. The allocator creates an ArrayList to store the bytes and returns a mutable slice
+/// The ArrayList is deinit'd before return
 pub fn decodeQname(
     allocator: std.mem.Allocator,
     payload: []const u8,

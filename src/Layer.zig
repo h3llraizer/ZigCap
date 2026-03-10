@@ -1,7 +1,12 @@
 const std = @import("std");
 const print = std.debug.print;
 
-pub const TransportProtocols = enum(u16) {
+pub const ApplicationProtocols = enum {
+    HTTP,
+    DNS,
+};
+
+pub const TransportProtocols = enum(u8) {
     ICMP = 1,
     TCP = 6,
     UDP = 17,
@@ -111,22 +116,30 @@ pub const LayerProtocols = union(enum) {
     LinkLayer: LinkLayerProtocols,
     Network: NetworkProtocols,
     Transport: TransportProtocols,
+    Application: ApplicationProtocols,
 };
 
 /// Generic layer
 pub const Layer = struct {
     layer_type: *anyopaque,
 
+    next_layer: ?*Layer,
+    prev_layer: ?*Layer,
+
     // v_methods
-    v_deinit: *const fn (*anyopaque, std.mem.Allocator) void,
+    v_parse_next_layer: *const fn (*anyopaque, std.mem.Allocator) ?*Layer,
     v_get_protocol: *const fn (*anyopaque) LayerProtocols,
+    v_deinit: *const fn (*anyopaque, std.mem.Allocator) void,
 
     // (3) Link up the implementation pointer and vtable functions
     pub fn implBy(layer_type: anytype) Layer {
-        print("implBy type {s}\n", .{@typeName(@TypeOf(layer_type))});
+        //        print("implBy type {s}\n", .{@typeName(@TypeOf(layer_type))});
         const delegate = LayerDelegate(layer_type);
         return .{
             .layer_type = layer_type,
+            .next_layer = null,
+            .prev_layer = null,
+            .v_parse_next_layer = delegate.parse_next_layer,
             .v_deinit = delegate.deinit,
             .v_get_protocol = delegate.get_protocol,
         };
@@ -137,27 +150,36 @@ pub const Layer = struct {
     }
 
     // Public functions
-    pub fn deinit(self: *Layer, allocator: std.mem.Allocator) void {
-        self.v_deinit(self.layer_type, allocator);
+
+    pub fn parse_next_layer(self: *Layer, allocator: std.mem.Allocator) ?*Layer {
+        return self.v_parse_next_layer(self.layer_type, allocator);
     }
 
     pub fn get_protocol(self: *Layer) LayerProtocols {
         return self.v_get_protocol(self.layer_type);
+    }
+
+    pub fn deinit(self: *Layer, allocator: std.mem.Allocator) void {
+        self.v_deinit(self.layer_type, allocator);
     }
 };
 
 /// Links a Layer to the implementation functions
 inline fn LayerDelegate(layer_type: anytype) type { // VTable Link
     const LayerType = @TypeOf(layer_type);
-    print("{s}\n", .{@typeName(LayerType)});
+    //    print("{s}\n", .{@typeName(LayerType)});
 
     return struct {
-        pub fn deinit(layer: *anyopaque, allocator: std.mem.Allocator) void {
-            TPtr(LayerType, layer).deinit(allocator);
+        pub fn parse_next_layer(layer: *anyopaque, allocator: std.mem.Allocator) ?*Layer {
+            return TPtr(LayerType, layer).parse_next_layer(allocator);
         }
 
         pub fn get_protocol(layer: *anyopaque) LayerProtocols {
             return TPtr(LayerType, layer).get_protocol();
+        }
+
+        pub fn deinit(layer: *anyopaque, allocator: std.mem.Allocator) void {
+            TPtr(LayerType, layer).deinit(allocator);
         }
     };
 }

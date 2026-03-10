@@ -2,6 +2,7 @@ const std = @import("std");
 const print = std.debug.print;
 
 const LayerProtocols = @import("Layer.zig").LayerProtocols;
+const Layer = @import("Layer.zig").Layer;
 
 pub const TCPHeader = packed struct {
     src_port: u16,
@@ -18,14 +19,20 @@ pub const TCPHeader = packed struct {
 /// If header values are changed manually or via setter then ensure calculate_length and calculate_checksum are called to avoid invalidating the layer after all desired changes are made.
 pub const TCPLayer = struct {
     hdr: *align(1) TCPHeader,
+    payload: []u8,
     const Protocol = LayerProtocols{ .Transport = .TCP };
     // add pointer to packet it's attached to?
 
     //// Creates layer from ptr to 8 byte length buffer - ensure that the buffer outlives the TCPLayer or UB occurs
-    pub fn init(raw: *[20]u8, allocator: std.mem.Allocator) !*TCPLayer {
-        const t = try allocator.create(TCPLayer);
-        t.hdr = @ptrCast(raw);
-        return t;
+    pub fn init(raw: []u8, allocator: std.mem.Allocator) !*TCPLayer {
+        if (raw.len < 20) {
+            return error.RawTooSmall;
+        }
+
+        const self = try allocator.create(TCPLayer);
+        self.hdr = @ptrCast(raw[0..20]);
+        self.payload = raw[20..];
+        return self;
     }
 
     //// Create empty TCP layer. TCPHeader values are Zero initialised
@@ -79,13 +86,19 @@ pub const TCPLayer = struct {
         return;
     }
 
-    pub fn deinit(self: *TCPLayer, allocator: std.mem.Allocator) void {
-        allocator.destroy(self);
-        print("deinited.\n", .{});
+    pub fn parse_next_layer(self: *TCPLayer, allocator: std.mem.Allocator) ?*Layer {
+        _ = allocator;
+        print("Reached application layer. Payload len: {d}\n", .{self.payload.len});
+        return null;
     }
 
     pub fn get_protocol(self: *TCPLayer) LayerProtocols {
         _ = self;
         return TCPLayer.Protocol;
+    }
+
+    pub fn deinit(self: *TCPLayer, allocator: std.mem.Allocator) void {
+        allocator.destroy(self);
+        print("deinited.\n", .{});
     }
 };
