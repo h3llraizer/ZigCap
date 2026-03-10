@@ -75,15 +75,25 @@ pub const Packet = struct {
 
     /// Adds a layer to the tail of the layers.
     pub fn add_layer(self: *Packet, layer: anytype, allocator: std.mem.Allocator) !void {
+        //var cur = self.first_layer;
+        //const new_layer: ?*Layer = try allocator.create(Layer); // create interface layer
+        //new_layer.?.* = Layer.implBy(layer); // deref the interface layer and assign to the implementation layer
+
+        if (self.first_layer == null) {
+            //print("first layer is null.\n", .{});
+            self.first_layer = try allocator.create(Layer);
+            self.first_layer.?.* = Layer.implBy(layer);
+            return;
+        }
+
         var cur = self.first_layer;
-        const new_layer: ?*Layer = try allocator.create(Layer); // create interface layer
-        new_layer.?.* = Layer.implBy(layer); // deref the interface layer and assign to the implementation layer
 
         while (cur) |l| {
             if (l.next_layer == null) {
-                print("found null layer.\n", .{});
-                l.next_layer = new_layer;
-                self.last_layer = new_layer;
+                //print("found null layer.\n", .{});
+                l.next_layer = try allocator.create(Layer);
+                l.next_layer.?.* = Layer.implBy(layer);
+                self.last_layer = l.next_layer;
                 break;
             }
             cur = l.next_layer;
@@ -105,13 +115,28 @@ pub const Packet = struct {
     }
 
     pub fn has_layer(self: *Packet, protocol_layer: LayerProtocols) bool {
-        if (self.first_layer) |layer| {
+        var cur = self.first_layer;
+        while (cur) |layer| {
             if (std.meta.activeTag(layer.get_protocol()) == std.meta.activeTag(protocol_layer)) {
                 return true;
+            }
+            if (layer.next_layer) |next| {
+                cur = next;
+            } else {
+                break;
             }
         }
 
         return false;
+    }
+
+    pub fn print_protocol_stack(self: *Packet) void {
+        var cur = self.first_layer;
+        while (cur) |layer| {
+            print("{s}\n", .{@tagName(std.meta.activeTag(layer.get_protocol()))});
+            //            layer.to_string();
+            cur = layer.next_layer;
+        }
     }
 
     pub fn deinit(self: *Packet, allocator: std.mem.Allocator) void {

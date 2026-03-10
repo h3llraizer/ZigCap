@@ -190,7 +190,7 @@ pub const DNSLayer = struct {
     }
 
     //// Creates an empty DNS layer with default initialised dns header values
-    pub fn new(allocator: std.mem.Allocator, initial_size: usize) !*DNSLayer {
+    pub fn create(allocator: std.mem.Allocator, initial_size: usize) !*DNSLayer {
         if (initial_size < DNSHeaderSize) {
             return error.InitialBufferSizeTooSmall;
         }
@@ -211,7 +211,7 @@ pub const DNSLayer = struct {
         return dns_layer;
     }
 
-    pub fn print_hdr(self: *DNSLayer) void {
+    pub fn to_string(self: *DNSLayer) void {
         inline for (@typeInfo(DNSHeader).@"struct".fields) |f| {
             print("{s}:", .{
                 f.name,
@@ -484,7 +484,7 @@ pub fn build_layer() !void {
     var fba = std.heap.FixedBufferAllocator.init(&buffer);
     const fallocor = fba.allocator();
 
-    const dns_layer = try DNSLayer.new(fallocor, 512);
+    const dns_layer = try DNSLayer.create(fallocor, 512);
 
     try dns_layer.add_query("southwest-sites.co.uk", QueryType.A, DnsClass.IN, fallocor);
 
@@ -496,7 +496,7 @@ pub fn build_layer() !void {
         query = q.next;
     }
 
-    try dns_layer.print_hdr();
+    try dns_layer.to_string();
 }
 
 const dns_packet: [36]u8 = .{ 0xb8, 0x2e, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x74, 0x69, 0x6d, 0x65, 0x0a, 0x63, 0x6c, 0x6f, 0x75, 0x64, 0x66, 0x6c, 0x61, 0x72, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00, 0x00, 0x01, 0x00, 0x01 };

@@ -25,24 +25,51 @@ pub fn main() !void {
     var fba = std.heap.FixedBufferAllocator.init(&raw_pkt_buf);
     const allocator = fba.allocator();
 
-    const raw_pkt = try RawPacket.init(100, 100, &raw, raw.len, LinkLayerProtocols.ETHERNET, allocator);
-    defer raw_pkt.deinit(allocator);
-
-    const packet = try Packet.init_from_raw(raw_pkt, allocator);
+    const packet = try Packet.init(allocator);
     defer packet.deinit(allocator);
 
-    //    const dns_layer: *DNSLayer = packet.get_layer_of_type(LayerProtocols{ .Application = .DNS }, DNSLayer) orelse {
-    //        print("DNSLayer not found.\n", .{});
-    //        return;
-    //    };
-    //
-    //    var query = dns_layer.get_first_query();
-    //    while (query) |q| {
-    //        const qname = try DNS.decodeQname(allocator, q.qname);
-    //        print("Query: {s}\n", .{qname});
-    //        query = q.next;
-    //    }
+    const eth_layer = try EthLayer.create(allocator);
+
+    eth_layer.set_src_mac(try MacAddress.init_from_string("14:4f:8a:a4:15:7d"));
+    eth_layer.set_dst_mac(try MacAddress.init_from_string("38:06:e6:92:63:ac"));
+    try eth_layer.set_eth_type(EthType.IP);
+
+    try packet.add_layer(eth_layer, allocator);
+
+    //    eth_layer.to_string();
+
+    const ipv4_layer = try IPv4Layer.create(allocator);
+
+    ipv4_layer.set_src_ip(try IPv4Address.init_from_string("192.168.1.225"));
+    ipv4_layer.set_dst_ip(try IPv4Address.init_from_string("192.168.1.254"));
+
+    try packet.add_layer(ipv4_layer, allocator);
+
+    const udp_layer = try UDPLayer.create(allocator);
+
+    udp_layer.set_src_port(1234);
+    udp_layer.set_dst_port(53);
+
+    try packet.add_layer(udp_layer, allocator);
+
+    const dns_layer = try DNSLayer.create(allocator, 40);
+
+    try dns_layer.add_query("ziglang.org", DNS.QueryType.A, DNS.DnsClass.IN, allocator);
+
+    if (dns_layer.get_first_query()) |query| {
+        print("Query Added: {s}\n", .{try DNS.decodeQname(allocator, query.qname)});
+    }
+
+    try packet.add_layer(dns_layer, allocator);
+
+    ipv4_layer.calculate_checksum();
+
+    print("ipv4 checksum: {x}\n", .{ipv4_layer.get_checksum()});
+
+    udp_layer.calculate_checksum();
 }
+
+// TODO: to finalise a packet before sending - start from last layer and take its hdr+payload then cast it back to u8 for the prev layers payload until first layer reached
 
 //pub fn pcap_test() !void {
 //    print("starting...\n", .{});

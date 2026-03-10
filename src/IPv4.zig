@@ -13,24 +13,24 @@ pub const MaxHeaderLength = 60;
 pub const MinHeaderLength = 20;
 
 pub const IPv4Header = packed struct {
-    version_ihl: u8,
-    dscp_ecn: u8,
-    total_length: u16,
-    identification: u16,
-    flags_fragment: u16,
-    ttl: u8,
-    protocol: u8,
-    checksum: u16,
+    version_ihl: u8 = 0,
+    dscp_ecn: u8 = 0,
+    total_length: u16 = 0,
+    identification: u16 = 0,
+    flags_fragment: u16 = 0,
+    ttl: u8 = 0,
+    protocol: u8 = 0,
+    checksum: u16 = 0,
 
-    src_ip0: u8,
-    src_ip1: u8,
-    src_ip2: u8,
-    src_ip3: u8,
+    src_ip0: u8 = 0,
+    src_ip1: u8 = 0,
+    src_ip2: u8 = 0,
+    src_ip3: u8 = 0,
 
-    dst_ip0: u8,
-    dst_ip1: u8,
-    dst_ip2: u8,
-    dst_ip3: u8,
+    dst_ip0: u8 = 0,
+    dst_ip1: u8 = 0,
+    dst_ip2: u8 = 0,
+    dst_ip3: u8 = 0,
 };
 
 pub const IPv4Layer = struct {
@@ -50,16 +50,20 @@ pub const IPv4Layer = struct {
         return self;
     }
 
+    pub fn create(allocator: std.mem.Allocator) !*IPv4Layer {
+        const self = try allocator.create(IPv4Layer);
+        self.hdr = try allocator.create(IPv4Header);
+        self.hdr.* = std.mem.zeroInit(IPv4Header, IPv4Header{});
+        return self;
+    }
+
     pub fn to_string(self: *IPv4Layer) void {
         inline for (@typeInfo(IPv4Header).@"struct".fields) |f| {
-            print("{s} : {any} : ", .{
-                f.name,
-                f.type,
-            });
+            print("{s}: ", .{f.name});
             if (f.type == u16) {
-                print("{d}\n", .{std.mem.bigToNative(f.type, @field(self.hdr, f.name))});
+                print("{d},", .{std.mem.bigToNative(f.type, @field(self.hdr, f.name))});
             } else {
-                print("{d}\n", .{@field(self.hdr, f.name)});
+                print("{d},", .{@field(self.hdr, f.name)});
             }
         }
     }
@@ -111,7 +115,28 @@ pub const IPv4Layer = struct {
         return packet_layer;
     }
 
+    pub fn get_checksum(self: *IPv4Layer) u16 {
+        return std.mem.bigToNative(u16, self.hdr.checksum);
+    }
+
     //TODO: Add checksum getter and setter
+    pub fn calculate_checksum(self: *IPv4Layer) void {
+        const bytes = std.mem.asBytes(&self.hdr);
+
+        var sum: u32 = 0;
+
+        var i: usize = 0;
+        while (i < bytes.len) : (i += 2) {
+            const word: u16 = (@as(u16, bytes[i]) << 8) | bytes[i + 1];
+            sum += word;
+        }
+
+        while (sum >> 16 != 0) {
+            sum = (sum & 0xffff) + (sum >> 16);
+        }
+
+        self.hdr.checksum = ~@as(u16, @intCast(sum));
+    }
 
     pub fn get_transport_type(self: *IPv4Layer) !TransportProtocol {
         return try std.meta.intToEnum(TransportProtocol, self.hdr.protocol);

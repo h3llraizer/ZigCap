@@ -34,12 +34,12 @@ pub const UDPLayer = struct {
     }
 
     //// Create empty UDP layer. UDPHeader values are Zero initialised
-    pub fn create(allocator: std.mem.Allocator) !UDPLayer {
+    pub fn create(allocator: std.mem.Allocator) !*UDPLayer {
         const self = try allocator.create(UDPLayer);
         self.hdr = try allocator.create(UDPHeader);
         self.hdr.* = std.mem.zeroInit(UDPHeader, UDPHeader{}); // zero the struct members
 
-        return self.*;
+        return self;
     }
 
     //// Get Source Port of the UDPHeader - converts u16 value from Big to Native and returns
@@ -73,8 +73,12 @@ pub const UDPLayer = struct {
     }
 
     //// Calculate the checksum of the UDPHeader
-    pub fn calculate_checksum(self: UDPLayer) void {
+    pub fn calculate_checksum(self: UDPLayer, network_layer: *Layer) void {
         _ = self;
+        switch (network_layer.get_protocol()) {
+            .IPv4 => print("IPv4 layer.\n", {}),
+            .IPv6 => print("IPv4 Layer.\n", .{}),
+        }
         return;
     }
 

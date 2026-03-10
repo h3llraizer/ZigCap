@@ -86,6 +86,20 @@ pub const TCPLayer = struct {
         return;
     }
 
+    pub fn to_string(self: *TCPLayer) void {
+        inline for (@typeInfo(TCPHeader).@"struct".fields) |f| {
+            print("{s} : {any} : ", .{
+                f.name,
+                f.type,
+            });
+            if (f.type == u16) {
+                print("{d}\n", .{std.mem.bigToNative(f.type, @field(self.hdr, f.name))});
+            } else {
+                print("{d}\n", .{@field(self.hdr, f.name)});
+            }
+        }
+    }
+
     pub fn parse_next_layer(self: *TCPLayer, allocator: std.mem.Allocator) ?*Layer {
         _ = allocator;
         print("Reached application layer. Payload len: {d}\n", .{self.payload.len});

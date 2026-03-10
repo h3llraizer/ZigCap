@@ -126,7 +126,8 @@ pub const Layer = struct {
     next_layer: ?*Layer,
     prev_layer: ?*Layer,
 
-    // v_methods
+    // v_methods - these methods must be implemented by a layer
+    v_to_string: *const fn (*anyopaque) void,
     v_parse_next_layer: *const fn (*anyopaque, std.mem.Allocator) ?*Layer,
     v_get_protocol: *const fn (*anyopaque) LayerProtocols,
     v_deinit: *const fn (*anyopaque, std.mem.Allocator) void,
@@ -139,6 +140,7 @@ pub const Layer = struct {
             .layer_type = layer_type,
             .next_layer = null,
             .prev_layer = null,
+            .v_to_string = delegate.to_string,
             .v_parse_next_layer = delegate.parse_next_layer,
             .v_deinit = delegate.deinit,
             .v_get_protocol = delegate.get_protocol,
@@ -150,6 +152,10 @@ pub const Layer = struct {
     }
 
     // Public functions
+
+    pub fn to_string(self: *Layer) void {
+        return self.v_to_string(self.layer_type);
+    }
 
     pub fn parse_next_layer(self: *Layer, allocator: std.mem.Allocator) ?*Layer {
         return self.v_parse_next_layer(self.layer_type, allocator);
@@ -167,9 +173,12 @@ pub const Layer = struct {
 /// Links a Layer to the implementation functions
 inline fn LayerDelegate(layer_type: anytype) type { // VTable Link
     const LayerType = @TypeOf(layer_type);
-    //    print("{s}\n", .{@typeName(LayerType)});
 
     return struct {
+        pub fn to_string(layer: *anyopaque) void {
+            return TPtr(LayerType, layer).to_string();
+        }
+
         pub fn parse_next_layer(layer: *anyopaque, allocator: std.mem.Allocator) ?*Layer {
             return TPtr(LayerType, layer).parse_next_layer(allocator);
         }

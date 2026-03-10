@@ -37,27 +37,26 @@ pub const EthType = enum(u16) {
 pub const EthHeaderSize = 14;
 
 pub const EthHeader = packed struct {
-    dst0: u8,
-    dst1: u8,
-    dst2: u8,
-    dst3: u8,
-    dst4: u8,
-    dst5: u8,
+    dst0: u8 = 0,
+    dst1: u8 = 0,
+    dst2: u8 = 0,
+    dst3: u8 = 0,
+    dst4: u8 = 0,
+    dst5: u8 = 0,
 
-    src0: u8,
-    src1: u8,
-    src2: u8,
-    src3: u8,
-    src4: u8,
-    src5: u8,
+    src0: u8 = 0,
+    src1: u8 = 0,
+    src2: u8 = 0,
+    src3: u8 = 0,
+    src4: u8 = 0,
+    src5: u8 = 0,
 
-    eth_type: u16, //// BigEndian
+    eth_type: u16 = 0, //// BigEndian
 };
 
 pub const EthLayer = struct {
     hdr: *align(1) EthHeader,
     payload: []u8, // does not include the ethhdr
-    packet: *Packet,
     const Protocol = LayerProtocols{ .LinkLayer = .ETHERNET };
 
     pub fn init(raw: []u8, allocator: std.mem.Allocator) !*EthLayer {
@@ -70,6 +69,13 @@ pub const EthLayer = struct {
         e.hdr = @ptrCast(raw[0..EthHeaderSize]); // ptr cast the first eth hdr length bytes as the ethhdr
         e.payload = raw[EthHeaderSize..]; // store payload as whatever is after the header
         return e;
+    }
+
+    pub fn create(allocator: std.mem.Allocator) !*EthLayer {
+        const self = try allocator.create(EthLayer);
+        self.hdr = try allocator.create(EthHeader);
+        self.hdr.* = std.mem.zeroInit(EthHeader, EthHeader{});
+        return self;
     }
 
     pub fn to_string(self: *EthLayer) void {
