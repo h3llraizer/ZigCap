@@ -1,5 +1,6 @@
 const std = @import("std");
 const print = std.debug.print;
+const Allocator = std.mem.Allocator;
 
 const LayerProtocols = @import("Layer.zig").LayerProtocols;
 const Layer = @import("Layer.zig").Layer;
@@ -13,7 +14,7 @@ pub const HeaderSize = 40;
 
 pub const IPv6Header = packed struct {
     version_traffic_flow: u32, // 4-bit version, 8-bit traffic class, 20-bit flow label
-    payload_length: u16, // Length of payload in bytes (excluding header)
+    data_length: u16, // Length of data in bytes (excluding header)
     next_header: u8, // Identifies next header type (TCP=6, UDP=17, etc.)
     hop_limit: u8, // Decremented at each hop
 
@@ -55,8 +56,7 @@ pub const IPv6Header = packed struct {
 };
 
 pub const IPv6Layer = struct {
-    hdr: *align(1) IPv6Header,
-    payload: []u8,
+    data: []u8,
     const Protocol = LayerProtocols{ .Network = .IPv6 };
 
     pub fn init(raw: []u8, allocator: std.mem.Allocator) !*IPv6Layer {
@@ -64,23 +64,14 @@ pub const IPv6Layer = struct {
 
         const self = try allocator.create(IPv6Layer);
 
-        self.hdr = @ptrCast(raw);
-        self.payload = raw[HeaderSize..];
+        self.data = raw;
         return self;
     }
 
-    pub fn to_string(self: *IPv6Layer) void {
-        inline for (@typeInfo(IPv6Header).@"struct".fields) |f| {
-            print("{s} : {any} : ", .{
-                f.name,
-                f.type,
-            });
-            if (f.type == u16) {
-                print("{d}\n", .{std.mem.bigToNative(f.type, @field(self.hdr, f.name))});
-            } else {
-                print("{d}\n", .{@field(self.hdr, f.name)});
-            }
-        }
+    pub fn to_string(self: *IPv6Layer, allocator: Allocator) []const u8 {
+        _ = self;
+        _ = allocator;
+        return "";
     }
 
     pub fn parse_next_layer(self: *IPv6Layer, allocator: std.mem.Allocator) ?*Layer {
@@ -90,11 +81,11 @@ pub const IPv6Layer = struct {
 
         switch (transport_type) {
             TransportProtocol.TCP => {
-                const tcp_layer = TCPLayer.init(self.payload[HeaderSize..], allocator) catch return null;
+                const tcp_layer = TCPLayer.init(self.data[HeaderSize..], allocator) catch return null;
                 packet_layer.* = Layer.implBy(tcp_layer);
             },
             TransportProtocol.UDP => {
-                const udp_layer = UDPLayer.init(self.payload[HeaderSize..], allocator) catch return null;
+                const udp_layer = UDPLayer.init(self.data[HeaderSize..], allocator) catch return null;
                 packet_layer.* = Layer.implBy(udp_layer);
             },
             else => {
@@ -107,7 +98,8 @@ pub const IPv6Layer = struct {
     }
 
     pub fn get_transport_type(self: *IPv6Layer) !TransportProtocol {
-        return try std.meta.intToEnum(TransportProtocol, self.hdr.next_header);
+        const hdr = self.get_header();
+        return try std.meta.intToEnum(TransportProtocol, hdr.next_header);
     }
 
     pub fn get_protocol(self: *IPv6Layer) LayerProtocols {
@@ -115,7 +107,105 @@ pub const IPv6Layer = struct {
         return IPv6Layer.Protocol;
     }
 
+    pub fn get_header(self: *IPv6Layer) *IPv6Header {
+        return @ptrCast(@alignCast(self.data[0..40]));
+    }
+
     pub fn deinit(self: *IPv6Layer, allocator: std.mem.Allocator) void {
         allocator.destroy(self);
+    }
+};
+
+pub const IPv6Address = struct {
+    array: [16]u8,
+
+    pub const Error = error{
+        InvalidFormat,
+        TooManyGroups,
+        TooFewGroups,
+        GroupOverflow,
+        NonHexDigit,
+    };
+
+    pub fn init_from_array(raw: [16]u8) IPv6Address {
+        return .{ .array = raw };
+    }
+
+    pub fn init_from_string(str: []const u8) !IPv6Address {
+        var groups: [8]u16 = undefined;
+
+        var group_index: usize = 0;
+        var cur_value: u32 = 0;
+        var have_digit = false;
+
+        var i: usize = 0;
+        while (i < str.len) : (i += 1) {
+            const c = str[i];
+
+            if (c == ':') {
+                if (!have_digit) return Error.InvalidFormat;
+                if (group_index >= 8) return Error.TooManyGroups;
+
+                groups[group_index] = @intCast(cur_value);
+                group_index += 1;
+
+                cur_value = 0;
+                have_digit = false;
+                continue;
+            }
+
+            const digit = switch (c) {
+                '0'...'9' => c - '0',
+                'a'...'f' => 10 + (c - 'a'),
+                'A'...'F' => 10 + (c - 'A'),
+                else => return Error.NonHexDigit,
+            };
+
+            have_digit = true;
+            cur_value = (cur_value << 4) | digit;
+
+            if (cur_value > 0xFFFF)
+                return Error.GroupOverflow;
+        }
+
+        if (!have_digit) return Error.InvalidFormat;
+        if (group_index != 7) return Error.TooFewGroups;
+
+        groups[group_index] = @intCast(cur_value);
+
+        // Convert 8 groups (u16) → 16 bytes (big endian)
+        var result: [16]u8 = undefined;
+        for (groups, 0..) |g, idx| {
+            result[idx * 2 + 0] = @intCast((g >> 8) & 0xFF);
+            result[idx * 2 + 1] = @intCast(g & 0xFF);
+        }
+
+        return .{ .array = result };
+    }
+
+    pub fn to_string(self: IPv6Address, allocator: std.mem.Allocator) ![]u8 {
+        var groups: [8]u16 = undefined;
+
+        // Convert bytes → 8 u16 groups
+        for (0..8) |i| {
+            const hi: u16 = self.array[i * 2];
+            const lo: u16 = self.array[i * 2 + 1];
+            groups[i] = (hi << 8) | lo;
+        }
+
+        return std.fmt.allocPrint(
+            allocator,
+            "{x}:{x}:{x}:{x}:{x}:{x}:{x}:{x}",
+            .{
+                groups[0],
+                groups[1],
+                groups[2],
+                groups[3],
+                groups[4],
+                groups[5],
+                groups[6],
+                groups[7],
+            },
+        );
     }
 };

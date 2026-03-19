@@ -1,5 +1,6 @@
 const std = @import("std");
 const print = std.debug.print;
+const Allocator = std.mem.Allocator;
 
 const LayerProtocols = @import("Layer.zig").LayerProtocols;
 const TransportProtocol = @import("Layer.zig").TransportProtocols;
@@ -34,8 +35,7 @@ pub const IPv4Header = packed struct {
 };
 
 pub const IPv4Layer = struct {
-    hdr: *align(1) IPv4Header,
-    payload: []u8,
+    data: []u8,
     const Protocol = LayerProtocols{ .Network = .IPv4 };
 
     pub fn init(raw: []u8, allocator: std.mem.Allocator) !*IPv4Layer {
@@ -45,51 +45,44 @@ pub const IPv4Layer = struct {
 
         const self = try allocator.create(IPv4Layer);
 
-        self.hdr = @ptrCast(raw[0..20]);
-        self.payload = raw[20..];
+        self.data = raw;
         return self;
     }
 
     pub fn create(allocator: std.mem.Allocator) !*IPv4Layer {
         const self = try allocator.create(IPv4Layer);
-        self.hdr = try allocator.create(IPv4Header);
-        self.hdr.* = std.mem.zeroInit(IPv4Header, IPv4Header{});
+        self.data = try allocator.alloc(u8, 20);
         return self;
     }
 
-    pub fn to_string(self: *IPv4Layer) void {
-        inline for (@typeInfo(IPv4Header).@"struct".fields) |f| {
-            print("{s}: ", .{f.name});
-            if (f.type == u16) {
-                print("{d},", .{std.mem.bigToNative(f.type, @field(self.hdr, f.name))});
-            } else {
-                print("{d},", .{@field(self.hdr, f.name)});
-            }
-        }
-    }
-
     pub fn get_src_ip(self: *IPv4Layer) IPv4Address {
-        const ip = IPv4Address.init_from_array(.{ self.hdr.src_ip0, self.hdr.src_ip1, self.hdr.src_ip2, self.hdr.src_ip3 });
+        const hdr = self.get_header();
+        const ip = IPv4Address.init_from_array(.{ hdr.src_ip0, hdr.src_ip1, hdr.src_ip2, hdr.src_ip3 });
         return ip;
     }
 
     pub fn get_dst_ip(self: *IPv4Layer) IPv4Address {
-        const ip = IPv4Address.init_from_array(.{ self.hdr.dst_ip0, self.hdr.dst_ip1, self.hdr.dst_ip2, self.hdr.dst_ip3 });
+        const hdr = self.get_header();
+
+        const ip = IPv4Address.init_from_array(.{ hdr.dst_ip0, hdr.dst_ip1, hdr.dst_ip2, hdr.dst_ip3 });
         return ip;
     }
 
     pub fn set_src_ip(self: *IPv4Layer, src_ip: IPv4Address) void {
-        self.hdr.src_ip0 = src_ip.array[0];
-        self.hdr.src_ip1 = src_ip.array[1];
-        self.hdr.src_ip2 = src_ip.array[2];
-        self.hdr.src_ip3 = src_ip.array[3];
+        var hdr = self.get_header();
+
+        hdr.src_ip0 = src_ip.array[0];
+        hdr.src_ip1 = src_ip.array[1];
+        hdr.src_ip2 = src_ip.array[2];
+        hdr.src_ip3 = src_ip.array[3];
     }
 
     pub fn set_dst_ip(self: *IPv4Layer, dst_ip: IPv4Address) void {
-        self.hdr.dst_ip0 = dst_ip.array[0];
-        self.hdr.dst_ip1 = dst_ip.array[1];
-        self.hdr.dst_ip2 = dst_ip.array[2];
-        self.hdr.dst_ip3 = dst_ip.array[3];
+        var hdr = self.get_header();
+        hdr.dst_ip0 = dst_ip.array[0];
+        hdr.dst_ip1 = dst_ip.array[1];
+        hdr.dst_ip2 = dst_ip.array[2];
+        hdr.dst_ip3 = dst_ip.array[3];
     }
 
     pub fn parse_next_layer(self: *IPv4Layer, allocator: std.mem.Allocator) ?*Layer {
@@ -99,11 +92,11 @@ pub const IPv4Layer = struct {
 
         switch (transport_type) {
             TransportProtocol.TCP => {
-                const tcp_layer = TCPLayer.init(self.payload[0..], allocator) catch return null;
+                const tcp_layer = TCPLayer.init(self.data[0..], allocator) catch return null;
                 packet_layer.* = Layer.implBy(tcp_layer);
             },
             TransportProtocol.UDP => {
-                const udp_layer = UDPLayer.init(self.payload[0..], allocator) catch return null;
+                const udp_layer = UDPLayer.init(self.data[0..], allocator) catch return null;
                 packet_layer.* = Layer.implBy(udp_layer);
             },
             else => {
@@ -116,12 +109,14 @@ pub const IPv4Layer = struct {
     }
 
     pub fn get_checksum(self: *IPv4Layer) u16 {
-        return std.mem.bigToNative(u16, self.hdr.checksum);
+        const hdr = self.get_header();
+        return std.mem.bigToNative(u16, hdr.checksum);
     }
 
     //TODO: Add checksum getter and setter
     pub fn calculate_checksum(self: *IPv4Layer) void {
-        const bytes = std.mem.asBytes(&self.hdr);
+        const hdr = self.get_header();
+        const bytes = std.mem.asBytes(hdr);
 
         var sum: u32 = 0;
 
@@ -138,8 +133,67 @@ pub const IPv4Layer = struct {
         self.hdr.checksum = ~@as(u16, @intCast(sum));
     }
 
+    //    pub fn get_header(self: *IPv4Layer) *IPv4Header {
+    //        print("layer len: {d}\n", .{self.data.len});
+    //        return @ptrCast(@alignCast(self.data[0..20]));
+    //    }
+
+    pub fn get_header(self: *IPv4Layer) *align(1) IPv4Header {
+        return std.mem.bytesAsValue(IPv4Header, self.data[0..20]);
+    }
+
+    pub fn to_string(self: *IPv4Layer, allocator: Allocator) []const u8 {
+        const hdr = self.get_header();
+
+        const src_ip_str = self.get_src_ip().to_string(allocator) catch return "";
+        defer allocator.free(src_ip_str);
+
+        const dst_ip_str = self.get_dst_ip().to_string(allocator) catch return "";
+        defer allocator.free(dst_ip_str);
+
+        const version_ihl: u8 = hdr.version_ihl;
+        const dscp_ecn: u8 = hdr.dscp_ecn;
+
+        const identification: u16 = std.mem.bigToNative(u16, hdr.identification);
+        const flags_fragment: u16 = std.mem.bigToNative(u16, hdr.flags_fragment);
+        const total_length: u16 = std.mem.bigToNative(u16, hdr.total_length);
+        const checksum: u16 = std.mem.bigToNative(u16, hdr.checksum);
+
+        const ttl: u8 = hdr.ttl;
+        const protocol: u8 = hdr.protocol;
+
+        return std.fmt.allocPrint(
+            allocator,
+            \\IPv4 Layer:
+            \\  src_ip: {s}
+            \\  dst_ip: {s}
+            \\  version_ihl: {}
+            \\  dscp_ecn: {}
+            \\  total_length: {}
+            \\  identification: {}
+            \\  flags_fragment: {}
+            \\  ttl: {}
+            \\  protocol: {}
+            \\  checksum: {}
+        ,
+            .{
+                src_ip_str,
+                dst_ip_str,
+                version_ihl,
+                dscp_ecn,
+                total_length,
+                identification,
+                flags_fragment,
+                ttl,
+                protocol,
+                checksum,
+            },
+        ) catch return "";
+    }
+
     pub fn get_transport_type(self: *IPv4Layer) !TransportProtocol {
-        return try std.meta.intToEnum(TransportProtocol, self.hdr.protocol);
+        const hdr = self.get_header();
+        return try std.meta.intToEnum(TransportProtocol, hdr.protocol);
     }
 
     pub fn get_protocol(self: *IPv4Layer) LayerProtocols {

@@ -1,5 +1,6 @@
 const std = @import("std");
 const print = std.debug.print;
+const Allocator = std.mem.Allocator;
 
 const LayerProtocols = @import("Layer.zig").LayerProtocols;
 const Layer = @import("Layer.zig").Layer;
@@ -170,6 +171,7 @@ pub const DNSLayer = struct {
     DnsHeader: ?*align(1) DNSHeader,
     queries: ?*DNSQuery,
     answers: ?*DNSAnswer,
+
     const Protocol = LayerProtocols{ .Application = .DNS };
 
     //// Creates a DNS layer from an existing buffer // rename this to from_buf
@@ -189,7 +191,7 @@ pub const DNSLayer = struct {
         return dns_layer;
     }
 
-    //// Creates an empty DNS layer with default initialised dns header values
+    //// Creates an empty DNS layer with default initialised dns header values - remove size requirement
     pub fn create(allocator: std.mem.Allocator, initial_size: usize) !*DNSLayer {
         if (initial_size < DNSHeaderSize) {
             return error.InitialBufferSizeTooSmall;
@@ -211,17 +213,63 @@ pub const DNSLayer = struct {
         return dns_layer;
     }
 
-    pub fn to_string(self: *DNSLayer) void {
-        inline for (@typeInfo(DNSHeader).@"struct".fields) |f| {
-            print("{s}:", .{
-                f.name,
-            });
-            if (f.type == u16) {
-                print("{d}, ", .{std.mem.bigToNative(f.type, @field(self.DnsHeader.?, f.name))});
-            } else {
-                print("{d}, ", .{@field(self.DnsHeader.?, f.name)});
-            }
-        }
+    pub fn to_string(self: *DNSLayer, allocator: Allocator) []const u8 {
+        const hdr = self.get_header();
+
+        const id: u16 = std.mem.bigToNative(u16, hdr.id);
+
+        const qr = hdr.qr;
+        const opcode = hdr.opcode;
+        const aa = hdr.aa;
+        const tc = hdr.tc;
+        const rd = hdr.rd;
+        const ra = hdr.ra;
+        const z = hdr.z;
+        const rcode = hdr.rcode;
+
+        const qdcount: u16 = std.mem.bigToNative(u16, hdr.qdcount);
+        const ancount: u16 = std.mem.bigToNative(u16, hdr.ancount);
+        const nscount: u16 = std.mem.bigToNative(u16, hdr.nscount);
+        const arcount: u16 = std.mem.bigToNative(u16, hdr.arcount);
+
+        const result = std.fmt.allocPrint(
+            allocator,
+            \\DNS Layer:
+            \\  id: {}
+            \\  qr: {}
+            \\  opcode: {}
+            \\  aa: {}
+            \\  tc: {}
+            \\  rd: {}
+            \\  ra: {}
+            \\  z: {}
+            \\  rcode: {}
+            \\  qdcount: {}
+            \\  ancount: {}
+            \\  nscount: {}
+            \\  arcount: {}
+        ,
+            .{
+                id,
+                qr,
+                opcode,
+                aa,
+                tc,
+                rd,
+                ra,
+                z,
+                rcode,
+                qdcount,
+                ancount,
+                nscount,
+                arcount,
+            },
+        ) catch |err| {
+            std.debug.print("DNS allocPrint failed: {s}\n", .{@errorName(err)});
+            return "";
+        };
+
+        return result;
     }
 
     pub fn get_remaining(self: *DNSLayer) !usize {
@@ -437,9 +485,21 @@ pub const DNSLayer = struct {
         return null;
     }
 
+    pub fn get_payload(self: *DNSLayer) []u8 {
+        return self.raw;
+    }
+
+    pub fn set_payload(self: *DNSLayer, data: []u8) void {
+        self.raw = data;
+    }
+
     pub fn get_protocol(self: *DNSLayer) LayerProtocols {
         _ = self;
         return DNSLayer.Protocol;
+    }
+
+    pub fn get_header(self: *DNSLayer) *DNSHeader {
+        return @ptrCast(@alignCast(self.raw[0..12]));
     }
 
     pub fn deinit(self: *DNSLayer, allocator: std.mem.Allocator) void {

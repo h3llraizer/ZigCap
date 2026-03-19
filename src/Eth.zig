@@ -1,5 +1,6 @@
 const std = @import("std");
 const print = std.debug.print;
+const Allocator = std.mem.Allocator;
 
 const Packet = @import("Packet.zig").Packet;
 
@@ -55,8 +56,7 @@ pub const EthHeader = packed struct {
 };
 
 pub const EthLayer = struct {
-    hdr: *align(1) EthHeader,
-    payload: []u8, // does not include the ethhdr
+    data: []u8, // does not include the ethhdr
     const Protocol = LayerProtocols{ .LinkLayer = .ETHERNET };
 
     pub fn init(raw: []u8, allocator: std.mem.Allocator) !*EthLayer {
@@ -66,56 +66,73 @@ pub const EthLayer = struct {
 
         const e = try allocator.create(EthLayer);
 
-        e.hdr = @ptrCast(raw[0..EthHeaderSize]); // ptr cast the first eth hdr length bytes as the ethhdr
-        e.payload = raw[EthHeaderSize..]; // store payload as whatever is after the header
+        e.data = raw;
         return e;
     }
 
     pub fn create(allocator: std.mem.Allocator) !*EthLayer {
         const self = try allocator.create(EthLayer);
-        self.hdr = try allocator.create(EthHeader);
-        self.hdr.* = std.mem.zeroInit(EthHeader, EthHeader{});
+        self.data = try allocator.alloc(u8, 14);
         return self;
     }
 
-    pub fn to_string(self: *EthLayer) void {
-        inline for (@typeInfo(EthHeader).@"struct".fields) |f| {
-            print("{s} : {any} : ", .{
-                f.name,
-                f.type,
-            });
-            if (f.type == u16) {
-                print("{x}\n", .{std.mem.bigToNative(f.type, @field(self.hdr, f.name))});
-            } else {
-                print("{x}\n", .{@field(self.hdr, f.name)});
-            }
-        }
+    pub fn to_string(self: *EthLayer, allocator: Allocator) []const u8 {
+        const src_mac = self.get_src_mac().to_string(allocator) catch |err| blk: {
+            std.debug.print("src_mac to_string failed: {s}\n", .{@errorName(err)});
+            break :blk "";
+        };
+        defer if (src_mac.len != 0) allocator.free(src_mac);
+
+        const dst_mac = self.get_dst_mac().to_string(allocator) catch |err| blk: {
+            std.debug.print("dst_mac to_string failed: {s}\n", .{@errorName(err)});
+            break :blk "";
+        };
+        defer if (dst_mac.len != 0) allocator.free(dst_mac);
+
+        const eth_enum = self.get_eth_type() catch |err| blk: {
+            std.debug.print("get_eth_type failed: {s}\n", .{@errorName(err)});
+            break :blk EthType.IP;
+        };
+
+        const eth_type_str = @tagName(eth_enum);
+
+        const result = std.fmt.allocPrint(
+            allocator,
+            "EthType: {s}, src_mac: {s}, dst_mac: {s}",
+            .{ eth_type_str, src_mac, dst_mac },
+        ) catch |err| {
+            std.debug.print("allocPrint failed: {s}\n", .{@errorName(err)});
+            return "";
+        };
+
+        return result;
     }
 
     pub fn parse_next_layer(self: *EthLayer, allocator: std.mem.Allocator) ?*Layer {
-        //        print("Payload len: {d}\n", .{self.payload.len});
         const eth_type: EthType = self.get_eth_type() catch return null;
 
         const packet_layer: *Layer = allocator.create(Layer) catch return null;
 
         switch (eth_type) {
             EthType.IP => {
-                const ihl = self.payload[0];
+                const ihl = self.data[0];
 
-                const ip_version = ihl >> 4;
+                const ip_version = ihl >> 4; // bit shift right 4 yields the IP version
 
                 const hdr_len = (ihl & 0x0F) * 4;
 
                 if (ip_version == @intFromEnum(NetworkProtocols.IPv4)) {
                     if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) return null;
 
-                    const ipv4_layer = IPv4Layer.init(self.payload[0..], allocator) catch return null;
+                    const ipv4_layer = IPv4Layer.init(self.data[0..], allocator) catch return null;
                     packet_layer.* = Layer.implBy(ipv4_layer);
+                    print("Setting Eths next layer.\n", .{});
+                    //self.set_next_layer(packet_layer);
                     return packet_layer;
                 }
 
                 if (ip_version == @intFromEnum(NetworkProtocols.IPv6)) {
-                    const ipv6_layer = IPv6Layer.init(self.payload[0..], allocator) catch return null;
+                    const ipv6_layer = IPv6Layer.init(self.data[0..], allocator) catch return null;
                     packet_layer.* = Layer.implBy(ipv6_layer);
                 } else {
                     print("Unknown network protocol.\n", .{});
@@ -133,39 +150,50 @@ pub const EthLayer = struct {
     }
 
     pub fn get_src_mac(self: *EthLayer) MacAddress {
-        const mac = MacAddress.init_from_array(.{ self.hdr.src0, self.hdr.src1, self.hdr.src2, self.hdr.src3, self.hdr.src4, self.hdr.src5 });
+        const hdr = self.get_header();
+        const mac = MacAddress.init_from_array(.{ hdr.src0, hdr.src1, hdr.src2, hdr.src3, hdr.src4, hdr.src5 });
         return mac;
     }
 
     pub fn get_dst_mac(self: *EthLayer) MacAddress {
-        const mac = MacAddress.init_from_array(.{ self.hdr.dst0, self.hdr.dst1, self.hdr.dst2, self.hdr.dst3, self.hdr.dst4, self.hdr.dst5 });
+        const hdr = self.get_header();
+        const mac = MacAddress.init_from_array(.{ hdr.dst0, hdr.dst1, hdr.dst2, hdr.dst3, hdr.dst4, hdr.dst5 });
         return mac;
     }
 
     pub fn set_src_mac(self: *EthLayer, src_mac: MacAddress) void {
-        self.hdr.src0 = src_mac.addr[0];
-        self.hdr.src1 = src_mac.addr[1];
-        self.hdr.src2 = src_mac.addr[2];
-        self.hdr.src3 = src_mac.addr[3];
-        self.hdr.src4 = src_mac.addr[4];
-        self.hdr.src5 = src_mac.addr[5];
+        var hdr = self.get_header();
+
+        hdr.src0 = src_mac.addr[0];
+        hdr.src1 = src_mac.addr[1];
+        hdr.src2 = src_mac.addr[2];
+        hdr.src3 = src_mac.addr[3];
+        hdr.src4 = src_mac.addr[4];
+        hdr.src5 = src_mac.addr[5];
     }
 
     pub fn set_dst_mac(self: *EthLayer, dst_mac: MacAddress) void {
-        self.hdr.dst0 = dst_mac.addr[0];
-        self.hdr.dst1 = dst_mac.addr[1];
-        self.hdr.dst2 = dst_mac.addr[2];
-        self.hdr.dst3 = dst_mac.addr[3];
-        self.hdr.dst4 = dst_mac.addr[4];
-        self.hdr.dst5 = dst_mac.addr[5];
+        var hdr = self.get_header();
+        hdr.dst0 = dst_mac.addr[0];
+        hdr.dst1 = dst_mac.addr[1];
+        hdr.dst2 = dst_mac.addr[2];
+        hdr.dst3 = dst_mac.addr[3];
+        hdr.dst4 = dst_mac.addr[4];
+        hdr.dst5 = dst_mac.addr[5];
     }
 
     pub fn get_eth_type(self: *EthLayer) !EthType {
-        return try std.meta.intToEnum(EthType, std.mem.bigToNative(u16, self.hdr.eth_type));
+        const hdr = self.get_header();
+        return try std.meta.intToEnum(EthType, std.mem.bigToNative(u16, hdr.eth_type));
     }
 
     pub fn set_eth_type(self: *EthLayer, eth_type: EthType) !void {
-        self.hdr.eth_type = std.mem.nativeToBig(u16, @intFromEnum(eth_type));
+        var hdr = self.get_header();
+        hdr.eth_type = std.mem.nativeToBig(u16, @intFromEnum(eth_type));
+    }
+
+    pub fn get_header(self: *EthLayer) *EthHeader {
+        return @ptrCast(@alignCast(self.data[0..14]));
     }
 
     pub fn get_protocol(self: *EthLayer) LayerProtocols {

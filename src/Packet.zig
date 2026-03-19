@@ -66,7 +66,7 @@ pub const Packet = struct {
         while (cur) |layer| {
             const next = layer.parse_next_layer(allocator) orelse break;
 
-            layer.next_layer = next;
+            layer.set_next_layer(next);
             cur = next;
         }
 
@@ -75,37 +75,53 @@ pub const Packet = struct {
 
     /// Adds a layer to the tail of the layers.
     pub fn add_layer(self: *Packet, layer: anytype, allocator: std.mem.Allocator) !void {
-        //var cur = self.first_layer;
-        //const new_layer: ?*Layer = try allocator.create(Layer); // create interface layer
-        //new_layer.?.* = Layer.implBy(layer); // deref the interface layer and assign to the implementation layer
+        //        print("{s}\n", .{@typeName(@TypeOf(layer))});
+        const new_layer = try allocator.create(Layer);
+        new_layer.* = Layer.implBy(layer);
 
         if (self.first_layer == null) {
-            //print("first layer is null.\n", .{});
-            self.first_layer = try allocator.create(Layer);
-            self.first_layer.?.* = Layer.implBy(layer);
+            //          print("first layer null\n", .{});
+            self.first_layer = new_layer;
             return;
         }
 
         var cur = self.first_layer;
 
-        while (cur) |l| {
-            if (l.next_layer == null) {
-                //print("found null layer.\n", .{});
-                l.next_layer = try allocator.create(Layer);
-                l.next_layer.?.* = Layer.implBy(layer);
-                self.last_layer = l.next_layer;
+        while (cur) |current_layer| {
+            if (current_layer.next_layer == null) {
+                current_layer.set_next_layer(new_layer);
+                if (current_layer.next_layer) |next_layer| {
+                    next_layer.set_prev_layer(current_layer);
+                    self.last_layer = current_layer.next_layer;
+                }
                 break;
             }
-            cur = l.next_layer;
+            cur = current_layer.next_layer;
         }
     }
 
+    /// This method returns the layer desired if it's present in the packet already casted to the implementation
     pub fn get_layer_of_type(self: *Packet, protocol_layer: LayerProtocols, layer: anytype) ?*layer {
         var cur = self.first_layer;
 
         while (cur) |l| {
             if (std.meta.activeTag(l.get_protocol()) == std.meta.activeTag(protocol_layer)) {
                 return TPtr(*layer, l.layer_type);
+            }
+
+            cur = l.next_layer;
+        }
+
+        return null;
+    }
+
+    /// This method returns the Layer desired if it's present. It returns *Layer, if you want the implementation, cast it
+    pub fn get_layer(self: *Packet, protocol_layer: LayerProtocols) ?*Layer {
+        var cur = self.first_layer;
+
+        while (cur) |l| {
+            if (std.meta.activeTag(l.get_protocol()) == std.meta.activeTag(protocol_layer)) {
+                return l;
             }
 
             cur = l.next_layer;
@@ -128,6 +144,14 @@ pub const Packet = struct {
         }
 
         return false;
+    }
+
+    pub fn get_first_layer(self: *Packet) ?*Layer {
+        return self.first_layer;
+    }
+
+    pub fn get_last_layer(self: *Packet) ?*Layer {
+        return self.last_layer;
     }
 
     pub fn print_protocol_stack(self: *Packet) void {

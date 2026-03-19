@@ -1,5 +1,6 @@
 const std = @import("std");
 const print = std.debug.print;
+const Allocator = std.mem.Allocator;
 
 const LayerProtocols = @import("Layer.zig").LayerProtocols;
 const Layer = @import("Layer.zig").Layer;
@@ -18,8 +19,7 @@ pub const TCPHeader = packed struct {
 /// TCPLayer wraps mutable pointer to TCPHeader and functions to work on the header.
 /// If header values are changed manually or via setter then ensure calculate_length and calculate_checksum are called to avoid invalidating the layer after all desired changes are made.
 pub const TCPLayer = struct {
-    hdr: *align(1) TCPHeader,
-    payload: []u8,
+    data: []u8,
     const Protocol = LayerProtocols{ .Transport = .TCP };
     // add pointer to packet it's attached to?
 
@@ -30,48 +30,56 @@ pub const TCPLayer = struct {
         }
 
         const self = try allocator.create(TCPLayer);
-        self.hdr = @ptrCast(raw[0..20]);
-        self.payload = raw[20..];
+        self.data = raw;
         return self;
     }
 
     //// Create empty TCP layer. TCPHeader values are Zero initialised
-    pub fn create(allocator: std.mem.Allocator) !TCPLayer {
+    pub fn create(allocator: std.mem.Allocator) !*TCPLayer {
         const self = try allocator.create(TCPLayer);
-        self.hdr = try allocator.create(TCPHeader);
-        self.hdr.* = std.mem.zeroInit(TCPHeader, TCPHeader{}); // zero the struct members
 
-        return self.*;
+        self.data = undefined;
+
+        return self;
     }
 
     //// Get Source Port of the TCPHeader - converts u16 value from Big to Native and returns
     pub fn get_src_port(self: TCPLayer) u16 {
-        return std.mem.bigToNative(u16, self.hdr.src_port);
+        const hdr = self.get_header();
+        return std.mem.bigToNative(u16, hdr.src_port);
     }
 
     //// Get Destination Port of the TCPHeader - converts u16 value from Big to Native and returns
     pub fn get_dst_port(self: TCPLayer) u16 {
-        return std.mem.bigToNative(u16, self.hdr.dst_port);
+        const hdr = self.get_header();
+        return std.mem.bigToNative(u16, hdr.dst_port);
     }
 
     //// Get Checksum of the TCPPHeader - converts u16 value from Big to Native and returns
     pub fn get_checksum(self: TCPLayer) u16 {
-        return std.mem.bigToNative(u16, self.hdr.checksum);
+        const hdr = self.get_header();
+
+        return std.mem.bigToNative(u16, hdr.checksum);
     }
 
     //// Get Length of the TCPHeader - converts u16 value from Big to Native and returns
     pub fn get_length(self: TCPLayer) u16 {
-        return std.mem.bigToNative(u16, self.hdr.length);
+        const hdr = self.get_header();
+
+        return std.mem.bigToNative(u16, hdr.length);
     }
 
     //// Get Source Port of the TCPHeader - converts u16 value from Big to Native and returns
     pub fn set_src_port(self: TCPLayer, port: u16) void {
-        self.hdr.src_port = std.mem.nativeToBig(u16, port);
+        var hdr = self.get_header();
+
+        hdr.src_port = std.mem.nativeToBig(u16, port);
     }
 
     //// Get Destination Port of the TCPHeader - converts u16 value from Big to Native and returns
     pub fn set_dst_port(self: TCPLayer, port: u16) void {
-        self.hdr.dst_port = std.mem.nativeToBig(u16, port);
+        var hdr = self.get_header();
+        hdr.dst_port = std.mem.nativeToBig(u16, port);
     }
 
     //// Calculate the checksum of the TCPHeader
@@ -86,24 +94,66 @@ pub const TCPLayer = struct {
         return;
     }
 
-    pub fn to_string(self: *TCPLayer) void {
-        inline for (@typeInfo(TCPHeader).@"struct".fields) |f| {
-            print("{s} : {any} : ", .{
-                f.name,
-                f.type,
-            });
-            if (f.type == u16) {
-                print("{d}\n", .{std.mem.bigToNative(f.type, @field(self.hdr, f.name))});
-            } else {
-                print("{d}\n", .{@field(self.hdr, f.name)});
-            }
-        }
+    pub fn to_string(self: *TCPLayer, allocator: Allocator) []const u8 {
+        const hdr = self.get_header();
+
+        const src_port: u16 = std.mem.bigToNative(u16, hdr.src_port);
+        const dst_port: u16 = std.mem.bigToNative(u16, hdr.dst_port);
+        const seq: u32 = std.mem.bigToNative(u32, hdr.seq_num);
+        const ack: u32 = std.mem.bigToNative(u32, hdr.ack_num);
+
+        const data_offset_reserved_flags: u16 = std.mem.bigToNative(u16, hdr.data_offset_reserved_flags);
+
+        // TCP data offset is top 4 bits (in 32-bit words)
+        const data_offset: u8 = @intCast(data_offset_reserved_flags >> 12);
+
+        // Lower 12 bits contain flags + reserved bits (depending on your layout)
+        const flags: u16 = data_offset_reserved_flags & 0x0FFF;
+
+        const window_size: u16 = std.mem.bigToNative(u16, hdr.window);
+        const checksum: u16 = std.mem.bigToNative(u16, hdr.checksum);
+        const urgent_pointer: u16 = std.mem.bigToNative(u16, hdr.urgent_ptr);
+
+        const result = std.fmt.allocPrint(
+            allocator,
+            \\TCP Layer:
+            \\  src_port: {}
+            \\  dst_port: {}
+            \\  seq: {}
+            \\  ack: {}
+            \\  data_offset: {}
+            \\  flags: 0x{x}
+            \\  window_size: {}
+            \\  checksum: 0x{x}
+            \\  urgent_pointer: {}
+        ,
+            .{
+                src_port,
+                dst_port,
+                seq,
+                ack,
+                data_offset,
+                flags,
+                window_size,
+                checksum,
+                urgent_pointer,
+            },
+        ) catch |err| {
+            std.debug.print("TCP allocPrint failed: {s}\n", .{@errorName(err)});
+            return "";
+        };
+
+        return result;
     }
 
     pub fn parse_next_layer(self: *TCPLayer, allocator: std.mem.Allocator) ?*Layer {
         _ = allocator;
-        print("Reached application layer. Payload len: {d}\n", .{self.payload.len});
+        print("Reached application layer. Payload len: {d}\n", .{self.data.len});
         return null;
+    }
+
+    pub fn get_header(self: *TCPLayer) *TCPHeader {
+        return @ptrCast(@alignCast(self.data[0..20]));
     }
 
     pub fn get_protocol(self: *TCPLayer) LayerProtocols {
@@ -113,6 +163,5 @@ pub const TCPLayer = struct {
 
     pub fn deinit(self: *TCPLayer, allocator: std.mem.Allocator) void {
         allocator.destroy(self);
-        print("deinited.\n", .{});
     }
 };
