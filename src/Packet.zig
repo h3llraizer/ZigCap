@@ -75,12 +75,10 @@ pub const Packet = struct {
 
     /// Adds a layer to the tail of the layers.
     pub fn add_layer(self: *Packet, layer: anytype, allocator: std.mem.Allocator) !void {
-        //        print("{s}\n", .{@typeName(@TypeOf(layer))});
         const new_layer = try allocator.create(Layer);
         new_layer.* = Layer.implBy(layer);
 
         if (self.first_layer == null) {
-            //          print("first layer null\n", .{});
             self.first_layer = new_layer;
             return;
         }

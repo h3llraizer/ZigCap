@@ -69,8 +69,8 @@ pub const UDPLayer = struct {
 
     //// Get Source Port of the UDPHeader - converts u16 value from Big to Native and returns
     pub fn set_src_port(self: *UDPLayer, port: u16) void {
-        var hdr = self.get_header();
-        hdr.src_port = std.mem.nativeToBig(u16, port);
+        self.get_header().src_port = std.mem.nativeToBig(u16, port);
+        //        hdr.src_port = std.mem.nativeToBig(u16, port);
     }
 
     //// Get Destination Port of the UDPHeader - converts u16 value from Big to Native and returns
@@ -97,10 +97,12 @@ pub const UDPLayer = struct {
 
     /// preserve the current header and set the payload - two copies occur: current header and payload passed
     pub fn set_payload(self: *UDPLayer, payload: []u8, allocator: Allocator) !void {
-        var new_data = try allocator.realloc(self.data, UDPHeaderSize + payload.len);
+        print("new size: {d}\n", .{UDPHeaderSize + payload.len});
+        const old_data = self.data;
+        var new_data = try allocator.realloc(old_data, UDPHeaderSize + payload.len);
 
-        @memmove(new_data[0..UDPHeaderSize], self.data[0..UDPHeaderSize]);
-        @memmove(new_data[UDPHeaderSize .. UDPHeaderSize + payload.len], payload);
+        @memmove(new_data[0..UDPHeaderSize], old_data[0..UDPHeaderSize]);
+        @memmove(new_data[UDPHeaderSize..], payload);
 
         self.data = new_data;
     }
@@ -121,17 +123,11 @@ pub const UDPLayer = struct {
 
                 switch (net_proto) {
                     .IPv4 => {
-                        print("IPv4 layer.\n", .{});
-
                         const ipv4_layer = TPtr(*IPv4Layer, ip_layer.layer_type); // cast the layer back to the implementation
                         const src_ip = ipv4_layer.get_src_ip().array;
-                        const ip = try ipv4_layer.get_src_ip().to_string(allocator);
-                        print("{s}\n", .{ip});
                         const dst_ip = ipv4_layer.get_dst_ip().array;
 
                         const protocol = ipv4_layer.get_header().protocol;
-
-                        print("protocol {x}\n", .{protocol});
 
                         self.calculate_length();
 
@@ -165,7 +161,18 @@ pub const UDPLayer = struct {
                         @memcpy(dword[offset .. offset + length_bytes.len], &length_bytes);
                         offset += length_bytes.len;
 
-                        print("IPV4/UDP Checksum: {x}\n", .{dword});
+                        // ---- COMPUTE CHECKSUM ----
+                        const sum = onesComplementSum(dword);
+                        const checksum = ~@as(u16, @intCast(sum & 0xFFFF));
+
+                        // RFC: if checksum == 0, transmit as 0xFFFF
+                        if (checksum == 0) {
+                            self.get_header().checksum = 0xFFFF;
+                        } else {
+                            self.get_header().checksum = checksum;
+                        }
+
+                        print("IPV4/UDP Checksum: {x}\n", .{self.get_checksum()});
                     },
                     .IPv6 => {
                         print("IPv6 layer.\n", .{});
@@ -227,3 +234,75 @@ pub const UDPLayer = struct {
         allocator.destroy(self);
     }
 };
+
+fn onesComplementSum(data: []const u8) u32 {
+    var sum: u32 = 0;
+
+    var i: usize = 0;
+    while (i + 1 < data.len) : (i += 2) {
+        const word = (@as(u16, data[i]) << 8) | @as(u16, data[i + 1]);
+        sum += word;
+    }
+
+    // If odd length, pad last byte
+    if (i < data.len) {
+        const word = (@as(u16, data[i]) << 8);
+        sum += word;
+    }
+
+    // Fold carries
+    while (sum >> 16 != 0) {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+
+    return sum;
+}
+
+pub fn udpChecksum(
+    src_ip: [4]u8,
+    dst_ip: [4]u8,
+    src_port: u16,
+    dst_port: u16,
+    payload: []const u8,
+) u16 {
+    var buf = std.ArrayList(u8).init(std.heap.page_allocator);
+    defer buf.deinit();
+
+    // ---- PSEUDO HEADER ----
+    buf.appendSlice(&src_ip) catch unreachable;
+    buf.appendSlice(&dst_ip) catch unreachable;
+
+    buf.append(0) catch unreachable; // zero byte
+    buf.append(17) catch unreachable; // protocol (UDP = 17)
+
+    const udp_len: u16 = @as(u16, 8 + payload.len);
+    buf.append(@intCast((udp_len >> 8) & 0xFF)) catch unreachable;
+    buf.append(@intCast(udp_len & 0xFF)) catch unreachable;
+
+    // ---- UDP HEADER ----
+    // source port
+    buf.append(@intCast((src_port >> 8) & 0xFF)) catch unreachable;
+    buf.append(@intCast(src_port & 0xFF)) catch unreachable;
+
+    // destination port
+    buf.append(@intCast((dst_port >> 8) & 0xFF)) catch unreachable;
+    buf.append(@intCast(dst_port & 0xFF)) catch unreachable;
+
+    // length
+    buf.append(@intCast((udp_len >> 8) & 0xFF)) catch unreachable;
+    buf.append(@intCast(udp_len & 0xFF)) catch unreachable;
+
+    // checksum field = 0 for calculation
+    buf.append(0) catch unreachable;
+    buf.append(0) catch unreachable;
+
+    // ---- PAYLOAD ----
+    buf.appendSlice(payload) catch unreachable;
+
+    // ---- COMPUTE CHECKSUM ----
+    const sum = onesComplementSum(buf.items);
+    const checksum = ~@as(u16, @intCast(sum & 0xFFFF));
+
+    // RFC: if checksum == 0, transmit as 0xFFFF
+    return if (checksum == 0) 0xFFFF else checksum;
+}

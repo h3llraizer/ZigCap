@@ -25,6 +25,7 @@ const from_protocol_layer = @import("Layer.zig").from_protocol_layer;
 const raw: [87]u8 = .{ 0x14, 0x4f, 0x8a, 0xa4, 0x15, 0x7d, 0x38, 0x6, 0xe6, 0x92, 0x63, 0xac, 0x8, 0x0, 0x45, 0x0, 0x0, 0x49, 0x5d, 0xf7, 0x40, 0x0, 0x40, 0x11, 0x57, 0x7d, 0xc0, 0xa8, 0x1, 0xfe, 0xc0, 0xa8, 0x1, 0xe1, 0x0, 0x35, 0xfd, 0xdf, 0x0, 0x35, 0x9d, 0xff, 0x3a, 0xd0, 0x81, 0x80, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x7, 0x7a, 0x69, 0x67, 0x6c, 0x61, 0x6e, 0x67, 0x3, 0x6f, 0x72, 0x67, 0x0, 0x0, 0x1, 0x0, 0x1, 0xc0, 0xc, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x1, 0x2c, 0x0, 0x4, 0x41, 0x6d, 0x69, 0xb2 };
 
 fn add_layers(packet: *Packet, allocator: Allocator) !void {
+    print("add_layers: \n", .{});
     const eth_layer = try EthLayer.create(allocator);
 
     eth_layer.set_src_mac(try MacAddress.init_from_string("14:4f:8a:a4:15:7d"));
@@ -45,7 +46,11 @@ fn add_layers(packet: *Packet, allocator: Allocator) !void {
     udp_layer.set_src_port(1234);
     udp_layer.set_dst_port(53);
 
+    print("From original UDP Layer: {s}\n", .{udp_layer.to_string(allocator)});
+
     try packet.add_layer(udp_layer, allocator);
+
+    print("From packet last layer (UDP layer just added) {s}\n", .{packet.get_last_layer().?.to_string(allocator)});
 
     var dns_layer = try DNSLayer.create(allocator, 40);
 
@@ -53,21 +58,34 @@ fn add_layers(packet: *Packet, allocator: Allocator) !void {
 
     try packet.add_layer(dns_layer, allocator);
 
-    try udp_layer.set_payload(dns_layer.get_payload(), allocator);
+    //    try udp_layer.set_payload(dns_layer.get_payload(), allocator);
+
+    print("From packet 3 layer depth: {s}\n", .{packet.get_first_layer().?.get_next_layer().?.get_next_layer().?.to_string(allocator)});
 }
 
 pub fn main() !void {
-    var raw_pkt_buf: [1024]u8 = undefined;
+    print("main: \n", .{});
+    var raw_pkt_buf: [4096]u8 = undefined;
 
     var fba = std.heap.FixedBufferAllocator.init(&raw_pkt_buf);
     const allocator = fba.allocator();
+
+    const p_allocator = std.heap.page_allocator;
+
+    _ = p_allocator;
+
+    print("end index: {d}\n", .{fba.end_index});
 
     const packet = try Packet.init(allocator);
     defer packet.deinit(allocator);
 
     try add_layers(packet, allocator);
 
-    const udp_layer: *UDPLayer = packet.get_layer_of_type(LayerProtocols{ .Transport = .UDP }, UDPLayer) orelse {
+    print("end index: {d}\n", .{fba.end_index});
+
+    print("back to main.\n", .{});
+
+    const udp_layer: *Layer = packet.get_layer(LayerProtocols{ .Transport = .UDP }) orelse {
         print("udp layer not found.\n", .{});
         return;
     };
@@ -77,15 +95,21 @@ pub fn main() !void {
         return;
     };
 
-    //    const impl_ptr = ipv4_layer.layer_type;
-    //
-    //    var ip_layer = TPtr(*IPv4Layer, impl_ptr);
-    //
-    //    ip_layer.to_string();
+    print("*Layer {s}\n", .{ipv4_layer.to_string(allocator)});
 
-    udp_layer.calculate_length();
+    const ip_layer: *IPv4Layer = TPtr(*IPv4Layer, ipv4_layer.layer_type);
 
-    try udp_layer.calculate_checksum(ipv4_layer, allocator);
+    print("*IPv4Layer (cast from previous) {s}\n", .{ip_layer.to_string(allocator)});
+
+    const u_layer: *UDPLayer = TPtr(*UDPLayer, udp_layer.layer_type);
+
+    print("{s}\n", .{u_layer.to_string(allocator)});
+
+    u_layer.calculate_length();
+
+    //    try u_layer.calculate_checksum(ipv4_layer, allocator);
+
+    //    packet.print_protocol_stack();
 }
 
 // TODO: to finalise a packet before sending - start from last layer and take its hdr+payload then cast it back to u8 for the prev layers payload until first layer reached
