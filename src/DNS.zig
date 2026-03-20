@@ -478,6 +478,11 @@ pub const DNSLayer = struct {
         }
     }
 
+    /// get slice of data (hdr+payload)
+    pub fn get_data(self: *DNSLayer) []u8 {
+        return self.raw;
+    }
+
     /// Does nothing for this layer
     pub fn parse_next_layer(self: *DNSLayer, allocator: std.mem.Allocator) ?*Layer {
         _ = self;

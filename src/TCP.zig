@@ -146,6 +146,16 @@ pub const TCPLayer = struct {
         return result;
     }
 
+    /// get slice of data (hdr+payload)
+    pub fn get_data(self: *TCPLayer) []u8 {
+        return self.data;
+    }
+
+    /// return mutable slice of the payload
+    pub fn get_payload(self: *TCPLayer) []u8 {
+        return self.data[20..];
+    }
+
     pub fn parse_next_layer(self: *TCPLayer, allocator: std.mem.Allocator) ?*Layer {
         _ = allocator;
         print("Reached application layer. Payload len: {d}\n", .{self.data.len});

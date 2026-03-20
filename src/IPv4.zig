@@ -13,25 +13,68 @@ const TCPLayer = @import("TCP.zig").TCPLayer;
 pub const MaxHeaderLength = 60;
 pub const MinHeaderLength = 20;
 
-pub const IPv4Header = packed struct {
-    version_ihl: u8 = 0,
+// Use extern struct for exact 20-byte layout (standard IPv4 header)
+pub const IPv4Header = extern struct {
+    version_ihl: u8 = 0x45, // Default to version 4, IHL 5
     dscp_ecn: u8 = 0,
     total_length: u16 = 0,
     identification: u16 = 0,
     flags_fragment: u16 = 0,
-    ttl: u8 = 0,
+    ttl: u8 = 64, // Default TTL
     protocol: u8 = 0,
     checksum: u16 = 0,
+    src_ip: u32 = 0,
+    dst_ip: u32 = 0,
 
-    src_ip0: u8 = 0,
-    src_ip1: u8 = 0,
-    src_ip2: u8 = 0,
-    src_ip3: u8 = 0,
+    comptime {
+        if (@sizeOf(IPv4Header) != 20) {
+            @compileError("IPv4Header must be 20 bytes, got " ++ @typeName(@sizeOf(IPv4Header)));
+        }
+    }
 
-    dst_ip0: u8 = 0,
-    dst_ip1: u8 = 0,
-    dst_ip2: u8 = 0,
-    dst_ip3: u8 = 0,
+    pub fn init_default() IPv4Header {
+        return .{
+            .version_ihl = 0x45,
+            .dscp_ecn = 0,
+            .total_length = 0,
+            .identification = 0,
+            .flags_fragment = 0,
+            .ttl = 64,
+            .protocol = 0,
+            .checksum = 0,
+            .src_ip = 0,
+            .dst_ip = 0,
+        };
+    }
+
+    pub fn calculate_checksum(self: *IPv4Header) void {
+        // Save the original checksum field
+        const old_checksum = self.checksum;
+        self.checksum = 0;
+
+        var sum: u32 = 0;
+        const words = @as([*]const u16, @ptrCast(self));
+
+        // Sum all 16-bit words
+        for (0..@sizeOf(IPv4Header) / 2) |i| {
+            sum += words[i];
+        }
+
+        // Fold the sum to 16 bits
+        while (sum > 0xFFFF) {
+            sum = (sum & 0xFFFF) + (sum >> 16);
+        }
+
+        // Take one's complement and store
+        self.checksum = ~@as(u16, @intCast(sum));
+
+        // If the checksum calculation resulted in 0, the RFC says to use 0xFFFF
+        if (self.checksum == 0) {
+            self.checksum = 0xFFFF;
+        }
+
+        _ = old_checksum;
+    }
 };
 
 pub const IPv4Layer = struct {
@@ -44,45 +87,70 @@ pub const IPv4Layer = struct {
         }
 
         const self = try allocator.create(IPv4Layer);
-
         self.data = raw;
         return self;
     }
 
-    pub fn create(allocator: std.mem.Allocator) !*IPv4Layer {
-        const self = try allocator.create(IPv4Layer);
-        self.data = try allocator.alloc(u8, 20);
+    pub fn allocator_owned_buffer(allocator: Allocator) !IPv4Layer {
+        var self = IPv4Layer{ .data = undefined };
+        self.data = try allocator.alloc(u8, @sizeOf(IPv4Header));
         return self;
     }
 
-    pub fn get_src_ip(self: *IPv4Layer) IPv4Address {
-        const hdr = self.get_header();
-        const ip = IPv4Address.init_from_array(.{ hdr.src_ip0, hdr.src_ip1, hdr.src_ip2, hdr.src_ip3 });
-        return ip;
+    pub fn preallocated_buffer(buffer: []u8) !IPv4Layer {
+        if (buffer.len < @sizeOf(IPv4Header)) return error.BufferTooSmall;
+
+        // Verify alignment
+        const alignment = @alignOf(IPv4Header);
+        const addr = @intFromPtr(buffer.ptr);
+        if (addr % alignment != 0) {
+            return error.MisalignedBuffer;
+        }
+
+        return IPv4Layer{ .data = buffer };
     }
 
-    pub fn get_dst_ip(self: *IPv4Layer) IPv4Address {
-        const hdr = self.get_header();
-
-        const ip = IPv4Address.init_from_array(.{ hdr.dst_ip0, hdr.dst_ip1, hdr.dst_ip2, hdr.dst_ip3 });
-        return ip;
+    pub fn create(allocator: std.mem.Allocator) !*IPv4Layer {
+        const self = try allocator.create(IPv4Layer);
+        self.data = try allocator.alloc(u8, @sizeOf(IPv4Header));
+        return self;
     }
 
+    // In your IPv4Layer, update set_src_ip and set_dst_ip:
     pub fn set_src_ip(self: *IPv4Layer, src_ip: IPv4Address) void {
         var hdr = self.get_header();
-
-        hdr.src_ip0 = src_ip.array[0];
-        hdr.src_ip1 = src_ip.array[1];
-        hdr.src_ip2 = src_ip.array[2];
-        hdr.src_ip3 = src_ip.array[3];
+        // Convert to network byte order (big-endian)
+        hdr.src_ip = @byteSwap(src_ip.to_u32());
     }
 
     pub fn set_dst_ip(self: *IPv4Layer, dst_ip: IPv4Address) void {
         var hdr = self.get_header();
-        hdr.dst_ip0 = dst_ip.array[0];
-        hdr.dst_ip1 = dst_ip.array[1];
-        hdr.dst_ip2 = dst_ip.array[2];
-        hdr.dst_ip3 = dst_ip.array[3];
+        // Convert to network byte order (big-endian)
+        hdr.dst_ip = @byteSwap(dst_ip.to_u32());
+    }
+
+    // Also update get_src_ip and get_dst_ip:
+    pub fn get_src_ip(self: *IPv4Layer) IPv4Address {
+        const hdr = self.get_header();
+        // Convert from network byte order to host order
+        return IPv4Address.init_from_u32(@byteSwap(hdr.src_ip));
+    }
+
+    pub fn get_dst_ip(self: *IPv4Layer) IPv4Address {
+        const hdr = self.get_header();
+        // Convert from network byte order to host order
+        return IPv4Address.init_from_u32(@byteSwap(hdr.dst_ip));
+    }
+
+    /// get slice of data (hdr+payload)
+    pub fn get_data(self: *IPv4Layer) []u8 {
+        return self.data;
+    }
+
+    /// return mutable slice of the payload
+    pub fn get_payload(self: *IPv4Layer) []u8 {
+        const header_len = (self.get_header().version_ihl & 0x0F) * 4;
+        return self.data[header_len..];
     }
 
     pub fn parse_next_layer(self: *IPv4Layer, allocator: std.mem.Allocator) ?*Layer {
@@ -92,11 +160,11 @@ pub const IPv4Layer = struct {
 
         switch (transport_type) {
             TransportProtocol.TCP => {
-                const tcp_layer = TCPLayer.init(self.data[0..], allocator) catch return null;
+                const tcp_layer = TCPLayer.init(self.get_payload(), allocator) catch return null;
                 packet_layer.* = Layer.implBy(tcp_layer);
             },
             TransportProtocol.UDP => {
-                const udp_layer = UDPLayer.init(self.data[0..], allocator) catch return null;
+                const udp_layer = UDPLayer.init(self.get_payload(), allocator) catch return null;
                 packet_layer.* = Layer.implBy(udp_layer);
             },
             else => {
@@ -113,33 +181,15 @@ pub const IPv4Layer = struct {
         return std.mem.bigToNative(u16, hdr.checksum);
     }
 
-    //TODO: Add checksum getter and setter
     pub fn calculate_checksum(self: *IPv4Layer) void {
-        const hdr = self.get_header();
-        const bytes = std.mem.asBytes(hdr);
-
-        var sum: u32 = 0;
-
-        var i: usize = 0;
-        while (i < bytes.len) : (i += 2) {
-            const word: u16 = (@as(u16, bytes[i]) << 8) | bytes[i + 1];
-            sum += word;
-        }
-
-        while (sum >> 16 != 0) {
-            sum = (sum & 0xffff) + (sum >> 16);
-        }
-
-        self.hdr.checksum = ~@as(u16, @intCast(sum));
+        var hdr = self.get_header();
+        hdr.calculate_checksum();
     }
 
-    //    pub fn get_header(self: *IPv4Layer) *IPv4Header {
-    //        print("layer len: {d}\n", .{self.data.len});
-    //        return @ptrCast(@alignCast(self.data[0..20]));
-    //    }
-
-    pub fn get_header(self: *IPv4Layer) *align(1) IPv4Header {
-        return std.mem.bytesAsValue(IPv4Header, self.data[0..20]);
+    pub fn get_header(self: *IPv4Layer) *IPv4Header {
+        // Use alignCast to ensure proper alignment
+        const aligned_ptr: [*]align(@alignOf(IPv4Header)) u8 = @alignCast(self.data.ptr);
+        return @ptrCast(aligned_ptr);
     }
 
     pub fn to_string(self: *IPv4Layer, allocator: Allocator) []const u8 {
@@ -151,7 +201,8 @@ pub const IPv4Layer = struct {
         const dst_ip_str = self.get_dst_ip().to_string(allocator) catch return "";
         defer allocator.free(dst_ip_str);
 
-        const version_ihl: u8 = hdr.version_ihl;
+        const version = (hdr.version_ihl >> 4);
+        const ihl = (hdr.version_ihl & 0x0F);
         const dscp_ecn: u8 = hdr.dscp_ecn;
 
         const identification: u16 = std.mem.bigToNative(u16, hdr.identification);
@@ -165,9 +216,10 @@ pub const IPv4Layer = struct {
         return std.fmt.allocPrint(
             allocator,
             \\IPv4 Layer:
+            \\  version: {}
+            \\  ihl: {}
             \\  src_ip: {s}
             \\  dst_ip: {s}
-            \\  version_ihl: {}
             \\  dscp_ecn: {}
             \\  total_length: {}
             \\  identification: {}
@@ -177,9 +229,10 @@ pub const IPv4Layer = struct {
             \\  checksum: {}
         ,
             .{
+                version,
+                ihl,
                 src_ip_str,
                 dst_ip_str,
-                version_ihl,
                 dscp_ecn,
                 total_length,
                 identification,
@@ -202,6 +255,7 @@ pub const IPv4Layer = struct {
     }
 
     pub fn deinit(self: *IPv4Layer, allocator: std.mem.Allocator) void {
+        allocator.free(self.data);
         allocator.destroy(self);
     }
 };
@@ -219,6 +273,24 @@ pub const IPv4Address = struct {
 
     pub fn init_from_array(raw: [4]u8) IPv4Address {
         return .{ .array = raw };
+    }
+
+    pub fn init_from_u32(value: u32) IPv4Address {
+        return .{
+            .array = .{
+                @as(u8, @truncate(value >> 24)),
+                @as(u8, @truncate(value >> 16)),
+                @as(u8, @truncate(value >> 8)),
+                @as(u8, @truncate(value)),
+            },
+        };
+    }
+
+    pub fn to_u32(self: IPv4Address) u32 {
+        return (@as(u32, self.array[0]) << 24) |
+            (@as(u32, self.array[1]) << 16) |
+            (@as(u32, self.array[2]) << 8) |
+            (@as(u32, self.array[3]));
     }
 
     pub fn init_from_string(str: []const u8) !IPv4Address {

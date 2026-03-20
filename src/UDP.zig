@@ -36,8 +36,15 @@ pub const UDPLayer = struct {
     }
 
     /// Create empty UDP layer. UDPHeader values are Zero initialised
-    pub fn create(allocator: std.mem.Allocator) !*UDPLayer {
-        const self = try allocator.create(UDPLayer);
+    //    pub fn create(allocator: std.mem.Allocator) !*UDPLayer {
+    //        const self = try allocator.create(UDPLayer);
+    //        self.data = try allocator.alloc(u8, 8);
+    //
+    //        return self;
+    //    }
+
+    pub fn create(allocator: std.mem.Allocator) !UDPLayer {
+        var self = UDPLayer{ .data = undefined };
         self.data = try allocator.alloc(u8, 8);
 
         return self;
@@ -92,7 +99,7 @@ pub const UDPLayer = struct {
 
     /// return mutable slice of the payload
     pub fn get_payload(self: *UDPLayer) []u8 {
-        return self.data + 8;
+        return self.data[8..self.data.len];
     }
 
     /// preserve the current header and set the payload - two copies occur: current header and payload passed

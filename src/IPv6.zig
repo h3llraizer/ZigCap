@@ -74,6 +74,16 @@ pub const IPv6Layer = struct {
         return "";
     }
 
+    /// get slice of data (hdr+payload)
+    pub fn get_data(self: *IPv6Layer) []u8 {
+        return self.data;
+    }
+
+    /// return mutable slice of the payload
+    pub fn get_payload(self: *IPv6Layer) []u8 {
+        return self.data[20..];
+    }
+
     pub fn parse_next_layer(self: *IPv6Layer, allocator: std.mem.Allocator) ?*Layer {
         const transport_type: TransportProtocol = self.get_transport_type() catch return null;
 

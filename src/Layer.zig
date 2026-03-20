@@ -136,6 +136,8 @@ pub const Layer = struct {
     next_layer: ?*Layer,
     prev_layer: ?*Layer,
 
+    v_get_data: *const fn (*anyopaque) []u8,
+    v_get_payload: *const fn (*anyopaque) []u8,
     v_to_string: *const fn (*anyopaque, Allocator) []const u8,
     v_parse_next_layer: *const fn (*anyopaque, Allocator) ?*Layer,
     v_get_protocol: *const fn (*anyopaque) LayerProtocols,
@@ -143,22 +145,30 @@ pub const Layer = struct {
 
     // link the protocol layer pointer to the vtable functions
     pub fn implBy(layer_type: anytype) Layer {
-        //        print("implBy type {s}\n", .{@typeName(@TypeOf(layer_type))});
         const delegate = LayerDelegate(layer_type);
         return .{
             .layer_type = layer_type,
             .next_layer = null,
             .prev_layer = null,
 
+            .v_get_data = delegate.get_data,
+            .v_get_payload = delegate.get_payload,
             .v_to_string = delegate.to_string,
             .v_parse_next_layer = delegate.parse_next_layer,
-            .v_deinit = delegate.deinit,
+
             .v_get_protocol = delegate.get_protocol,
+            .v_deinit = delegate.deinit,
         };
     }
 
-    pub fn ptr(self: *Layer) *Layer {
-        return self;
+    /// get slice of data (hdr+payload)
+    pub fn get_data(self: *Layer) []u8 {
+        return self.v_get_data(self);
+    }
+
+    /// return mutable slice of the payload
+    pub fn get_payload(self: *Layer) []u8 {
+        return self.v_get_payload(self);
     }
 
     // Public functions
@@ -201,6 +211,14 @@ inline fn LayerDelegate(layer_type: anytype) type { // VTable Link
     const LayerType = @TypeOf(layer_type);
 
     return struct {
+        pub fn get_data(layer: *anyopaque) []u8 {
+            return TPtr(LayerType, layer).get_data();
+        }
+
+        pub fn get_payload(layer: *anyopaque) []u8 {
+            return TPtr(LayerType, layer).get_payload();
+        }
+
         pub fn to_string(layer: *anyopaque, allocator: Allocator) []const u8 {
             return TPtr(LayerType, layer).to_string(allocator);
         }
