@@ -9,6 +9,8 @@ const pcap = @cImport({
     @cInclude("pcap.h");
 });
 
+const Allocator = std.mem.Allocator;
+
 const ver = pcap.pcap_lib_version();
 
 const u_short = u16;
@@ -46,8 +48,8 @@ pub const IPv4 = struct {
     asBytes: [4]u8,
     asString: []const u8,
 
-    pub fn init(bytes: [4]u8, allocator: *std.mem.Allocator) !IPv4 {
-        const string = try allocPrint(allocator.*, "{}.{}.{}.{}", .{ bytes[0], bytes[1], bytes[2], bytes[3] });
+    pub fn init(bytes: [4]u8, allocator: Allocator) !IPv4 {
+        const string = try allocPrint(allocator, "{}.{}.{}.{}", .{ bytes[0], bytes[1], bytes[2], bytes[3] });
 
         return IPv4{ .asBytes = bytes, .asString = string };
     }
@@ -64,7 +66,7 @@ pub const Interface = struct {
     handle: ?*pcap.pcap_t = null,
     link_type: ?c_int,
 
-    pub fn init(name: []const u8, desc: []const u8, ipv4: std.ArrayList(IPv4), allocator: *std.mem.Allocator) !Interface {
+    pub fn init(name: []const u8, desc: []const u8, ipv4: std.ArrayList(IPv4), allocator: Allocator) !Interface {
         const name_copy = try allocator.alloc(u8, name.len);
         std.mem.copyForwards(u8, name_copy, name);
 
@@ -74,7 +76,18 @@ pub const Interface = struct {
         return Interface{ .name = name_copy, .desc = desc_copy, .ipv4 = ipv4, .handle = undefined, .link_type = null };
     }
 
-    pub fn open(self: *Interface, allocator: *std.mem.Allocator) !void {
+    pub fn send(self: *Interface, pkt_buf: []u8) !void {
+        if (self.handle) |h| {
+            const res = pcap.pcap_sendpacket(h, pkt_buf.ptr, @intCast(pkt_buf.len));
+            if (res != 0) {
+                return error.PacketSendFailed;
+            }
+        } else {
+            return error.DeviceNotOpen;
+        }
+    }
+
+    pub fn open(self: *Interface, allocator: Allocator) !void {
         var errbuf: [256:0]u8 = .{0} ** 256;
 
         const c_name = try allocator.dupeZ(u8, self.name);
@@ -99,8 +112,8 @@ pub const Interface = struct {
         return false;
     }
 
-    pub fn toString(self: Interface, allocator: *std.mem.Allocator) []const u8 {
-        const s = allocPrint(allocator.*, "Name: {s} Description: {s}", .{ self.name, self.desc }) catch |err| {
+    pub fn toString(self: Interface, allocator: Allocator) []const u8 {
+        const s = allocPrint(allocator, "Name: {s} Description: {s}", .{ self.name, self.desc }) catch |err| {
             return @errorName(err);
         };
 
@@ -113,8 +126,8 @@ pub const Interface = struct {
 
     pub fn capture(
         self: Interface,
-        callback_fn: fn (*RawPacket, *std.mem.Allocator) void,
-        allocator: *std.mem.Allocator,
+        callback_fn: fn (*RawPacket, Allocator) void,
+        allocator: std.mem.Allocator,
     ) !void {
         var captured: usize = 0;
 
@@ -178,7 +191,7 @@ pub const Interfaces = struct {
         };
     }
 
-    fn extractIPs(addresses_ptr: ?*pcap.pcap_addr, allocator: *std.mem.Allocator) !std.ArrayList(IPv4) {
+    fn extractIPs(addresses_ptr: ?*pcap.pcap_addr, allocator: std.mem.Allocator) !std.ArrayList(IPv4) {
         var ips_list: std.ArrayList(IPv4) = .empty;
 
         var address_ptr = addresses_ptr;
@@ -196,7 +209,7 @@ pub const Interfaces = struct {
 
                     const ip_address = IPv4.init(octets, allocator) catch continue;
 
-                    try ips_list.append(allocator.*, ip_address);
+                    try ips_list.append(allocator, ip_address);
                 } //else if (sa.sa_family == 23) { // AF_INET6
                 // const ipv6: *sockaddr_in6 = @ptrCast(sa);
                 //print("IPv6 SinAddr: {any}", .{ipv6.sin_addr});
@@ -209,7 +222,7 @@ pub const Interfaces = struct {
         return ips_list;
     }
 
-    pub fn list_all(self: *Interfaces, allocator: *std.mem.Allocator) !std.ArrayList(Interface) {
+    pub fn list_all(self: *Interfaces, allocator: std.mem.Allocator) !std.ArrayList(Interface) {
         var iface_list: std.ArrayList(Interface) = .empty;
         var dev = self.*.pcap_iface;
 
@@ -245,7 +258,7 @@ pub const Interfaces = struct {
 
             const iface = try Interface.init(name, desc, ips, allocator);
 
-            try iface_list.append(allocator.*, iface);
+            try iface_list.append(allocator, iface);
         }
 
         self.*.list = iface_list;
