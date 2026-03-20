@@ -44,6 +44,10 @@ pub const Packet = struct {
         return p;
     }
 
+    pub fn create() Packet {
+        return Packet{ .raw_packet = null, .first_layer = null, .last_layer = null };
+    }
+
     fn parse_link_layer(self: *Packet, allocator: std.mem.Allocator) !void {
         if (self.raw_packet == null) {
             return error.RawPacketNotAllocated;

@@ -21,6 +21,7 @@ const IPv4Header = @import("IPv4.zig").IPv4Header;
 
 const UDPLayer = @import("UDP.zig").UDPLayer;
 const DNSLayer = @import("DNS.zig").DNSLayer;
+const UDP = @import("UDPLayer.zig");
 const DNS = @import("DNS.zig");
 
 const from_protocol_layer = @import("Layer.zig").from_protocol_layer;
@@ -68,45 +69,48 @@ fn add_layers(packet: *Packet, allocator: Allocator) !void {
     print("Data len: {}\n", .{udp_data.len});
 }
 
+pub fn calculate_next_offset(buffer: []const u8, hdr: anytype) usize {
+    const offset = (buffer.len + @alignOf(hdr) - 1) / @alignOf(hdr) * @alignOf(hdr);
+
+    print("offset: {}\n", .{offset});
+
+    return offset;
+}
+
 pub fn testp(allocator: Allocator) !void {
-    const eth_size = @sizeOf(EthHeader); // 14
-    const ipv4_size = @sizeOf(IPv4Header); // 20
-    const align_ipv4 = @alignOf(IPv4Header); // Typically 4 or 8
 
     // Calculate offset for IPv4 header that ensures alignment
     // Align eth_size up to the next multiple of align_ipv4
-    const ipv4_offset = (eth_size + align_ipv4 - 1) / align_ipv4 * align_ipv4;
-    const total_size = ipv4_offset + ipv4_size;
 
-    const max_alignment = @max(@alignOf(EthHeader), align_ipv4);
-    const alignment = comptime std.mem.Alignment.fromByteUnits(max_alignment);
-    const packet_buffer = try allocator.alignedAlloc(u8, alignment, total_size);
-    defer allocator.free(packet_buffer);
-
+    var packet_buffer = try allocator.alloc(u8, @sizeOf(EthHeader));
     @memset(packet_buffer, 0);
 
-    // Create Ethernet layer at offset 0
-    var eth_layer = try EthLayer.preallocated_buffer(packet_buffer[0..eth_size]);
+    var eth_layer = try EthLayer.preallocated_buffer(packet_buffer[0..@sizeOf(EthHeader)]);
+
+    // Set Ethernet layer
+    eth_layer.set_src_mac(try MacAddress.init_from_string("14:4f:8a:a4:15:7d"));
+    eth_layer.set_dst_mac(try MacAddress.init_from_string("38:06:e6:92:63:ac"));
+    try eth_layer.set_eth_type(EthType.IP);
+
+    var next_offset = calculate_next_offset(packet_buffer, IPv4Header);
+
+    packet_buffer = try allocator.realloc(packet_buffer, (next_offset + @sizeOf(IPv4Header)));
+    // remember to zero the memory
 
     // Create IPv4 layer at the aligned offset
-    var ipv4_layer = try IPv4Layer.preallocated_buffer(packet_buffer[ipv4_offset..][0..ipv4_size]);
+    var ipv4_layer = try IPv4Layer.preallocated_buffer(packet_buffer[next_offset..][0..@sizeOf(IPv4Header)]);
 
     var ip_hdr = ipv4_layer.get_header();
 
     // Set IPv4 header fields
     ip_hdr.version_ihl = 0x45;
     ip_hdr.dscp_ecn = 0;
-    ip_hdr.total_length = @byteSwap(@as(u16, ipv4_size));
+    ip_hdr.total_length = @byteSwap(@as(u16, @sizeOf(IPv4Header)));
     ip_hdr.identification = 0;
     ip_hdr.flags_fragment = 0;
     ip_hdr.ttl = 64;
     ip_hdr.protocol = @intFromEnum(IPv4Proto.UDP);
     ip_hdr.checksum = 0;
-
-    // Set Ethernet layer
-    eth_layer.set_src_mac(try MacAddress.init_from_string("14:4f:8a:a4:15:7d"));
-    eth_layer.set_dst_mac(try MacAddress.init_from_string("38:06:e6:92:63:ac"));
-    try eth_layer.set_eth_type(EthType.IP);
 
     // Set IP addresses
     ipv4_layer.set_src_ip(try IPv4Address.init_from_string("192.168.1.225"));
@@ -115,15 +119,30 @@ pub fn testp(allocator: Allocator) !void {
     // Calculate checksum
     ip_hdr.calculate_checksum();
 
+    next_offset = calculate_next_offset(packet_buffer, UDP.UDPHeader);
+
+    packet_buffer = try allocator.realloc(packet_buffer, (next_offset + @sizeOf(UDP.UDPHeader)));
+    // remember to zero the memory
+
+    var udp_layer = try UDP.UDPLayer.preallocated_buffer(packet_buffer[next_offset..][0..@sizeOf(UDP.UDPHeader)]);
+
+    udp_layer.set_src_port(1234);
+    udp_layer.set_dst_port(53);
+    //try udp_layer.set_payload("1", allocator); // adding payload causes
+
+    udp_layer.calculate_checksum(ip_hdr.src_ip, ip_hdr.dst_ip);
+
+    print("payload: {s}\n", .{udp_layer.get_payload()});
+
+    print("len: {}\n", .{packet_buffer.len});
+
     // Print the packet
     print("Packet bytes (contiguous): ", .{});
-    for (packet_buffer[0..total_size]) |byte| {
+    for (packet_buffer[0..packet_buffer.len]) |byte| {
         print("{x:0>2}", .{byte});
     }
-    print("\n", .{});
 
-    print("IPv4 header at offset: {}\n", .{ipv4_offset});
-    print("Padding before IPv4: {} bytes\n", .{ipv4_offset - eth_size});
+    print("\n", .{});
 }
 
 pub fn main() !void {
