@@ -76,7 +76,7 @@ pub const Interface = struct {
         return Interface{ .name = name_copy, .desc = desc_copy, .ipv4 = ipv4, .handle = undefined, .link_type = null };
     }
 
-    pub fn send(self: *Interface, pkt_buf: []u8) !void {
+    pub fn send(self: *Interface, pkt_buf: []const u8) !void {
         if (self.handle) |h| {
             const res = pcap.pcap_sendpacket(h, pkt_buf.ptr, @intCast(pkt_buf.len));
             if (res != 0) {

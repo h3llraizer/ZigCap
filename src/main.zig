@@ -28,14 +28,6 @@ const DNS = @import("DNS.zig");
 
 const from_protocol_layer = @import("Layer.zig").from_protocol_layer;
 
-//pub fn calculate_next_offset(buffer: []const u8, hdr: anytype) usize {
-//   const offset = (buffer.len + @alignOf(hdr) - 1) / @alignOf(hdr) * @alignOf(hdr);
-//
-//   print("offset: {}\n", .{offset});
-//
-//   return offset;
-//}
-
 pub fn calculate_next_offset(current_offset: usize, comptime HdrType: type) usize {
     const alignment = @alignOf(HdrType);
     const next_offset = (current_offset + alignment - 1) / alignment * alignment;
@@ -43,86 +35,34 @@ pub fn calculate_next_offset(current_offset: usize, comptime HdrType: type) usiz
     return next_offset;
 }
 
-pub fn testp(allocator: Allocator) !void {
-    const eth_size: usize = @sizeOf(EthHeader);
-    const ipv4_size: usize = @sizeOf(IPv4Header);
-    const udp_size: usize = @sizeOf(UDP.UDPHeader);
-
-    // Start with Ethernet header
-    var packet_buffer = try allocator.alloc(u8, eth_size);
-    @memset(packet_buffer, 0);
-
-    var eth_layer = try EthLayer.preallocated_buffer(packet_buffer[0..eth_size]);
-
-    eth_layer.set_src_mac(try MacAddress.init_from_string("14:4f:8a:a4:15:7d"));
-    eth_layer.set_dst_mac(try MacAddress.init_from_string("FF:FF:FF:FF:FF:FF"));
-    try eth_layer.set_eth_type(EthType.IP);
-
-    // IPv4 layer
-    const old_size = packet_buffer.len;
-    var current_offset: usize = eth_size;
-    var next_offset = calculate_next_offset(current_offset, IPv4Header);
-    const new_size = next_offset + ipv4_size;
-
-    packet_buffer = try allocator.realloc(packet_buffer, new_size);
-    // Zero from the OLD end to the NEW end (this covers padding!)
-    @memset(packet_buffer[old_size..], 0);
-
-    var ipv4_layer = try IPv4Layer.preallocated_buffer(packet_buffer[next_offset..][0..ipv4_size]);
-    var ip_hdr = ipv4_layer.get_header();
-
-    ip_hdr.version_ihl = 0x45;
-    ip_hdr.ttl = 64;
-    ip_hdr.protocol = @intFromEnum(IPv4Proto.UDP);
-    ip_hdr.checksum = 0;
-
-    ipv4_layer.set_src_ip(try IPv4Address.init_from_string("192.168.1.225"));
-    ipv4_layer.set_dst_ip(try IPv4Address.init_from_string("255.255.255.255"));
-
-    // UDP layer
-    const old_size2 = packet_buffer.len;
-    current_offset = next_offset + ipv4_size;
-    next_offset = calculate_next_offset(current_offset, UDP.UDPHeader);
-
-    const payload_data = "Hello, UDP!";
-    const udp_total_len = udp_size + payload_data.len;
-    const new_size2 = next_offset + udp_total_len;
-
-    packet_buffer = try allocator.realloc(packet_buffer, new_size2);
-    // Zero from the previous OLD end to the NEW end
-    @memset(packet_buffer[old_size2..], 0);
-
-    var udp_layer = try UDP.UDPLayer.preallocated_buffer(packet_buffer[next_offset..][0..udp_total_len]);
-
-    udp_layer.set_src_port(1234);
-    udp_layer.set_dst_port(53);
-    try udp_layer.set_payload(payload_data, allocator);
-
-    // Update IPv4 total length
-    ip_hdr.total_length = @byteSwap(@as(u16, @intCast(ipv4_size + udp_total_len)));
-
-    // Calculate checksums
-    ip_hdr.calculate_checksum();
-    udp_layer.calculate_checksum(ip_hdr.src_ip, ip_hdr.dst_ip);
-
-    print("Final packet size: {} bytes\n", .{packet_buffer.len});
-    print("UDP payload: {s}\n", .{udp_layer.get_payload()});
-
-    print("Packet bytes: ", .{});
-    for (packet_buffer) |byte| {
-        print("{x:0>2}", .{byte});
-    }
-    print("\n", .{});
+pub fn calculate_padding(current_offset: usize, comptime HdrType: type) usize {
+    const padding = (@alignOf(HdrType) - (current_offset % @alignOf(HdrType))) % @alignOf(HdrType);
+    return padding;
 }
 
-fn create_pkt(allocator: Allocator) ![]u8 {
+fn removeRangeInPlace(buf: []u8, offset: usize, len: usize) []const u8 {
+    std.debug.assert(offset + len <= buf.len);
+
+    const tail_start = offset + len;
+    const tail_len = buf.len - tail_start;
+
+    // Shift tail left
+    @memmove(
+        buf[offset .. offset + tail_len],
+        buf[tail_start .. tail_start + tail_len],
+    );
+
+    // Return shortened slice
+    return buf[0 .. buf.len - len];
+}
+
+fn create_packet(allocator: Allocator) ![]const u8 {
     const eth_size: usize = @sizeOf(EthHeader);
     const ipv4_size: usize = @sizeOf(IPv4Header);
     const udp_size: usize = @sizeOf(UDP.UDPHeader);
     const payload_data = "Hello, UDP!";
     const udp_total_len = udp_size + payload_data.len;
 
-    // Build with padding (for Zig safety)
     var packet_buffer = try allocator.alloc(u8, eth_size);
     @memset(packet_buffer, 0);
 
@@ -181,52 +121,35 @@ fn create_pkt(allocator: Allocator) ![]u8 {
     }
     print("\n", .{});
 
-    // Create contiguous packet WITHOUT padding for network transmission
-    const total_data_size = eth_size + ipv4_size + udp_total_len;
-    var send_buffer = try allocator.alloc(u8, total_data_size);
+    print("packet buf len: {}\n", .{packet_buffer.len});
 
-    // 1. Copy Ethernet header (always at offset 0)
-    @memcpy(send_buffer[0..eth_size], packet_buffer[0..eth_size]);
+    //    const padding = (alignment - (offset % alignment)) % alignment;
 
-    // 2. Copy IPv4 header (skip padding between Eth and IPv4)
-    // IPv4 header is at next_offset (16) in padded buffer
-    // It should go immediately after Ethernet in send buffer
-    const ipv4_src_start = next_offset; // Where IPv4 starts in padded buffer (16)
-    const ipv4_dst_start = eth_size; // Where IPv4 should go in send buffer (14)
-    @memcpy(send_buffer[ipv4_dst_start..][0..ipv4_size], packet_buffer[ipv4_src_start..][0..ipv4_size]);
+    const padding = calculate_padding(@sizeOf(EthHeader), IPv4Header);
 
-    // 3. Copy UDP header + payload (skip any padding before UDP)
-    // UDP starts at udp_start in padded buffer
-    // It should go immediately after IPv4 in send buffer
-    const udp_dst_start = eth_size + ipv4_size; // 14 + 20 = 34
-    @memcpy(send_buffer[udp_dst_start..][0..udp_total_len], packet_buffer[udp_start..][0..udp_total_len]);
+    print("padding: {}\n", .{padding});
 
-    print("Send packet (no padding): {} bytes\n", .{send_buffer.len});
-    print("Packet bytes (no padding): ", .{});
-    for (send_buffer) |byte| {
-        print("{x:0>2}", .{byte});
-    }
-    print("\n", .{});
+    // Move the tail down over the removed section
+    const trimmed = removeRangeInPlace(packet_buffer, 14, padding);
 
-    // Print the structure for debugging
-    print("\nPacket structure:\n", .{});
-    print("  Ethernet: indices 0-{} ({} bytes)\n", .{ eth_size - 1, eth_size });
-    print("  IPv4: indices {}-{} ({} bytes)\n", .{ eth_size, eth_size + ipv4_size - 1, ipv4_size });
-    print("  UDP: indices {}-{} ({} bytes)\n", .{ eth_size + ipv4_size, eth_size + ipv4_size + udp_total_len - 1, udp_total_len });
-    print("  Total: {} bytes\n", .{total_data_size});
+    print("trimmed len: {}\n", .{trimmed.len});
 
-    return send_buffer;
+    return trimmed;
 }
 
 pub fn main() !void {
-    var backing_buffer: [65536]u8 = undefined;
+    var backing_buffer: [55]u8 = undefined;
 
     var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
     const allocator = fba.allocator();
-    const packet_to_send = try create_pkt(allocator);
+    const packet_to_send = try create_packet(allocator);
     defer allocator.free(packet_to_send);
 
+    print("{x}\n", .{fba.buffer});
+
     print("end index: {}\n", .{fba.end_index});
+
+    print("{x}\n", .{packet_to_send});
 
     var wifi_interface = try pcap_test() orelse {
         return error.FailedToOpen;

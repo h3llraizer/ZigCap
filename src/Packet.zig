@@ -22,6 +22,7 @@ const IPv6HeaderSize = @import("IPv6.zig").HeaderSize;
 
 pub const Packet = struct {
     raw_packet: ?*RawPacket,
+    data: []u8,
     first_layer: ?*Layer,
     last_layer: ?*Layer,
 
@@ -45,7 +46,7 @@ pub const Packet = struct {
     }
 
     pub fn create() Packet {
-        return Packet{ .raw_packet = null, .first_layer = null, .last_layer = null };
+        return Packet{ .raw_packet = null, .data = undefined, .first_layer = null, .last_layer = null };
     }
 
     fn parse_link_layer(self: *Packet, allocator: std.mem.Allocator) !void {
