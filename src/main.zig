@@ -1,12 +1,15 @@
 const std = @import("std");
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
+const activeTag = std.meta.activeTag;
 
 const PcapWrapper = @import("PcapWrapper.zig");
 
-const Packet = @import("Packet.zig").Packet;
+const Packet = @import("Packet.zig");
+
 const LayerProtocols = @import("Layer.zig").LayerProtocols;
 const Layer = @import("Layer.zig").Layer;
+
 const TPtr = @import("Layer.zig").TPtr;
 const LinkLayerProtocols = @import("Layer.zig").LinkLayerProtocols;
 const IPv4Proto = @import("ProtocolEnums.zig").IPv4Proto;
@@ -28,35 +31,7 @@ const DNS = @import("DNS.zig");
 
 const from_protocol_layer = @import("Layer.zig").from_protocol_layer;
 
-pub fn calculate_next_offset(current_offset: usize, comptime HdrType: type) usize {
-    const alignment = @alignOf(HdrType);
-    const next_offset = (current_offset + alignment - 1) / alignment * alignment;
-    print("Current offset: {}, alignment: {}, next offset: {}\n", .{ current_offset, alignment, next_offset });
-    return next_offset;
-}
-
-pub fn calculate_padding(current_offset: usize, comptime HdrType: type) usize {
-    const padding = (@alignOf(HdrType) - (current_offset % @alignOf(HdrType))) % @alignOf(HdrType);
-    return padding;
-}
-
-fn removeRangeInPlace(buf: []u8, offset: usize, len: usize) []const u8 {
-    std.debug.assert(offset + len <= buf.len);
-
-    const tail_start = offset + len;
-    const tail_len = buf.len - tail_start;
-
-    // Shift tail left
-    @memmove(
-        buf[offset .. offset + tail_len],
-        buf[tail_start .. tail_start + tail_len],
-    );
-
-    // Return shortened slice
-    return buf[0 .. buf.len - len];
-}
-
-fn create_packet(allocator: Allocator) ![]const u8 {
+fn create_packet(packet: *Packet.Packet, allocator: Allocator) !void {
     const eth_size: usize = @sizeOf(EthHeader);
     const ipv4_size: usize = @sizeOf(IPv4Header);
     const udp_size: usize = @sizeOf(UDP.UDPHeader);
@@ -71,11 +46,22 @@ fn create_packet(allocator: Allocator) ![]const u8 {
     eth_layer.set_dst_mac(try MacAddress.init_from_string("38:06:e6:92:63:ac"));
     try eth_layer.set_eth_type(EthType.IP);
 
+    try packet.add_layer(&eth_layer); // its only referencing the struct, but the data is owned by the allocator - this is why the packet cannot get the data
+
+    const eth_alignment = Packet.get_layer_alignment(packet.first_layer.?.get_protocol());
+    print("Alignment {}\n", .{eth_alignment});
+
+    const eth_alloc = Packet.get_header_aligned_size(@sizeOf(EthHeader), @alignOf(IPv4Header));
+
+    print("Eth with padding: {}\n", .{eth_alloc});
+
     // IPv4 layer
     const old_size = packet_buffer.len;
     var current_offset: usize = eth_size;
-    const next_offset = calculate_next_offset(current_offset, IPv4Header);
+    const next_offset = Packet.calculate_next_offset(current_offset, IPv4Header);
     const new_size = next_offset + ipv4_size;
+
+    print("new size: {}\n", .{new_size});
 
     packet_buffer = try allocator.realloc(packet_buffer, new_size);
     @memset(packet_buffer[old_size..], 0);
@@ -91,10 +77,12 @@ fn create_packet(allocator: Allocator) ![]const u8 {
     ipv4_layer.set_src_ip(try IPv4Address.init_from_string("192.168.1.225"));
     ipv4_layer.set_dst_ip(try IPv4Address.init_from_string("192.168.1.254"));
 
+    try packet.add_layer(&ipv4_layer);
+
     // UDP layer
     const old_size2 = packet_buffer.len;
     current_offset = next_offset + ipv4_size;
-    const udp_next_offset = calculate_next_offset(current_offset, UDP.UDPHeader);
+    const udp_next_offset = Packet.calculate_next_offset(current_offset, UDP.UDPHeader);
     const udp_start = udp_next_offset; // Where UDP header starts in padded buffer
     const new_size2 = udp_start + udp_total_len;
 
@@ -114,8 +102,10 @@ fn create_packet(allocator: Allocator) ![]const u8 {
     ip_hdr.calculate_checksum();
     udp_layer.calculate_checksum(ip_hdr.src_ip, ip_hdr.dst_ip);
 
+    try packet.add_layer(&udp_layer);
+
     print("Built packet with padding: {} bytes\n", .{packet_buffer.len});
-    print("Packet bytes (with padding): ", .{});
+    print("Packet.Packet bytes (with padding): ", .{});
     for (packet_buffer) |byte| {
         print("{x:0>2}", .{byte});
     }
@@ -123,41 +113,73 @@ fn create_packet(allocator: Allocator) ![]const u8 {
 
     print("packet buf len: {}\n", .{packet_buffer.len});
 
-    //    const padding = (alignment - (offset % alignment)) % alignment;
+    const udp_data = udp_layer.get_data();
 
-    const padding = calculate_padding(@sizeOf(EthHeader), IPv4Header);
+    print("UDP Data: {s}\n", .{udp_data});
+
+    const padding = Packet.calculate_padding(@sizeOf(EthHeader), IPv4Header);
 
     print("padding: {}\n", .{padding});
 
+    print("IPv4 buf: {x}\n", .{packet_buffer[next_offset..][0..ipv4_size]});
+
+    //var test_ip = try IPv4Layer.preallocated_buffer(packet_buffer[next_offset..][0..ipv4_size]);
+
     // Move the tail down over the removed section
-    const trimmed = removeRangeInPlace(packet_buffer, 14, padding);
+    //    const trimmed = removeRangeInPlace(packet_buffer, 14, padding);
 
-    print("trimmed len: {}\n", .{trimmed.len});
+    //    print("trimmed len: {}\n", .{trimmed.len});
 
-    return trimmed;
+    //    return trimmed;
 }
 
 pub fn main() !void {
-    var backing_buffer: [55]u8 = undefined;
+    var pkt_data_backing_buffer: [55]u8 = undefined;
 
-    var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
-    const allocator = fba.allocator();
-    const packet_to_send = try create_packet(allocator);
-    defer allocator.free(packet_to_send);
+    var pkt_data_fba = std.heap.FixedBufferAllocator.init(&pkt_data_backing_buffer);
+    const pkt_data_allocator = pkt_data_fba.allocator();
 
-    print("{x}\n", .{fba.buffer});
+    const page_allocator = std.heap.page_allocator;
 
-    print("end index: {}\n", .{fba.end_index});
+    var packet = Packet.Packet.create(page_allocator);
 
-    print("{x}\n", .{packet_to_send});
+    try create_packet(&packet, pkt_data_allocator);
 
-    var wifi_interface = try pcap_test() orelse {
-        return error.FailedToOpen;
+    const layer_buf = packet.get_layer_from_buffer(LayerProtocols{ .LinkLayer = .ETHERNET }, &pkt_data_backing_buffer) orelse {
+        print("failed to get layer buf.\n", .{});
+        return;
     };
 
-    try wifi_interface.send(packet_to_send);
+    print("buf len: {}\n", .{layer_buf.len});
+    print("buf: {x}\n", .{layer_buf});
 
-    print("No error during send.\n", .{});
+    var layer = try EthLayer.preallocated_buffer(layer_buf);
+
+    print("{s}\n", .{layer.to_string(page_allocator)});
+
+    print("layer data buf : {x}\n", .{layer.get_data()});
+
+    // get layer of type:
+    //  find the protocol layerget
+    //  get its size and alignment
+    //  if it has a previous layer, get its size and alignment
+
+    //    const packet_to_send = try create_packet(&packet, pkt_data_allocator);
+    //   defer pkt_data_allocator.free(packet_to_send);
+    //
+    //   print("{x}\n", .{pkt_data_fba.buffer});
+    //
+    //   print("end index: {}\n", .{pkt_data_fba.end_index});
+    //
+    //   print("{x}\n", .{packet_to_send});
+    //
+    //   var wifi_interface = try pcap_test() orelse {
+    //       return error.FailedToOpen;
+    //   };
+    //
+    //   try wifi_interface.send(packet_to_send);
+    //
+    //   print("No error during send.\n", .{});
 }
 
 pub fn pcap_test() !?*PcapWrapper.Interface {

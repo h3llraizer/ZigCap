@@ -103,6 +103,9 @@ pub const IPv4Layer = struct {
         // Verify alignment
         const alignment = @alignOf(IPv4Header);
         const addr = @intFromPtr(buffer.ptr);
+        print("addr {any}\n", .{addr});
+        print("mod {any}\n", .{addr % alignment});
+
         if (addr % alignment != 0) {
             return error.MisalignedBuffer;
         }

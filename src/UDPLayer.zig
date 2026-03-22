@@ -2,8 +2,9 @@ const std = @import("std");
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
-const Layer = @import("Layer.zig").Layer;
-const TransportProtocols = @import("Layer.zig").TransportProtocols;
+const Layer = @import("Layer.zig");
+
+const DNS = @import("DNS.zig");
 
 pub const UDPHeaderSize = 8;
 
@@ -150,7 +151,7 @@ pub const UDPHeader = extern struct {
 
 pub const UDPLayer = struct {
     data: []u8, // UDP header + payload
-    const Protocol = TransportProtocols.UDP;
+    const Protocol = Layer.LayerProtocols{ .Transport = .UDP };
 
     pub fn init(raw: []u8, allocator: std.mem.Allocator) !*UDPLayer {
         if (raw.len < UDPHeaderSize) {
@@ -214,6 +215,8 @@ pub const UDPLayer = struct {
 
         // Copy payload
         @memcpy(self.data[UDPHeaderSize..][0..payload.len], payload);
+
+        print("UDP Data added: {x}\n", .{self.data});
 
         // Update header length
         var hdr = self.get_header();
@@ -284,7 +287,19 @@ pub const UDPLayer = struct {
         }) catch return "";
     }
 
-    pub fn get_protocol(self: *UDPLayer) TransportProtocols {
+    pub fn parse_next_layer(self: *UDPLayer, allocator: std.mem.Allocator) ?*Layer.Layer {
+        const packet_layer: *Layer.Layer = allocator.create(Layer.Layer) catch return null;
+
+        if (self.get_dst_port() == 53 or self.get_src_port() == 53) {
+            const dns_layer = DNS.DNSLayer.init(self.data[0..], allocator) catch return null;
+            packet_layer.* = Layer.Layer.implBy(dns_layer);
+            return packet_layer;
+        }
+
+        return null;
+    }
+
+    pub fn get_protocol(self: *UDPLayer) Layer.LayerProtocols {
         _ = self;
         return UDPLayer.Protocol;
     }

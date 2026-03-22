@@ -1,6 +1,9 @@
 const std = @import("std");
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
+const EthHeader = @import("Eth.zig").EthHeader;
+const IPv4Header = @import("IPv4.zig").IPv4Header;
+const UDPHeader = @import("UDPLayer.zig").UDPHeader;
 
 /// ApplicationProtocols values are defined with their well-known port number - this makes the transport layers parse_next_layer simpler
 pub const ApplicationProtocols = enum(u16) {
