@@ -164,7 +164,7 @@ pub const Packet = struct {
         }
     }
 
-    pub fn print_layer_alignments(self: *Packet) void { // use this to determine "actual size"
+    pub fn print_layer_alignments(self: *Packet) void {
         var cur = self.first_layer;
         while (cur) |layer| {
             print("{s} ", .{@tagName(activeTag(layer.get_protocol()))});
@@ -174,24 +174,45 @@ pub const Packet = struct {
         }
     }
 
-    pub fn get_layer_from_buffer(self: *Packet, protocol_layer: LayerProtocols, buffer: []u8) ?[]u8 {
-        print("Finding layer in buffer:\n", .{});
+    /// This method will return the actual size of packet buffer, not including the padding bytes
+    pub fn get_wire_size(self: *Packet) usize { // use this to determine "actual size"
+        var cur = self.first_layer;
+        while (cur) |layer| {
+            print("{s} ", .{@tagName(activeTag(layer.get_protocol()))});
+            const alignment = get_layer_alignment(layer.get_protocol());
+            print("{}\n", .{alignment});
+            cur = layer.next_layer;
+        }
+    }
 
+    pub fn get_wire_format(self: *Packet, buffer: []u8) []u8 {
         var cur = self.first_layer;
 
-        const protocol_layer_hdr_size = get_layer_size(protocol_layer);
-        print("protocol hdr size: {}\n", .{protocol_layer_hdr_size});
+        var wire_buf = buffer;
 
-        print("buf size: {}\n", .{buffer.len});
+        while (cur) |l| {
+            const layer_protocol = l.get_protocol();
+            const cur_hdr_size = get_layer_size(layer_protocol);
+
+            if (l.get_next_layer()) |next| {
+                const padding = calc_padding(cur_hdr_size, get_layer_alignment(next.get_protocol()));
+                wire_buf = removeRangeInPlace(wire_buf, cur_hdr_size, padding);
+            }
+
+            cur = l.next_layer;
+        }
+
+        return wire_buf;
+    }
+
+    pub fn get_layer_from_buffer(self: *Packet, protocol_layer: LayerProtocols, buffer: []u8) ?[]u8 {
+        var cur = self.first_layer;
 
         var current_offset: usize = 0;
 
         while (cur) |l| {
-            print("current offset: {}\n", .{current_offset});
             const layer_protocol = l.get_protocol();
             const cur_hdr_size = get_layer_size(layer_protocol);
-
-            print("cur hdr size: {}\n", .{cur_hdr_size});
 
             const active_tag = activeTag(layer_protocol);
 
@@ -243,7 +264,7 @@ pub fn calculate_padding(current_offset: usize, comptime HdrType: type) usize {
     return padding;
 }
 
-fn removeRangeInPlace(buf: []u8, offset: usize, len: usize) []const u8 {
+fn removeRangeInPlace(buf: []u8, offset: usize, len: usize) []u8 {
     std.debug.assert(offset + len <= buf.len);
 
     const tail_start = offset + len;

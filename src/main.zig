@@ -122,15 +122,6 @@ fn create_packet(packet: *Packet.Packet, allocator: Allocator) !void {
     print("padding: {}\n", .{padding});
 
     print("IPv4 buf: {x}\n", .{packet_buffer[next_offset..][0..ipv4_size]});
-
-    //var test_ip = try IPv4Layer.preallocated_buffer(packet_buffer[next_offset..][0..ipv4_size]);
-
-    // Move the tail down over the removed section
-    //    const trimmed = removeRangeInPlace(packet_buffer, 14, padding);
-
-    //    print("trimmed len: {}\n", .{trimmed.len});
-
-    //    return trimmed;
 }
 
 pub fn main() !void {
@@ -141,7 +132,7 @@ pub fn main() !void {
 
     const page_allocator = std.heap.page_allocator;
 
-    var packet = Packet.Packet.create(page_allocator);
+    var packet = Packet.Packet.create(page_allocator); // allocates layers
 
     try create_packet(&packet, pkt_data_allocator);
 
@@ -159,27 +150,17 @@ pub fn main() !void {
 
     print("layer data buf : {x}\n", .{layer.get_data()});
 
-    // get layer of type:
-    //  find the protocol layerget
-    //  get its size and alignment
-    //  if it has a previous layer, get its size and alignment
+    const contig_buf: []u8 = packet.get_wire_format(&pkt_data_backing_buffer);
 
-    //    const packet_to_send = try create_packet(&packet, pkt_data_allocator);
-    //   defer pkt_data_allocator.free(packet_to_send);
-    //
-    //   print("{x}\n", .{pkt_data_fba.buffer});
-    //
-    //   print("end index: {}\n", .{pkt_data_fba.end_index});
-    //
-    //   print("{x}\n", .{packet_to_send});
-    //
-    //   var wifi_interface = try pcap_test() orelse {
-    //       return error.FailedToOpen;
-    //   };
-    //
-    //   try wifi_interface.send(packet_to_send);
-    //
-    //   print("No error during send.\n", .{});
+    print("{x}\n", .{contig_buf});
+
+    var wifi_interface = try pcap_test() orelse {
+        return error.FailedToOpen;
+    };
+
+    try wifi_interface.send(contig_buf);
+
+    print("No error during send.\n", .{});
 }
 
 pub fn pcap_test() !?*PcapWrapper.Interface {
