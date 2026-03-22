@@ -31,7 +31,7 @@ const DNS = @import("DNS.zig");
 
 const from_protocol_layer = @import("Layer.zig").from_protocol_layer;
 
-fn create_packet(packet: *Packet.Packet, allocator: Allocator) !void {
+fn create_packet(packet: *Packet.Packet, allocator: Allocator) ![]u8 {
     const eth_size: usize = @sizeOf(EthHeader);
     const ipv4_size: usize = @sizeOf(IPv4Header);
     const udp_size: usize = @sizeOf(UDP.UDPHeader);
@@ -48,20 +48,11 @@ fn create_packet(packet: *Packet.Packet, allocator: Allocator) !void {
 
     try packet.add_layer(&eth_layer); // its only referencing the struct, but the data is owned by the allocator - this is why the packet cannot get the data
 
-    const eth_alignment = Packet.get_layer_alignment(packet.first_layer.?.get_protocol());
-    print("Alignment {}\n", .{eth_alignment});
-
-    const eth_alloc = Packet.get_header_aligned_size(@sizeOf(EthHeader), @alignOf(IPv4Header));
-
-    print("Eth with padding: {}\n", .{eth_alloc});
-
     // IPv4 layer
     const old_size = packet_buffer.len;
     var current_offset: usize = eth_size;
     const next_offset = Packet.calculate_next_offset(current_offset, IPv4Header);
     const new_size = next_offset + ipv4_size;
-
-    print("new size: {}\n", .{new_size});
 
     packet_buffer = try allocator.realloc(packet_buffer, new_size);
     @memset(packet_buffer[old_size..], 0);
@@ -104,45 +95,29 @@ fn create_packet(packet: *Packet.Packet, allocator: Allocator) !void {
 
     try packet.add_layer(&udp_layer);
 
-    print("Built packet with padding: {} bytes\n", .{packet_buffer.len});
-    print("Packet.Packet bytes (with padding): ", .{});
-    for (packet_buffer) |byte| {
-        print("{x:0>2}", .{byte});
-    }
-    print("\n", .{});
-
-    print("packet buf len: {}\n", .{packet_buffer.len});
-
-    const udp_data = udp_layer.get_data();
-
-    print("UDP Data: {s}\n", .{udp_data});
-
-    const padding = Packet.calculate_padding(@sizeOf(EthHeader), IPv4Header);
-
-    print("padding: {}\n", .{padding});
-
-    print("IPv4 buf: {x}\n", .{packet_buffer[next_offset..][0..ipv4_size]});
+    return packet_buffer;
 }
 
 pub fn main() !void {
-    var pkt_data_backing_buffer: [55]u8 = undefined;
+    var pkt_data_backing_buffer: [2048]u8 = undefined;
 
     var pkt_data_fba = std.heap.FixedBufferAllocator.init(&pkt_data_backing_buffer);
     const pkt_data_allocator = pkt_data_fba.allocator();
 
     const page_allocator = std.heap.page_allocator;
 
-    var packet = Packet.Packet.create(page_allocator); // allocates layers
+    var packet = Packet.Packet.create(pkt_data_allocator); // allocates layers
+    defer packet.deinit();
 
-    try create_packet(&packet, pkt_data_allocator);
+    const udp_packet = try create_packet(&packet, pkt_data_allocator);
 
-    const layer_buf = packet.get_layer_from_buffer(LayerProtocols{ .LinkLayer = .ETHERNET }, &pkt_data_backing_buffer) orelse {
+    const layer_buf = packet.get_layer_from_buffer(LayerProtocols{ .LinkLayer = .ETHERNET }, udp_packet) orelse {
         print("failed to get layer buf.\n", .{});
         return;
     };
 
     print("buf len: {}\n", .{layer_buf.len});
-    print("buf: {x}\n", .{layer_buf});
+    print("buf: {x}\n", .{pkt_data_backing_buffer});
 
     var layer = try EthLayer.preallocated_buffer(layer_buf);
 
@@ -150,7 +125,11 @@ pub fn main() !void {
 
     print("layer data buf : {x}\n", .{layer.get_data()});
 
-    const contig_buf: []u8 = packet.get_wire_format(&pkt_data_backing_buffer);
+    const contig_buf_size: usize = packet.get_wire_size(udp_packet);
+
+    print("contig buf size: {}\n", .{contig_buf_size});
+
+    const contig_buf: []u8 = packet.get_wire_format(udp_packet);
 
     print("{x}\n", .{contig_buf});
 

@@ -20,7 +20,7 @@ pub const Packet = struct {
     raw_packet: ?*RawPacket,
     first_layer: ?*Layer,
     last_layer: ?*Layer,
-    allocator: Allocator,
+    layer_allocator: Allocator, // for allocating layer interfaces
 
     /// Creates empty Packet struct with with empty RawPacket. First and Last layer are set to null.
     pub fn init(allocator: std.mem.Allocator) !*Packet {
@@ -41,10 +41,14 @@ pub const Packet = struct {
         return p;
     }
 
-    /// Creaates an empty Packet, the interface is only used for creating the interface Layer structs.
+    /// Creates an empty Packet, the interface is only used for creating the interface Layer structs.
     /// Using a seperate allocator from your packet buffer is recommended to avoid alignment and casting bugs
-    pub fn create(allocator: Allocator) Packet {
-        return Packet{ .raw_packet = null, .first_layer = null, .last_layer = null, .allocator = allocator };
+    pub fn create(layer_allocator: Allocator) Packet {
+        return Packet{ .raw_packet = null, .first_layer = null, .last_layer = null, .layer_allocator = layer_allocator };
+    }
+
+    pub fn from_contig(buffer: []u8) void {
+        _ = buffer;
     }
 
     fn parse_link_layer(self: *Packet, allocator: std.mem.Allocator) !void {
@@ -78,7 +82,7 @@ pub const Packet = struct {
 
     /// Adds a layer to the tail of the layers.
     pub fn add_layer(self: *Packet, layer: anytype) !void {
-        const new_layer = try self.allocator.create(Layer);
+        const new_layer = try self.layer_allocator.create(Layer);
         new_layer.* = Layer.implBy(layer);
 
         if (self.first_layer == null) {
@@ -135,7 +139,7 @@ pub const Packet = struct {
     pub fn has_layer(self: *Packet, protocol_layer: LayerProtocols) bool {
         var cur = self.first_layer;
         while (cur) |layer| {
-            if (std.meta.activeTag(layer.get_protocol()) == std.meta.activeTag(protocol_layer)) {
+            if (activeTag(layer.get_protocol()) == activeTag(protocol_layer)) {
                 return true;
             }
             if (layer.next_layer) |next| {
@@ -174,15 +178,25 @@ pub const Packet = struct {
         }
     }
 
-    /// This method will return the actual size of packet buffer, not including the padding bytes
-    pub fn get_wire_size(self: *Packet) usize { // use this to determine "actual size"
+    /// This method will return the actual size of packet buffer as it would be on the wire, not including the padding bytes
+    pub fn get_wire_size(self: *Packet, buffer: []const u8) usize { // use this to determine "actual size"
         var cur = self.first_layer;
-        while (cur) |layer| {
-            print("{s} ", .{@tagName(activeTag(layer.get_protocol()))});
-            const alignment = get_layer_alignment(layer.get_protocol());
-            print("{}\n", .{alignment});
-            cur = layer.next_layer;
+
+        var wire_size: usize = buffer.len;
+
+        while (cur) |l| {
+            const layer_protocol = l.get_protocol();
+            const cur_hdr_size = get_layer_size(layer_protocol);
+
+            if (l.get_next_layer()) |next| {
+                const padding = calc_padding(cur_hdr_size, get_layer_alignment(next.get_protocol()));
+                wire_size -= padding;
+            }
+
+            cur = l.next_layer;
         }
+
+        return wire_size;
     }
 
     /// This takes takes the packet buffer and iterates through the layers, removing the padding bytes and returning the mutable contiguous packet buffer
@@ -220,8 +234,8 @@ pub const Packet = struct {
             if (active_tag == activeTag(protocol_layer)) {
                 print("found layer.\n", .{});
 
-                //                return buffer[current_offset..][0..protocol_layer_hdr_size];
-                return buffer[current_offset..][0..];
+                return buffer[current_offset..][0..get_layer_size(protocol_layer)];
+                //return buffer[current_offset..][0..];
             }
 
             // skip padding by calculating the aligned header size
@@ -235,9 +249,16 @@ pub const Packet = struct {
         return null;
     }
 
-    pub fn deinit(self: *Packet, allocator: std.mem.Allocator) void {
-        //TODO: Iterate through layers and deinit them
-        allocator.destroy(self);
+    /// destroys interface layers from last to first
+    pub fn deinit(self: *Packet) void {
+        var cur = self.last_layer;
+        while (cur) |l| {
+            const prev = l.get_prev_layer();
+            self.layer_allocator.destroy(l);
+            cur = prev;
+        }
+        self.first_layer = null;
+        self.last_layer = null;
     }
 };
 
