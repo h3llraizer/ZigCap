@@ -185,6 +185,7 @@ pub const Packet = struct {
         }
     }
 
+    /// This takes takes the packet buffer and iterates through the layers, removing the padding bytes and returning the mutable contiguous packet buffer
     pub fn get_wire_format(self: *Packet, buffer: []u8) []u8 {
         var cur = self.first_layer;
 
