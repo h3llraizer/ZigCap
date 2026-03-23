@@ -16,31 +16,58 @@ const IPv4 = @import("IPv4.zig");
 const IPv6Layer = @import("IPv6.zig");
 const UDP = @import("UDPLayer.zig");
 
+const GenericLayer = @import("GenericLayer.zig").GenericLayer;
+
+const EthLayer = Eth.EthLayer;
+
+fn get_layer_enum(value: anytype) !LayerProtocols {
+    const T = @TypeOf(value);
+    switch (T) {
+        EthLayer => return LayerProtocols{ .LinkLayer = .ETHERNET },
+        *EthLayer => return LayerProtocols{ .LinkLayer = .ETHERNET },
+        IPv4.IPv4Layer => return LayerProtocols{ .Network = .IPv4 },
+        UDP.UDPLayer => return LayerProtocols{ .Transport = .UDP },
+        else => return error.LayerInvalid,
+    }
+}
+
 pub const Packet = struct {
     first_layer: ?*Layer,
     last_layer: ?*Layer,
-    layer_allocator: Allocator, // for allocating layer interfaces
+    allocator: Allocator,
+    aligned_buffer: []u8,
 
-    /// Creates an empty Packet, the interface is only used for creating the interface Layer structs.
-    /// Using a seperate allocator from your packet buffer is recommended to avoid alignment and casting bugs
-    pub fn create(layer_allocator: Allocator) !Packet {
-        //        const link_layer = LayerProtocols{ .LinkLayer = link_type };
-        //        const initial_size = get_layer_size(link_layer);
-
+    /// Creates an empty Packet - alloc's zero bytes to initial aligned buffer
+    pub fn create(allocator: Allocator) !Packet {
         return Packet{
             .first_layer = null,
             .last_layer = null,
-            .layer_allocator = layer_allocator,
-            //           .buffer_allocator = buffer_allocator,
-            //            .buffer = try buffer_allocator.alloc(u8, initial_size),
+            .allocator = allocator,
+            .aligned_buffer = try allocator.alloc(u8, 0),
         };
+    }
+
+    pub fn add_layer_to_buf(self: *Packet, layer_type: anytype) ![]u8 {
+        const layer_enum = try get_layer_enum(layer_type);
+
+        const hdr_size = get_layer_size(layer_enum);
+        const alignment_size = get_layer_alignment(layer_enum);
+        const current_offset = self.aligned_buffer.len;
+        const next_offset = get_next_relative_offset(current_offset, alignment_size); // should be called get alignment size
+
+        var new_buffer = try self.allocator.realloc(self.aligned_buffer, next_offset + hdr_size);
+        self.aligned_buffer = new_buffer;
+        @memset(new_buffer[current_offset..], 0); // zero the pad bytes
+
+        try self.add_layer(layer_type);
+        return new_buffer[next_offset..]; // returns the slice which the layer can be init'd from
     }
 
     /// Creates a Packet from an existing buffer which is in wire format. The buffer needs to be mutable so padding can be inserted
     /// if required and the alllocator used to allocate the buffer needs to be passed for potentail realloc.
     /// The LinkType needs to be specified.
-    pub fn from_contig(buffer: []u8, buffer_allocator: Allocator, link_type: LinkLayerProtocols, layer_allocator: Allocator) !Packet {
-        var self = Packet.create(layer_allocator);
+    pub fn from_contig(buffer: []u8, buffer_allocator: Allocator, link_type: LinkLayerProtocols, allocator: Allocator) !Packet {
+        var self = Packet.create(allocator);
         switch (link_type) {
             LinkLayerProtocols.ETHERNET => {
                 if (buffer.len < @sizeOf(Eth.EthHeader)) return error.BufferTooSmallForEth;
@@ -64,7 +91,7 @@ pub const Packet = struct {
             if (cur_depth == depth) {
                 break;
             }
-            const next = layer.parse_next_layer(buffer_allocator, self.layer_allocator) orelse break;
+            const next = layer.parse_next_layer(buffer_allocator, self.allocator) orelse break;
 
             layer.set_next_layer(next);
             cur_depth += 1;
@@ -76,12 +103,13 @@ pub const Packet = struct {
 
     /// Adds a layer to the tail of the layers.
     pub fn add_layer(self: *Packet, layer: anytype) !void {
-        const new_layer = try self.layer_allocator.create(Layer);
+        const new_layer = try self.allocator.create(Layer);
         new_layer.* = Layer.implBy(layer);
 
         const protocol = new_layer.get_protocol();
+        const hdr_size = get_layer_size(protocol);
 
-        print("{any}\n", .{protocol});
+        print("protocol: {any}, hdr size {}\n", .{ protocol, hdr_size });
 
         if (self.first_layer == null) {
             self.first_layer = new_layer;
@@ -238,7 +266,7 @@ pub const Packet = struct {
 
             // skip padding by calculating the aligned header size
             if (l.get_next_layer()) |next| {
-                current_offset += get_header_aligned_size(cur_hdr_size, get_layer_alignment(next.get_protocol()));
+                current_offset += get_next_relative_offset(cur_hdr_size, get_layer_alignment(next.get_protocol()));
             }
 
             cur = l.next_layer;
@@ -252,7 +280,7 @@ pub const Packet = struct {
         var cur = self.last_layer;
         while (cur) |l| {
             const prev = l.get_prev_layer();
-            self.layer_allocator.destroy(l);
+            self.allocator.destroy(l);
             cur = prev;
         }
         self.first_layer = null;
@@ -260,7 +288,7 @@ pub const Packet = struct {
     }
 };
 
-pub fn get_header_aligned_size(header_size: usize, alignment_size: usize) usize {
+pub fn get_next_relative_offset(header_size: usize, alignment_size: usize) usize {
     const aligned_header_size = (header_size + alignment_size - 1) / alignment_size * alignment_size;
     print("Current offset: {}, alignment: {}, next offset: {}\n", .{ header_size, alignment_size, aligned_header_size });
     return aligned_header_size;
@@ -304,6 +332,7 @@ pub fn get_layer_size(protocol: LayerProtocols) usize {
     return switch (protocol) {
         .LinkLayer => |link_proto| switch (link_proto) {
             .ETHERNET => return @sizeOf(Eth.EthHeader),
+
             else => return 0,
         },
 
@@ -344,4 +373,25 @@ pub fn get_layer_alignment(protocol: LayerProtocols) usize {
 
 pub fn get_alignment(comptime HdrType: type) usize {
     return @alignOf(HdrType);
+}
+
+pub fn get_header(protocol: LayerProtocols) type {
+    return switch (protocol) {
+        .LinkLayer => |link_proto| switch (link_proto) {
+            .ETHERNET => return Eth.EthHeader,
+            else => return 0,
+        },
+
+        .Network => |net_proto| switch (net_proto) {
+            .IPv4 => return IPv4.IPv4Header,
+            else => return 0,
+        },
+
+        .Transport => |trans_proto| switch (trans_proto) {
+            .UDP => return UDP.UDPHeader,
+            else => return 0,
+        },
+
+        else => return 0,
+    };
 }

@@ -29,6 +29,8 @@ const DNSLayer = @import("DNS.zig").DNSLayer;
 const UDP = @import("UDPLayer.zig");
 const DNS = @import("DNS.zig");
 
+const GenericLayer = @import("GenericLayer.zig").GenericLayer;
+
 const from_protocol_layer = @import("Layer.zig").from_protocol_layer;
 
 /// Returns the slice which the next layer can be allocated in
@@ -99,6 +101,21 @@ fn create_packet_test(packet: *Packet.Packet, allocator: Allocator) !void {
     print("packet len: {}\n", .{packet_buffer.len});
 }
 
+fn add_eth(packet: *Packet.Packet) !void {
+    var eth_layer: EthLayer = undefined;
+
+    const eth_buffer = try packet.add_layer_to_buf(&eth_layer);
+
+    eth_layer = try EthLayer.preallocated_buffer(eth_buffer);
+    eth_layer.set_src_mac(try MacAddress.init_from_string("14:4f:8a:a4:15:7d"));
+    eth_layer.set_dst_mac(try MacAddress.init_from_string("38:06:e6:92:63:ac"));
+    try eth_layer.set_eth_type(EthType.IP);
+
+    print("{}\n", .{@sizeOf(Layer)});
+
+    print("eth: {x}\n", .{eth_buffer});
+}
+
 pub fn main() !void {
     var pkt_data_backing_buffer: [2048]u8 = undefined;
 
@@ -107,12 +124,21 @@ pub fn main() !void {
 
     const page_allocator = std.heap.page_allocator;
 
-    _ = page_allocator;
+    _ = &page_allocator;
 
     var packet = try Packet.Packet.create(pkt_data_allocator);
     defer packet.deinit();
 
-    try create_packet_test(&packet, pkt_data_allocator);
+    try add_eth(&packet);
+
+    print("mem: {}\n", .{pkt_data_fba.end_index});
+
+    _ = packet.get_first_layer() orelse {
+        print("no first layer.\n", .{});
+        return;
+    };
+
+    print("{x}\n", .{packet.aligned_buffer});
 }
 
 pub fn pcap_test() !?*PcapWrapper.Interface {

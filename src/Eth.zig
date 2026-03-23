@@ -96,6 +96,11 @@ pub const EthLayer = struct {
         return e;
     }
 
+    pub fn stack() EthLayer {
+        const d: [14]u8 = undefined;
+        return EthLayer{ .data = d };
+    }
+
     pub fn allocator_owned_buffer(allocator: Allocator) !EthLayer {
         var self = EthLayer{ .data = undefined };
         self.data = try allocator.alloc(u8, EthHeaderSize);

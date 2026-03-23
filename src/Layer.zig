@@ -63,6 +63,8 @@ pub const Layer = struct {
     next_layer: ?*Layer,
     prev_layer: ?*Layer,
 
+    data: []u8,
+
     v_get_data: *const fn (*anyopaque) []u8,
     v_get_payload: *const fn (*anyopaque) []u8,
     v_to_string: *const fn (*anyopaque, Allocator) []const u8,
@@ -77,7 +79,7 @@ pub const Layer = struct {
             .layer_type = layer_type,
             .next_layer = null,
             .prev_layer = null,
-
+            .data = delegate.get_data(layer_type),
             .v_get_data = delegate.get_data,
             .v_get_payload = delegate.get_payload,
             .v_to_string = delegate.to_string,
