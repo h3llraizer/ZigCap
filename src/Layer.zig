@@ -66,7 +66,7 @@ pub const Layer = struct {
     v_get_data: *const fn (*anyopaque) []u8,
     v_get_payload: *const fn (*anyopaque) []u8,
     v_to_string: *const fn (*anyopaque, Allocator) []const u8,
-    v_parse_next_layer: *const fn (*anyopaque, Allocator) ?*Layer,
+    v_parse_next_layer: *const fn (*anyopaque, Allocator, Allocator) ?*Layer,
     v_get_protocol: *const fn (*anyopaque) LayerProtocols,
     v_deinit: *const fn (*anyopaque, Allocator) void,
 
@@ -120,8 +120,8 @@ pub const Layer = struct {
         return self.v_to_string(self.layer_type, allocator);
     }
 
-    pub fn parse_next_layer(self: *Layer, allocator: Allocator) ?*Layer {
-        return self.v_parse_next_layer(self.layer_type, allocator);
+    pub fn parse_next_layer(self: *Layer, buffer_allocator: Allocator, layer_allocator: Allocator) ?*Layer {
+        return self.v_parse_next_layer(self.layer_type, buffer_allocator, layer_allocator);
     }
 
     pub fn get_protocol(self: *Layer) LayerProtocols {
@@ -150,8 +150,8 @@ inline fn LayerDelegate(layer_type: anytype) type { // VTable Link
             return TPtr(LayerType, layer).to_string(allocator);
         }
 
-        pub fn parse_next_layer(layer: *anyopaque, allocator: Allocator) ?*Layer {
-            return TPtr(LayerType, layer).parse_next_layer(allocator);
+        pub fn parse_next_layer(layer: *anyopaque, buffer_allocator: Allocator, layer_allocator: Allocator) ?*Layer {
+            return TPtr(LayerType, layer).parse_next_layer(buffer_allocator, layer_allocator);
         }
 
         pub fn get_protocol(layer: *anyopaque) LayerProtocols {

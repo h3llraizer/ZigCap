@@ -84,27 +84,34 @@ pub const IPv6Layer = struct {
         return self.data[20..];
     }
 
-    pub fn parse_next_layer(self: *IPv6Layer, allocator: std.mem.Allocator) ?*Layer {
+    pub fn parse_next_layer(self: *IPv6Layer, buffer_allocator: Allocator, layer_allocator: Allocator) ?*Layer {
+        _ = buffer_allocator;
         const transport_type: TransportProtocol = self.get_transport_type() catch return null;
 
-        const packet_layer: *Layer = allocator.create(Layer) catch return null;
+        _ = transport_type;
 
-        switch (transport_type) {
-            TransportProtocol.TCP => {
-                const tcp_layer = TCPLayer.init(self.data[HeaderSize..], allocator) catch return null;
-                packet_layer.* = Layer.implBy(tcp_layer);
-            },
-            TransportProtocol.UDP => {
-                const udp_layer = UDPLayer.init(self.data[HeaderSize..], allocator) catch return null;
-                packet_layer.* = Layer.implBy(udp_layer);
-            },
-            else => {
-                print("Unhandled Transport layer.\n", .{});
-                return null;
-            },
-        }
+        const packet_layer: *Layer = layer_allocator.create(Layer) catch return null;
 
-        return packet_layer;
+        _ = packet_layer;
+
+        //       switch (transport_type) {
+        //           TransportProtocol.TCP => {
+        //               const tcp_layer = TCPLayer.init(self.data[HeaderSize..], layer_allocator) catch return null;
+        //               packet_layer.* = Layer.implBy(tcp_layer);
+        //           },
+        //           TransportProtocol.UDP => {
+        //               const udp_layer = UDPLayer.init(self.data[HeaderSize..], layer_allocator) catch return null;
+        //               packet_layer.* = Layer.implBy(udp_layer);
+        //           },
+        //           else => {
+        //               print("Unhandled Transport layer.\n", .{});
+        //               return null;
+        //           },
+        //       }
+
+        //        return packet_layer;
+
+        return null;
     }
 
     pub fn get_transport_type(self: *IPv6Layer) !TransportProtocol {

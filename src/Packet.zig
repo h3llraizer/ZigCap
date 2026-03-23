@@ -3,7 +3,7 @@ const print = std.debug.print;
 const activeTag = std.meta.activeTag;
 const Allocator = std.mem.Allocator;
 
-const RawPacket = @import("RawPacket.zig").RawPacket;
+const WirePacket = @import("WirePacket.zig").WirePacket;
 const Layer = @import("Layer.zig").Layer;
 const LayerProtocols = @import("Layer.zig").LayerProtocols;
 
@@ -17,63 +17,57 @@ const IPv6Layer = @import("IPv6.zig");
 const UDP = @import("UDPLayer.zig");
 
 pub const Packet = struct {
-    raw_packet: ?*RawPacket,
     first_layer: ?*Layer,
     last_layer: ?*Layer,
     layer_allocator: Allocator, // for allocating layer interfaces
 
-    /// Creates empty Packet struct with with empty RawPacket. First and Last layer are set to null.
-    pub fn init(allocator: std.mem.Allocator) !*Packet {
-        var p = try allocator.create(Packet);
-        p.first_layer = null;
-        p.last_layer = null;
-        p.raw_packet = try allocator.create(RawPacket);
-        return p;
-    }
-
-    pub fn init_from_raw(raw_packet: *RawPacket, allocator: std.mem.Allocator) !*Packet {
-        var p = try allocator.create(Packet);
-        p.first_layer = null;
-        p.last_layer = null;
-        p.raw_packet = raw_packet;
-        try p.parse_link_layer(allocator);
-        p.parse_all_layers(allocator);
-        return p;
-    }
-
     /// Creates an empty Packet, the interface is only used for creating the interface Layer structs.
     /// Using a seperate allocator from your packet buffer is recommended to avoid alignment and casting bugs
-    pub fn create(layer_allocator: Allocator) Packet {
-        return Packet{ .raw_packet = null, .first_layer = null, .last_layer = null, .layer_allocator = layer_allocator };
+    pub fn create(layer_allocator: Allocator) !Packet {
+        //        const link_layer = LayerProtocols{ .LinkLayer = link_type };
+        //        const initial_size = get_layer_size(link_layer);
+
+        return Packet{
+            .first_layer = null,
+            .last_layer = null,
+            .layer_allocator = layer_allocator,
+            //           .buffer_allocator = buffer_allocator,
+            //            .buffer = try buffer_allocator.alloc(u8, initial_size),
+        };
     }
 
-    pub fn from_contig(buffer: []u8) void {
-        _ = buffer;
-    }
-
-    fn parse_link_layer(self: *Packet, allocator: std.mem.Allocator) !void {
-        if (self.raw_packet == null) {
-            return error.RawPacketNotAllocated;
-        }
-
-        const raw: []u8 = self.raw_packet.?.raw_data;
-
-        switch (self.raw_packet.?.link_type) {
+    /// Creates a Packet from an existing buffer which is in wire format. The buffer needs to be mutable so padding can be inserted
+    /// if required and the alllocator used to allocate the buffer needs to be passed for potentail realloc.
+    /// The LinkType needs to be specified.
+    pub fn from_contig(buffer: []u8, buffer_allocator: Allocator, link_type: LinkLayerProtocols, layer_allocator: Allocator) !Packet {
+        var self = Packet.create(layer_allocator);
+        switch (link_type) {
             LinkLayerProtocols.ETHERNET => {
-                const eth_layer = try Eth.EthLayer.init(raw[0..], allocator);
-                try self.add_layer(eth_layer, allocator);
+                if (buffer.len < @sizeOf(Eth.EthHeader)) return error.BufferTooSmallForEth;
+                var eth_layer = try Eth.EthLayer.preallocated_buffer(buffer[0..]);
+                try self.add_layer(&eth_layer);
             },
             else => return error.UnknownLinkType,
         }
+
+        self.parse_all_layers(buffer_allocator, 1);
+
+        return self;
     }
 
-    fn parse_all_layers(self: *Packet, allocator: std.mem.Allocator) void {
+    fn parse_all_layers(self: *Packet, buffer_allocator: Allocator, depth: usize) void {
         var cur = self.first_layer;
 
+        var cur_depth: usize = 0;
+
         while (cur) |layer| {
-            const next = layer.parse_next_layer(allocator) orelse break;
+            if (cur_depth == depth) {
+                break;
+            }
+            const next = layer.parse_next_layer(buffer_allocator, self.layer_allocator) orelse break;
 
             layer.set_next_layer(next);
+            cur_depth += 1;
             cur = next;
         }
 
@@ -84,6 +78,10 @@ pub const Packet = struct {
     pub fn add_layer(self: *Packet, layer: anytype) !void {
         const new_layer = try self.layer_allocator.create(Layer);
         new_layer.* = Layer.implBy(layer);
+
+        const protocol = new_layer.get_protocol();
+
+        print("{any}\n", .{protocol});
 
         if (self.first_layer == null) {
             self.first_layer = new_layer;

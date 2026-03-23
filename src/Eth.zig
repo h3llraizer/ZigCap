@@ -2,7 +2,7 @@ const std = @import("std");
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
-const Packet = @import("Packet.zig").Packet;
+const Packet = @import("Packet.zig");
 
 const Layer = @import("Layer.zig").Layer;
 const LayerProtocols = @import("Layer.zig").LayerProtocols;
@@ -99,6 +99,7 @@ pub const EthLayer = struct {
     pub fn allocator_owned_buffer(allocator: Allocator) !EthLayer {
         var self = EthLayer{ .data = undefined };
         self.data = try allocator.alloc(u8, EthHeaderSize);
+        //self = try EthLayer.preallocated_buffer(self.data);
         return self;
     }
 
@@ -167,11 +168,12 @@ pub const EthLayer = struct {
         return self.data[EthHeaderSize..];
     }
 
-    pub fn parse_next_layer(self: *EthLayer, allocator: std.mem.Allocator) ?*Layer {
+    /// this method assumes it's parsing from a contiguous/wire buffer. It will realloc and add padding for alignment
+    pub fn parse_next_layer(self: *EthLayer, buffer_allocator: Allocator, layer_allocator: Allocator) ?*Layer {
         const hdr = self.get_header();
         const eth_type = hdr.get_eth_type();
 
-        const packet_layer: *Layer = allocator.create(Layer) catch return null;
+        const packet_layer: *Layer = layer_allocator.create(Layer) catch return null;
 
         switch (eth_type) {
             EthType.IP => {
@@ -185,24 +187,42 @@ pub const EthLayer = struct {
                 if (ip_version == @intFromEnum(NetworkProtocols.IPv4)) {
                     if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) return null;
 
-                    // Pass the entire packet (including Ethernet header) to IPv4 layer
-                    // The IPv4 layer should slice off the Ethernet header itself
-                    const ipv4_layer = IPv4Layer.init(self.data[EthHeaderSize..], allocator) catch return null;
-                    packet_layer.* = Layer.implBy(ipv4_layer);
+                    // Calculate the new total size needed
+                    const current_offset: usize = EthHeaderSize; // where the IP header starts
+                    const ipv4_size: usize = @sizeOf(IPv4Header);
+                    const new_total_size = current_offset + ipv4_size;
+
+                    // Reallocate the entire buffer
+                    self.data = buffer_allocator.realloc(self.data, new_total_size) catch |err| {
+                        print("Error reallocing for IPv4 Layer: {s}\n", .{@errorName(err)});
+                        return null;
+                    };
+
+                    print("Realloc'd: {x}\n", .{self.data});
+
+                    // Now you can work with the IP header at the correct offset
+                    var ipv4_layer = IPv4Layer.preallocated_buffer(self.data[current_offset..][0..ipv4_size]) catch |err| {
+                        print("Error creating IPv4 Layer: {s}\n", .{@errorName(err)});
+                        return null;
+                    };
+
+                    packet_layer.* = Layer.implBy(&ipv4_layer);
                     return packet_layer;
                 }
 
-                if (ip_version == @intFromEnum(NetworkProtocols.IPv6)) {
-                    const ipv6_layer = IPv6Layer.init(self.data[EthHeaderSize..], allocator) catch return null;
-                    packet_layer.* = Layer.implBy(ipv6_layer);
-                    return packet_layer;
+                if (ip_version == @intFromEnum(NetworkProtocols.IPv6)) { // this isn't implemented yet and will likely fail
+                    //                   const ipv6_layer = IPv6Layer.init(self.data[EthHeaderSize..], layer_allocator) catch return null;
+                    //                   packet_layer.* = Layer.implBy(ipv6_layer);
+                    //                   return packet_layer;
+                    print("ipv6 layer not implemented yet.\n", .{});
+                    return null;
                 }
 
                 print("Unknown IP version: {}\n", .{ip_version});
                 return null;
             },
             EthType.IPV6 => {
-                const ipv6_layer = IPv6Layer.init(self.data[EthHeaderSize..], allocator) catch return null;
+                const ipv6_layer = IPv6Layer.init(self.data[EthHeaderSize..], layer_allocator) catch return null;
                 packet_layer.* = Layer.implBy(ipv6_layer);
                 return packet_layer;
             },

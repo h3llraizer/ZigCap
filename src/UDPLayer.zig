@@ -216,7 +216,7 @@ pub const UDPLayer = struct {
         // Copy payload
         @memcpy(self.data[UDPHeaderSize..][0..payload.len], payload);
 
-        print("UDP Data added: {x}\n", .{self.data});
+        //        print("UDP Data added: {x}\n", .{self.data});
 
         // Update header length
         var hdr = self.get_header();
@@ -287,15 +287,18 @@ pub const UDPLayer = struct {
         }) catch return "";
     }
 
-    pub fn parse_next_layer(self: *UDPLayer, allocator: std.mem.Allocator) ?*Layer.Layer {
-        const packet_layer: *Layer.Layer = allocator.create(Layer.Layer) catch return null;
+    pub fn parse_next_layer(self: *UDPLayer, buffer_allocator: Allocator, layer_allocator: Allocator) ?*Layer.Layer {
+        const packet_layer: *Layer.Layer = layer_allocator.create(Layer.Layer) catch return null;
+        _ = buffer_allocator;
+        _ = &self;
+        _ = packet_layer;
 
-        if (self.get_dst_port() == 53 or self.get_src_port() == 53) {
-            const dns_layer = DNS.DNSLayer.init(self.data[0..], allocator) catch return null;
-            packet_layer.* = Layer.Layer.implBy(dns_layer);
-            return packet_layer;
-        }
-
+        //       if (self.get_dst_port() == 53 or self.get_src_port() == 53) {
+        //           const dns_layer = DNS.DNSLayer.init(self.data[0..], allocator) catch return null;
+        //           packet_layer.* = Layer.Layer.implBy(dns_layer);
+        //           return packet_layer;
+        //       }
+        //
         return null;
     }
 

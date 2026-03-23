@@ -13,7 +13,7 @@ const Layer = @import("Layer.zig").Layer;
 const TPtr = @import("Layer.zig").TPtr;
 const LinkLayerProtocols = @import("Layer.zig").LinkLayerProtocols;
 const IPv4Proto = @import("ProtocolEnums.zig").IPv4Proto;
-const RawPacket = @import("RawPacket.zig").RawPacket;
+const WirePacket = @import("WirePacket.zig").WirePacket;
 
 const EthLayer = @import("Eth.zig").EthLayer;
 const EthType = @import("Eth.zig").EthType;
@@ -31,35 +31,60 @@ const DNS = @import("DNS.zig");
 
 const from_protocol_layer = @import("Layer.zig").from_protocol_layer;
 
-fn create_packet(packet: *Packet.Packet, allocator: Allocator) ![]u8 {
-    const eth_size: usize = @sizeOf(EthHeader);
-    const ipv4_size: usize = @sizeOf(IPv4Header);
-    const udp_size: usize = @sizeOf(UDP.UDPHeader);
-    const payload_data = "Hello, UDP!";
-    const udp_total_len = udp_size + payload_data.len;
+/// Returns the slice which the next layer can be allocated in
+fn add_layer_slice_in_buffer(self: *Packet, comptime HdrType: type) ![]u8 {
+    const current_offset = self.buffer.len;
+    const next_offset = Packet.calculate_next_offset(current_offset, HdrType);
+    const resized_buffer = try add_padding(self.buffer, HdrType, self.buffer_allocator);
+    const hdr_size: usize = @sizeOf(HdrType);
+    return resized_buffer[next_offset..][0..hdr_size];
+}
 
-    var packet_buffer = try allocator.alloc(u8, eth_size);
-    @memset(packet_buffer, 0);
+/// Returns buffer with the padding added
+fn add_padding(self: *Packet, comptime HdrType: type) ![]u8 {
+    const old_size = self.buffer.len;
+    const current_offset = self.buffer.len;
+    const hdr_size: usize = @sizeOf(HdrType);
+    const next_offset = Packet.calculate_next_offset(current_offset, HdrType);
+    const new_size = next_offset + hdr_size;
+    const resized_buffer = try self.buffer_allocator.realloc(self.buffer, new_size);
+    @memset(resized_buffer[old_size..], 0);
+    return resized_buffer;
+}
 
-    var eth_layer = try EthLayer.preallocated_buffer(packet_buffer[0..eth_size]);
+pub fn add_layer_to_buf(allocator: Allocator, buffer: *[]u8, layer_type: LayerProtocols) ![]u8 {
+    const hdr_size = Packet.get_layer_size(layer_type);
+    const alignment_size = Packet.get_layer_alignment(layer_type);
+    const current_offset = buffer.len;
+    const next_offset = Packet.get_header_aligned_size(current_offset, alignment_size); // should be called get alignment size
+
+    print("next offset: {} hdr_size: {}\n", .{ next_offset, hdr_size });
+
+    var new_buffer = try allocator.realloc(buffer.*, next_offset + hdr_size);
+    buffer.* = new_buffer;
+    @memset(new_buffer[current_offset..], 0); // zero the pad bytes
+    return new_buffer[next_offset..]; // returns the slice which the layer can be init'd from
+}
+
+fn create_packet_test(packet: *Packet.Packet, allocator: Allocator) !void {
+    var packet_buffer = try allocator.alloc(u8, 0);
+    const eth_buffer = try add_layer_to_buf(allocator, &packet_buffer, LayerProtocols{ .LinkLayer = .ETHERNET });
+    var eth_layer = try EthLayer.preallocated_buffer(eth_buffer);
     eth_layer.set_src_mac(try MacAddress.init_from_string("14:4f:8a:a4:15:7d"));
     eth_layer.set_dst_mac(try MacAddress.init_from_string("38:06:e6:92:63:ac"));
     try eth_layer.set_eth_type(EthType.IP);
 
-    try packet.add_layer(&eth_layer); // its only referencing the struct, but the data is owned by the allocator - this is why the packet cannot get the data
+    print("eth: {x}\n", .{eth_buffer});
 
-    // IPv4 layer
-    const old_size = packet_buffer.len;
-    var current_offset: usize = eth_size;
-    const next_offset = Packet.calculate_next_offset(current_offset, IPv4Header);
-    const new_size = next_offset + ipv4_size;
+    try packet.add_layer(&eth_layer);
 
-    packet_buffer = try allocator.realloc(packet_buffer, new_size);
-    @memset(packet_buffer[old_size..], 0);
+    const ipv4_buffer = try add_layer_to_buf(allocator, &packet_buffer, LayerProtocols{ .Network = .IPv4 });
 
-    var ipv4_layer = try IPv4Layer.preallocated_buffer(packet_buffer[next_offset..][0..ipv4_size]);
+    print("ipv4 len: {}\n", .{ipv4_buffer.len});
+
+    var ipv4_layer = try IPv4Layer.preallocated_buffer(ipv4_buffer);
+
     var ip_hdr = ipv4_layer.get_header();
-
     ip_hdr.version_ihl = 0x45;
     ip_hdr.ttl = 64;
     ip_hdr.protocol = @intFromEnum(IPv4Proto.UDP);
@@ -70,32 +95,8 @@ fn create_packet(packet: *Packet.Packet, allocator: Allocator) ![]u8 {
 
     try packet.add_layer(&ipv4_layer);
 
-    // UDP layer
-    const old_size2 = packet_buffer.len;
-    current_offset = next_offset + ipv4_size;
-    const udp_next_offset = Packet.calculate_next_offset(current_offset, UDP.UDPHeader);
-    const udp_start = udp_next_offset; // Where UDP header starts in padded buffer
-    const new_size2 = udp_start + udp_total_len;
-
-    packet_buffer = try allocator.realloc(packet_buffer, new_size2);
-    @memset(packet_buffer[old_size2..], 0);
-
-    var udp_layer = try UDP.UDPLayer.preallocated_buffer(packet_buffer[udp_start..][0..udp_total_len]);
-
-    udp_layer.set_src_port(1234);
-    udp_layer.set_dst_port(30045);
-    try udp_layer.set_payload(payload_data, allocator);
-
-    // Update IPv4 total length
-    ip_hdr.total_length = @byteSwap(@as(u16, @intCast(ipv4_size + udp_total_len)));
-
-    // Calculate checksums
-    ip_hdr.calculate_checksum();
-    udp_layer.calculate_checksum(ip_hdr.src_ip, ip_hdr.dst_ip);
-
-    try packet.add_layer(&udp_layer);
-
-    return packet_buffer;
+    print("{x}\n", .{packet_buffer});
+    print("packet len: {}\n", .{packet_buffer.len});
 }
 
 pub fn main() !void {
@@ -106,40 +107,12 @@ pub fn main() !void {
 
     const page_allocator = std.heap.page_allocator;
 
-    var packet = Packet.Packet.create(pkt_data_allocator); // allocates layers
+    _ = page_allocator;
+
+    var packet = try Packet.Packet.create(pkt_data_allocator);
     defer packet.deinit();
 
-    const udp_packet = try create_packet(&packet, pkt_data_allocator);
-
-    const layer_buf = packet.get_layer_from_buffer(LayerProtocols{ .LinkLayer = .ETHERNET }, udp_packet) orelse {
-        print("failed to get layer buf.\n", .{});
-        return;
-    };
-
-    print("buf len: {}\n", .{layer_buf.len});
-    print("buf: {x}\n", .{pkt_data_backing_buffer});
-
-    var layer = try EthLayer.preallocated_buffer(layer_buf);
-
-    print("{s}\n", .{layer.to_string(page_allocator)});
-
-    print("layer data buf : {x}\n", .{layer.get_data()});
-
-    const contig_buf_size: usize = packet.get_wire_size(udp_packet);
-
-    print("contig buf size: {}\n", .{contig_buf_size});
-
-    const contig_buf: []u8 = packet.get_wire_format(udp_packet);
-
-    print("{x}\n", .{contig_buf});
-
-    var wifi_interface = try pcap_test() orelse {
-        return error.FailedToOpen;
-    };
-
-    try wifi_interface.send(contig_buf);
-
-    print("No error during send.\n", .{});
+    try create_packet_test(&packet, pkt_data_allocator);
 }
 
 pub fn pcap_test() !?*PcapWrapper.Interface {

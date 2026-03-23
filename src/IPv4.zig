@@ -7,7 +7,9 @@ const TransportProtocol = @import("Layer.zig").TransportProtocols;
 
 const Layer = @import("Layer.zig").Layer;
 
-const UDPLayer = @import("UDP.zig").UDPLayer;
+const Packet = @import("Packet.zig");
+
+const UDP = @import("UDPLayer.zig");
 const TCPLayer = @import("TCP.zig").TCPLayer;
 
 pub const MaxHeaderLength = 60;
@@ -110,6 +112,8 @@ pub const IPv4Layer = struct {
             return error.MisalignedBuffer;
         }
 
+        @memset(buffer, 0);
+
         return IPv4Layer{ .data = buffer };
     }
 
@@ -156,19 +160,35 @@ pub const IPv4Layer = struct {
         return self.data[header_len..];
     }
 
-    pub fn parse_next_layer(self: *IPv4Layer, allocator: std.mem.Allocator) ?*Layer {
+    pub fn parse_next_layer(self: *IPv4Layer, buffer_allocator: Allocator, layer_allocator: Allocator) ?*Layer {
         const transport_type: TransportProtocol = self.get_transport_type() catch return null;
 
-        const packet_layer: *Layer = allocator.create(Layer) catch return null;
+        const packet_layer: *Layer = layer_allocator.create(Layer) catch return null;
 
         switch (transport_type) {
             TransportProtocol.TCP => {
-                const tcp_layer = TCPLayer.init(self.get_payload(), allocator) catch return null;
-                packet_layer.* = Layer.implBy(tcp_layer);
+                //                const tcp_layer = TCPLayer.init(self.get_payload(), allocator) catch return null;
+                //                packet_layer.* = Layer.implBy(tcp_layer);
+                return null;
             },
             TransportProtocol.UDP => {
-                const udp_layer = UDPLayer.init(self.get_payload(), allocator) catch return null;
-                packet_layer.* = Layer.implBy(udp_layer);
+                // Calculate the new total size needed
+                const current_offset: usize = @sizeOf(IPv4Header); // where the UDP header starts
+                const udp_size: usize = @sizeOf(UDP.UDPHeader);
+                const new_total_size = current_offset + udp_size;
+
+                // Reallocate the entire buffer
+                self.data = buffer_allocator.realloc(self.data, new_total_size) catch |err| {
+                    print("Error reallocing for UDP Layer: {s}\n", .{@errorName(err)});
+                    return null;
+                };
+
+                // Now you can work with the UDP header at the correct offset
+                var udp_layer = IPv4Layer.preallocated_buffer(self.data[current_offset..][0..udp_size]) catch |err| {
+                    print("Error creating IPv4 Layer: {s}\n", .{@errorName(err)});
+                    return null;
+                };
+                packet_layer.* = Layer.implBy(&udp_layer);
             },
             else => {
                 print("Unhandled Transport layer.\n", .{});
