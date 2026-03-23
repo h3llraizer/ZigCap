@@ -6,6 +6,9 @@ const Packet = @import("Packet.zig");
 
 const Layer = @import("Layer.zig").Layer;
 const LayerProtocols = @import("Layer.zig").LayerProtocols;
+
+const LayerError = @import("Layer.zig").LayerError;
+
 const NetworkProtocols = @import("Layer.zig").NetworkProtocols;
 
 const IPv4Layer = @import("IPv4.zig").IPv4Layer;
@@ -108,14 +111,14 @@ pub const EthLayer = struct {
         return self;
     }
 
-    pub fn preallocated_buffer(buffer: []u8) !EthLayer {
-        if (buffer.len < @sizeOf(EthHeader)) return error.BufferTooSmall;
+    pub fn preallocated_buffer(buffer: []u8) LayerError!EthLayer {
+        if (buffer.len < @sizeOf(EthHeader)) return LayerError.BufferTooSmall;
 
         // Verify alignment
         const alignment = @alignOf(EthHeader);
         const addr = @intFromPtr(buffer.ptr);
         if (addr % alignment != 0) {
-            return error.MisalignedBuffer;
+            return LayerError.MisalignedBuffer;
         }
 
         return EthLayer{ .data = buffer };

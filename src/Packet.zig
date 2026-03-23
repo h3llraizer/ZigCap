@@ -7,6 +7,8 @@ const WirePacket = @import("WirePacket.zig").WirePacket;
 const Layer = @import("Layer.zig").Layer;
 const LayerProtocols = @import("Layer.zig").LayerProtocols;
 
+const LayerError = @import("Layer.zig").LayerError;
+
 const LinkLayerProtocols = @import("Layer.zig").LinkLayerProtocols;
 const NetworkProtocols = @import("Layer.zig").NetworkProtocols;
 const TPtr = @import("Layer.zig").TPtr;
@@ -20,13 +22,20 @@ const GenericLayer = @import("GenericLayer.zig").GenericLayer;
 
 const EthLayer = Eth.EthLayer;
 
-fn get_layer_enum(value: anytype) !LayerProtocols {
-    const T = @TypeOf(value);
-    switch (T) {
+fn get_layer_type_enum(value: type) !LayerProtocols {
+    switch (value) {
         EthLayer => return LayerProtocols{ .LinkLayer = .ETHERNET },
-        *EthLayer => return LayerProtocols{ .LinkLayer = .ETHERNET },
         IPv4.IPv4Layer => return LayerProtocols{ .Network = .IPv4 },
         UDP.UDPLayer => return LayerProtocols{ .Transport = .UDP },
+        else => return error.LayerInvalid,
+    }
+}
+
+pub fn get_pre_alloc_init(choice: type) !*const fn ([]u8) LayerError!choice {
+    switch (choice) {
+        EthLayer => return EthLayer.preallocated_buffer,
+        IPv4.IPv4Layer => return IPv4.IPv4Layer.preallocated_buffer,
+        UDP.UDPLayer => return UDP.UDPLayer.preallocated_buffer,
         else => return error.LayerInvalid,
     }
 }
@@ -37,7 +46,7 @@ pub const Packet = struct {
     allocator: Allocator,
     aligned_buffer: []u8,
 
-    /// Creates an empty Packet - alloc's zero bytes to initial aligned buffer
+    /// Creates an empty Packet - alloc's zero bytes to aligned buffer initially
     pub fn create(allocator: Allocator) !Packet {
         return Packet{
             .first_layer = null,
@@ -45,22 +54,6 @@ pub const Packet = struct {
             .allocator = allocator,
             .aligned_buffer = try allocator.alloc(u8, 0),
         };
-    }
-
-    pub fn add_layer_to_buf(self: *Packet, layer_type: anytype) ![]u8 {
-        const layer_enum = try get_layer_enum(layer_type);
-
-        const hdr_size = get_layer_size(layer_enum);
-        const alignment_size = get_layer_alignment(layer_enum);
-        const current_offset = self.aligned_buffer.len;
-        const next_offset = get_next_relative_offset(current_offset, alignment_size); // should be called get alignment size
-
-        var new_buffer = try self.allocator.realloc(self.aligned_buffer, next_offset + hdr_size);
-        self.aligned_buffer = new_buffer;
-        @memset(new_buffer[current_offset..], 0); // zero the pad bytes
-
-        try self.add_layer(layer_type);
-        return new_buffer[next_offset..]; // returns the slice which the layer can be init'd from
     }
 
     /// Creates a Packet from an existing buffer which is in wire format. The buffer needs to be mutable so padding can be inserted
@@ -82,7 +75,30 @@ pub const Packet = struct {
         return self;
     }
 
-    fn parse_all_layers(self: *Packet, buffer_allocator: Allocator, depth: usize) void {
+    /// Creates new layer in the Packet. Specify the layer (e.g. EthLayer, IPv4Layer etc), and the layer will be returned with it's memory allocated in the aligned_buffer
+    pub fn create_new_layer(self: *Packet, layer_type: type) !layer_type {
+        const protocol_enum = try get_layer_type_enum(layer_type);
+
+        const hdr_size: usize = get_layer_size(protocol_enum); // get the size of the layers hdr type
+        const alignment_size: usize = get_layer_alignment(protocol_enum); // get the alignment size of the layers hdr type
+
+        const current_offset = self.aligned_buffer.len;
+        const next_offset = get_next_relative_offset(current_offset, alignment_size);
+
+        var new_buffer = try self.allocator.realloc(self.aligned_buffer, next_offset + hdr_size);
+        self.aligned_buffer = new_buffer;
+        @memset(new_buffer[current_offset..], 0); // zero the pad bytes
+
+        const impl_init = try get_pre_alloc_init(layer_type);
+
+        var impl_layer: layer_type = try impl_init(new_buffer[next_offset..]);
+
+        try self.add_layer(&impl_layer);
+
+        return impl_layer;
+    }
+
+    fn parse_all_layers(self: *Packet, depth: usize) void {
         var cur = self.first_layer;
 
         var cur_depth: usize = 0;
@@ -91,7 +107,7 @@ pub const Packet = struct {
             if (cur_depth == depth) {
                 break;
             }
-            const next = layer.parse_next_layer(buffer_allocator, self.allocator) orelse break;
+            const next = layer.parse_next_layer(self.allocator) orelse break;
 
             layer.set_next_layer(next);
             cur_depth += 1;
@@ -101,8 +117,8 @@ pub const Packet = struct {
         self.last_layer = cur;
     }
 
-    /// Adds a layer to the tail of the layers.
-    pub fn add_layer(self: *Packet, layer: anytype) !void {
+    // Adds a layer to the tail of the layers.
+    fn add_layer(self: *Packet, layer: anytype) !void {
         const new_layer = try self.allocator.create(Layer);
         new_layer.* = Layer.implBy(layer);
 
@@ -132,13 +148,17 @@ pub const Packet = struct {
         }
     }
 
-    /// This method returns the layer desired if it's present in the packet already casted to the implementation
-    pub fn get_layer_of_type(self: *Packet, protocol_layer: LayerProtocols, layer: anytype) ?*layer {
+    /// returns the Layer desired if it is present
+    pub fn get_layer(self: *Packet, layer_type: type) !?layer_type {
+        const layer_enum = try get_layer_type_enum(layer_type);
+
+        const impl_init = try get_pre_alloc_init(layer_type);
         var cur = self.first_layer;
 
         while (cur) |l| {
-            if (activeTag(l.get_protocol()) == activeTag(protocol_layer)) {
-                return TPtr(*layer, l.layer_type);
+            if (activeTag(l.get_protocol()) == activeTag(layer_enum)) {
+                const layer = try impl_init(l.get_data());
+                return layer;
             }
 
             cur = l.next_layer;
@@ -147,32 +167,18 @@ pub const Packet = struct {
         return null;
     }
 
-    /// This method returns the Layer desired if it's present. It returns *Layer, if you want the implementation, cast it
-    pub fn get_layer(self: *Packet, protocol_layer: LayerProtocols) ?*Layer {
+    /// returns true if the layer is present
+    pub fn has_layer(self: *Packet, layer_type: type) !bool {
+        const layer_enum = try get_layer_type_enum(layer_type);
+
         var cur = self.first_layer;
 
         while (cur) |l| {
-            if (activeTag(l.get_protocol()) == activeTag(protocol_layer)) {
-                return l;
-            }
-
-            cur = l.next_layer;
-        }
-
-        return null;
-    }
-
-    pub fn has_layer(self: *Packet, protocol_layer: LayerProtocols) bool {
-        var cur = self.first_layer;
-        while (cur) |layer| {
-            if (activeTag(layer.get_protocol()) == activeTag(protocol_layer)) {
+            if (activeTag(l.get_protocol()) == activeTag(layer_enum)) {
                 return true;
             }
-            if (layer.next_layer) |next| {
-                cur = next;
-            } else {
-                break;
-            }
+
+            cur = l.next_layer;
         }
 
         return false;
@@ -194,21 +200,11 @@ pub const Packet = struct {
         }
     }
 
-    pub fn print_layer_alignments(self: *Packet) void {
-        var cur = self.first_layer;
-        while (cur) |layer| {
-            print("{s} ", .{@tagName(activeTag(layer.get_protocol()))});
-            const alignment = get_layer_alignment(layer.get_protocol());
-            print("{}\n", .{alignment});
-            cur = layer.next_layer;
-        }
-    }
-
     /// This method will return the actual size of packet buffer as it would be on the wire, not including the padding bytes
-    pub fn get_wire_size(self: *Packet, buffer: []const u8) usize { // use this to determine "actual size"
+    pub fn get_wire_size(self: *Packet) usize { // use this to determine "actual size"
         var cur = self.first_layer;
 
-        var wire_size: usize = buffer.len;
+        var wire_size: usize = self.aligned_buffer.len;
 
         while (cur) |l| {
             const layer_protocol = l.get_protocol();
@@ -226,10 +222,10 @@ pub const Packet = struct {
     }
 
     /// This takes takes the packet buffer and iterates through the layers, removing the padding bytes and returning the mutable contiguous packet buffer
-    pub fn get_wire_format(self: *Packet, buffer: []u8) []u8 {
+    pub fn get_wire_format(self: *Packet) []u8 {
         var cur = self.first_layer;
 
-        var wire_buf = buffer;
+        var wire_buf = self.aligned_buffer;
 
         while (cur) |l| {
             const layer_protocol = l.get_protocol();

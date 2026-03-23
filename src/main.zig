@@ -24,9 +24,9 @@ const IPv4Layer = @import("IPv4.zig").IPv4Layer;
 const IPv4Address = @import("IPv4.zig").IPv4Address;
 const IPv4Header = @import("IPv4.zig").IPv4Header;
 
-const UDPLayer = @import("UDP.zig").UDPLayer;
+//const UDPLayer = @import("UDP.zig").UDPLayer;
 const DNSLayer = @import("DNS.zig").DNSLayer;
-const UDP = @import("UDPLayer.zig");
+const UDPLayer = @import("UDPLayer.zig").UDPLayer;
 const DNS = @import("DNS.zig");
 
 const GenericLayer = @import("GenericLayer.zig").GenericLayer;
@@ -102,18 +102,50 @@ fn create_packet_test(packet: *Packet.Packet, allocator: Allocator) !void {
 }
 
 fn add_eth(packet: *Packet.Packet) !void {
-    var eth_layer: EthLayer = undefined;
+    var eth_layer: EthLayer = try packet.create_new_layer(EthLayer);
 
-    const eth_buffer = try packet.add_layer_to_buf(&eth_layer);
-
-    eth_layer = try EthLayer.preallocated_buffer(eth_buffer);
     eth_layer.set_src_mac(try MacAddress.init_from_string("14:4f:8a:a4:15:7d"));
     eth_layer.set_dst_mac(try MacAddress.init_from_string("38:06:e6:92:63:ac"));
     try eth_layer.set_eth_type(EthType.IP);
 
-    print("{}\n", .{@sizeOf(Layer)});
+    print("eth: {x}\n", .{eth_layer.data});
+}
 
-    print("eth: {x}\n", .{eth_buffer});
+fn add_ip(packet: *Packet.Packet) !void {
+    var ipv4_layer: IPv4Layer = try packet.create_new_layer(IPv4Layer);
+    var ip_hdr = ipv4_layer.get_header();
+    ip_hdr.version_ihl = 0x45;
+    ip_hdr.ttl = 64;
+    ip_hdr.protocol = @intFromEnum(IPv4Proto.UDP);
+    ip_hdr.checksum = 0;
+
+    ipv4_layer.set_src_ip(try IPv4Address.init_from_string("192.168.1.225"));
+    ipv4_layer.set_dst_ip(try IPv4Address.init_from_string("192.168.1.254"));
+}
+
+fn add_udp(packet: *Packet.Packet) !void {
+    var udp_layer: UDPLayer = try packet.create_new_layer(UDPLayer);
+
+    udp_layer.set_src_port(1234);
+    udp_layer.set_dst_port(30045);
+    try udp_layer.set_payload("hello", packet.allocator);
+
+    var ipv4_layer: IPv4Layer = try packet.get_layer(IPv4Layer) orelse {
+        return error.NoIPLayer;
+    };
+
+    var ip_hdr = ipv4_layer.get_header();
+
+    // Update IPv4 total length
+    ip_hdr.total_length = @byteSwap(@as(u16, @intCast(@sizeOf(IPv4Header) + udp_layer.data.len)));
+
+    // Calculate checksums
+    ip_hdr.calculate_checksum();
+    print("{x}\n", .{ip_hdr.checksum});
+    udp_layer.calculate_checksum(ip_hdr.src_ip, ip_hdr.dst_ip);
+    print("{x}\n", .{udp_layer.get_header().checksum});
+
+    print("UDP Data: {x}\n", .{udp_layer.data});
 }
 
 pub fn main() !void {
@@ -130,18 +162,43 @@ pub fn main() !void {
     defer packet.deinit();
 
     try add_eth(&packet);
+    try add_ip(&packet);
 
     print("mem: {}\n", .{pkt_data_fba.end_index});
 
-    _ = packet.get_first_layer() orelse {
+    var layer = try packet.get_layer(EthLayer) orelse {
         print("no first layer.\n", .{});
         return;
     };
 
+    print("{any}\n", .{layer.get_protocol()});
+
+    if (try packet.has_layer(IPv4Layer)) {
+        print("packet has IPv4 Layer.\n", .{});
+    } else {
+        print("no IPv4 layer.\n", .{});
+    }
+
+    try add_udp(&packet);
+
     print("{x}\n", .{packet.aligned_buffer});
+
+    print("wire size: {}\n", .{packet.get_wire_size()});
+
+    const wire_buf = packet.get_wire_format();
+
+    print("{x}\n", .{wire_buf});
+
+    var wifi_interface = try open_pcap() orelse {
+        return error.FailedToOpen;
+    };
+
+    try wifi_interface.send(wire_buf);
+
+    print("No error during send.\n", .{});
 }
 
-pub fn pcap_test() !?*PcapWrapper.Interface {
+pub fn open_pcap() !?*PcapWrapper.Interface {
     print("starting...\n", .{});
 
     const ip: []const u8 = "192.168.1.225";
@@ -158,15 +215,15 @@ pub fn pcap_test() !?*PcapWrapper.Interface {
     if (device_list.items.len > 0) {
         const main_iface = interfaces.find_by_ip(ip);
         if (main_iface) |iface| {
-            print("Found:\n{s}\n", .{iface.toString(allocator)});
+            //print("Found:\n{s}\n", .{iface.toString(allocator)});
 
             try iface.open(allocator);
 
             if (iface.isOpened()) {
-                print("Device is open.\n", .{});
+                //print("Device is open.\n", .{});
                 return iface;
             } else {
-                print("Device not open.\n", .{});
+                //print("Device not open.\n", .{});
                 return null;
             }
         } else {

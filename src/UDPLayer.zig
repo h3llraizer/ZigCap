@@ -163,14 +163,14 @@ pub const UDPLayer = struct {
         return self;
     }
 
-    pub fn preallocated_buffer(buffer: []u8) !UDPLayer {
-        if (buffer.len < @sizeOf(UDPHeader)) return error.BufferTooSmall;
+    pub fn preallocated_buffer(buffer: []u8) Layer.LayerError!UDPLayer {
+        if (buffer.len < @sizeOf(UDPHeader)) return Layer.LayerError.BufferTooSmall;
 
         // Verify alignment (optional)
         const alignment = @alignOf(UDPHeader);
         const addr = @intFromPtr(buffer.ptr);
         if (addr % alignment != 0) {
-            return error.MisalignedBuffer;
+            return Layer.LayerError.MisalignedBuffer;
         }
 
         return UDPLayer{ .data = buffer };
@@ -209,6 +209,7 @@ pub const UDPLayer = struct {
     /// Set the payload. must be called after setting header length)
     pub fn set_payload(self: *UDPLayer, payload: []const u8, allocator: Allocator) !void {
         const total_len = UDPHeaderSize + payload.len;
+        print("UDP new total len: {}\n", .{total_len});
         if (self.data.len < total_len) {
             self.data = try allocator.realloc(self.data, (total_len));
         }

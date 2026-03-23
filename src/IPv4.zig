@@ -7,6 +7,8 @@ const TransportProtocol = @import("Layer.zig").TransportProtocols;
 
 const Layer = @import("Layer.zig").Layer;
 
+const LayerError = @import("Layer.zig").LayerError;
+
 const Packet = @import("Packet.zig");
 
 const UDP = @import("UDPLayer.zig");
@@ -99,7 +101,8 @@ pub const IPv4Layer = struct {
         return self;
     }
 
-    pub fn preallocated_buffer(buffer: []u8) !IPv4Layer {
+    pub fn preallocated_buffer(buffer: []u8) LayerError!IPv4Layer {
+        print("buffer len: {}\n", .{buffer.len});
         if (buffer.len < @sizeOf(IPv4Header)) return error.BufferTooSmall;
 
         // Verify alignment
@@ -111,8 +114,6 @@ pub const IPv4Layer = struct {
         if (addr % alignment != 0) {
             return error.MisalignedBuffer;
         }
-
-        @memset(buffer, 0);
 
         return IPv4Layer{ .data = buffer };
     }

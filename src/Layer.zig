@@ -9,6 +9,7 @@ const UDPHeader = @import("UDPLayer.zig").UDPHeader;
 pub const ApplicationProtocols = enum(u16) {
     HTTP = 80,
     DNS = 53,
+    Generic = 0,
 };
 
 pub const TransportProtocols = enum(u8) {
@@ -56,6 +57,8 @@ pub fn from_protocol_layer(layer: *Layer, protocol_layer: LayerProtocols, layer_
     return null;
 }
 
+pub const LayerError = error{ OutOfMemory, BufferTooSmall, MisalignedBuffer };
+
 /// Layer interface
 pub const Layer = struct {
     layer_type: *anyopaque,
@@ -63,7 +66,7 @@ pub const Layer = struct {
     next_layer: ?*Layer,
     prev_layer: ?*Layer,
 
-    data: []u8,
+    //    data: []u8,
 
     v_get_data: *const fn (*anyopaque) []u8,
     v_get_payload: *const fn (*anyopaque) []u8,
@@ -79,7 +82,7 @@ pub const Layer = struct {
             .layer_type = layer_type,
             .next_layer = null,
             .prev_layer = null,
-            .data = delegate.get_data(layer_type),
+            //           .data = delegate.get_data(layer_type),
             .v_get_data = delegate.get_data,
             .v_get_payload = delegate.get_payload,
             .v_to_string = delegate.to_string,
