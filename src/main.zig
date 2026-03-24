@@ -27,6 +27,7 @@ const IPv4Header = @import("IPv4.zig").IPv4Header;
 //const UDPLayer = @import("UDP.zig").UDPLayer;
 const DNSLayer = @import("DNS.zig").DNSLayer;
 const UDPLayer = @import("UDPLayer.zig").UDPLayer;
+const UDPHeader = @import("UDPLayer.zig").UDPHeader;
 const DNS = @import("DNS.zig");
 
 const GenericLayer = @import("GenericLayer.zig").GenericLayer;
@@ -102,17 +103,19 @@ fn create_packet_test(packet: *Packet.Packet, allocator: Allocator) !void {
 }
 
 fn add_eth(packet: *Packet.Packet) !void {
-    var eth_layer: EthLayer = try packet.create_new_layer(EthLayer);
+    var eth_layer: *EthLayer = try packet.create_new_layer(EthLayer);
 
     eth_layer.set_src_mac(try MacAddress.init_from_string("14:4f:8a:a4:15:7d"));
     eth_layer.set_dst_mac(try MacAddress.init_from_string("38:06:e6:92:63:ac"));
     try eth_layer.set_eth_type(EthType.IP);
 
     print("eth: {x}\n", .{eth_layer.data});
+
+    print("{s}\n", .{eth_layer.to_string(std.heap.page_allocator)});
 }
 
 fn add_ip(packet: *Packet.Packet) !void {
-    var ipv4_layer: IPv4Layer = try packet.create_new_layer(IPv4Layer);
+    var ipv4_layer: *IPv4Layer = try packet.create_new_layer(IPv4Layer);
     var ip_hdr = ipv4_layer.get_header();
     ip_hdr.version_ihl = 0x45;
     ip_hdr.ttl = 64;
@@ -121,31 +124,52 @@ fn add_ip(packet: *Packet.Packet) !void {
 
     ipv4_layer.set_src_ip(try IPv4Address.init_from_string("192.168.1.225"));
     ipv4_layer.set_dst_ip(try IPv4Address.init_from_string("192.168.1.254"));
+
+    print("Original: {s}\n", .{ipv4_layer.to_string(std.heap.page_allocator)});
 }
 
 fn add_udp(packet: *Packet.Packet) !void {
-    var udp_layer: UDPLayer = try packet.create_new_layer(UDPLayer);
+    var udp_layer: *UDPLayer = try packet.create_new_layer(UDPLayer);
 
     udp_layer.set_src_port(1234);
     udp_layer.set_dst_port(30045);
-    try udp_layer.set_payload("hello", packet.allocator);
 
-    var ipv4_layer: IPv4Layer = try packet.get_layer(IPv4Layer) orelse {
-        return error.NoIPLayer;
+    var ipv4_layer = try packet.get_layer(IPv4Layer) orelse {
+        return error.IPv4LayerMissing;
     };
+
+    print("IPv4 in udp add: {s}\n", .{ipv4_layer.to_string(std.heap.page_allocator)});
 
     var ip_hdr = ipv4_layer.get_header();
 
-    // Update IPv4 total length
-    ip_hdr.total_length = @byteSwap(@as(u16, @intCast(@sizeOf(IPv4Header) + udp_layer.data.len)));
+    ip_hdr.total_length = @byteSwap(@as(u16, @intCast(@sizeOf(IPv4Header) + @sizeOf(UDPHeader))));
 
     // Calculate checksums
     ip_hdr.calculate_checksum();
-    print("{x}\n", .{ip_hdr.checksum});
     udp_layer.calculate_checksum(ip_hdr.src_ip, ip_hdr.dst_ip);
-    print("{x}\n", .{udp_layer.get_header().checksum});
+    var udp_hdr = udp_layer.get_header();
 
-    print("UDP Data: {x}\n", .{udp_layer.data});
+    udp_hdr.set_length(8);
+}
+
+fn test_eth(packet: *Packet.Packet) !void {
+    var eth_layer = try packet.get_layer(EthLayer) orelse {
+        return error.EthLayerMissing;
+    };
+
+    _ = &eth_layer;
+
+    try eth_layer.print_data();
+
+    print("In test eth: {s}\n", .{eth_layer.to_string(std.heap.page_allocator)});
+}
+
+fn test_ip(packet: *Packet.Packet) !void {
+    var ipv4_layer = try packet.get_layer(IPv4Layer) orelse {
+        return error.IPLayerMissing;
+    };
+
+    print("In test ip: {s}\n", .{ipv4_layer.to_string(std.heap.page_allocator)});
 }
 
 pub fn main() !void {
@@ -161,33 +185,24 @@ pub fn main() !void {
     var packet = try Packet.Packet.create(pkt_data_allocator);
     defer packet.deinit();
 
-    try add_eth(&packet);
-    try add_ip(&packet);
-
-    print("mem: {}\n", .{pkt_data_fba.end_index});
-
-    var layer = try packet.get_layer(EthLayer) orelse {
-        print("no first layer.\n", .{});
+    add_eth(&packet) catch |err| {
+        print("Failed to add eth: {s}\n", .{@errorName(err)});
         return;
     };
 
-    print("{any}\n", .{layer.get_protocol()});
+    try add_ip(&packet);
 
-    if (try packet.has_layer(IPv4Layer)) {
-        print("packet has IPv4 Layer.\n", .{});
-    } else {
-        print("no IPv4 layer.\n", .{});
-    }
-
+    try test_eth(&packet);
+    try test_ip(&packet);
     try add_udp(&packet);
 
-    print("{x}\n", .{packet.aligned_buffer});
+    //    try packet.to_string(page_allocator);
 
     print("wire size: {}\n", .{packet.get_wire_size()});
 
     const wire_buf = packet.get_wire_format();
 
-    print("{x}\n", .{wire_buf});
+    print("Wire buffer: {x}\n", .{wire_buf});
 
     var wifi_interface = try open_pcap() orelse {
         return error.FailedToOpen;

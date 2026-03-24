@@ -124,6 +124,10 @@ pub const EthLayer = struct {
         return EthLayer{ .data = buffer };
     }
 
+    pub fn print_data(self: *EthLayer) !void {
+        print("{x}\n", .{self.data});
+    }
+
     pub fn get_header(self: *EthLayer) *EthHeader {
         // Use alignCast to ensure proper alignment
         const aligned_ptr: [*]align(@alignOf(EthHeader)) u8 = @alignCast(self.data.ptr);

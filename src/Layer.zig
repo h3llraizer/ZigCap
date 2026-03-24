@@ -9,7 +9,6 @@ const UDPHeader = @import("UDPLayer.zig").UDPHeader;
 pub const ApplicationProtocols = enum(u16) {
     HTTP = 80,
     DNS = 53,
-    Generic = 0,
 };
 
 pub const TransportProtocols = enum(u8) {
@@ -42,11 +41,16 @@ pub const LinkLayerProtocols = enum(u16) {
     INVALID = 0xFFFF,
 };
 
+pub const Generic = enum(u16) {
+    Generic,
+};
+
 pub const LayerProtocols = union(enum) {
     LinkLayer: LinkLayerProtocols,
     Network: NetworkProtocols,
     Transport: TransportProtocols,
     Application: ApplicationProtocols,
+    Generic,
 };
 
 pub fn from_protocol_layer(layer: *Layer, protocol_layer: LayerProtocols, layer_type: anytype) ?*layer_type {

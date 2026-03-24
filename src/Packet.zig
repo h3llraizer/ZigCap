@@ -75,8 +75,8 @@ pub const Packet = struct {
         return self;
     }
 
-    /// Creates new layer in the Packet. Specify the layer (e.g. EthLayer, IPv4Layer etc), and the layer will be returned with it's memory allocated in the aligned_buffer
-    pub fn create_new_layer(self: *Packet, layer_type: type) !layer_type {
+    /// Creates new layer in the Packet. Specify the layer (e.g. EthLayer, IPv4Layer etc), and the layer will be returned with it's memory allocated in the aligned_buffer. You must free the layer returned when done with it. The underlying bytes representing the layer are preserved in the aligned buffer
+    pub fn create_new_layer(self: *Packet, layer_type: type) !*layer_type {
         const protocol_enum = try get_layer_type_enum(layer_type);
 
         const hdr_size: usize = get_layer_size(protocol_enum); // get the size of the layers hdr type
@@ -91,9 +91,11 @@ pub const Packet = struct {
 
         const impl_init = try get_pre_alloc_init(layer_type);
 
-        var impl_layer: layer_type = try impl_init(new_buffer[next_offset..]);
+        const impl_layer: *layer_type = try self.allocator.create(layer_type);
 
-        try self.add_layer(&impl_layer);
+        impl_layer.* = try impl_init(new_buffer[next_offset..]);
+
+        try self.add_layer(impl_layer);
 
         return impl_layer;
     }
@@ -149,16 +151,42 @@ pub const Packet = struct {
     }
 
     /// returns the Layer desired if it is present
-    pub fn get_layer(self: *Packet, layer_type: type) !?layer_type {
-        const layer_enum = try get_layer_type_enum(layer_type);
+    pub fn get_layer(self: *Packet, layer_type: type) !?*layer_type {
+        print("Getting layer: {s}\n", .{@typeName(layer_type)});
+        const protocol_enum = try get_layer_type_enum(layer_type);
 
         const impl_init = try get_pre_alloc_init(layer_type);
+
+        var cur = self.first_layer;
+
+        while (cur) |l| {
+            if (activeTag(l.get_protocol()) == activeTag(protocol_enum)) {
+                //const layer: *layer_type = TPtr(*layer_type, l.layer_type);
+                const layer: *layer_type = try self.allocator.create(layer_type);
+                const layer_slice: []u8 = self.get_layer_from_buffer(protocol_enum) orelse {
+                    return null;
+                };
+
+                layer.* = try impl_init(layer_slice);
+                return layer;
+            }
+
+            cur = l.next_layer;
+        }
+
+        return null;
+    }
+
+    pub fn get_layer_data(self: *Packet, layer_type: type) !?[]u8 {
+        const layer_enum = try get_layer_type_enum(layer_type);
+
+        print("{any}\n", .{layer_enum});
+
         var cur = self.first_layer;
 
         while (cur) |l| {
             if (activeTag(l.get_protocol()) == activeTag(layer_enum)) {
-                const layer = try impl_init(l.get_data());
-                return layer;
+                return l.get_data();
             }
 
             cur = l.next_layer;
@@ -190,6 +218,16 @@ pub const Packet = struct {
 
     pub fn get_last_layer(self: *Packet) ?*Layer {
         return self.last_layer;
+    }
+
+    pub fn to_string(self: *Packet, allocator: Allocator) !void { // use this to determine "actual size"
+        var cur = self.first_layer;
+
+        while (cur) |l| {
+            print("{s}\n", .{l.to_string(allocator)});
+
+            cur = l.next_layer;
+        }
     }
 
     pub fn print_protocol_stack(self: *Packet) void {
@@ -242,7 +280,7 @@ pub const Packet = struct {
         return wire_buf;
     }
 
-    pub fn get_layer_from_buffer(self: *Packet, protocol_layer: LayerProtocols, buffer: []u8) ?[]u8 {
+    pub fn get_layer_from_buffer(self: *Packet, protocol_layer: LayerProtocols) ?[]u8 {
         var cur = self.first_layer;
 
         var current_offset: usize = 0;
@@ -256,7 +294,7 @@ pub const Packet = struct {
             if (active_tag == activeTag(protocol_layer)) {
                 print("found layer.\n", .{});
 
-                return buffer[current_offset..][0..get_layer_size(protocol_layer)];
+                return self.aligned_buffer[current_offset..][0..get_layer_size(protocol_layer)];
                 //return buffer[current_offset..][0..];
             }
 

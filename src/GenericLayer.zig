@@ -7,7 +7,7 @@ const Allocator = std.mem.Allocator;
 
 pub const GenericLayer = struct {
     data: []u8, // UDP header + payload
-    protocol: LayerProtocols,
+    const Protocol = LayerProtocols{ .Generic = .Generic };
 
     pub fn init(data: []u8, protocol: LayerProtocols) GenericLayer {
         return GenericLayer{ .data = data, .protocol = protocol };
