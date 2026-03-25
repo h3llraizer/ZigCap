@@ -10,7 +10,6 @@ const Packet = @import("Packet.zig");
 const LayerProtocols = @import("Layer.zig").LayerProtocols;
 const Layer = @import("Layer.zig").Layer;
 
-const TPtr = @import("Layer.zig").TPtr;
 const LinkLayerProtocols = @import("Layer.zig").LinkLayerProtocols;
 const IPv4Proto = @import("ProtocolEnums.zig").IPv4Proto;
 const WirePacket = @import("WirePacket.zig").WirePacket;
@@ -24,7 +23,6 @@ const IPv4Layer = @import("IPv4.zig").IPv4Layer;
 const IPv4Address = @import("IPv4.zig").IPv4Address;
 const IPv4Header = @import("IPv4.zig").IPv4Header;
 
-//const UDPLayer = @import("UDP.zig").UDPLayer;
 const DNSLayer = @import("DNS.zig").DNSLayer;
 const UDPLayer = @import("UDPLayer.zig").UDPLayer;
 const UDPHeader = @import("UDPLayer.zig").UDPHeader;
@@ -104,6 +102,7 @@ fn create_packet_test(packet: *Packet.Packet, allocator: Allocator) !void {
 
 fn add_eth(packet: *Packet.Packet) !void {
     var eth_layer: *EthLayer = try packet.create_new_layer(EthLayer);
+    defer packet.allocator.destroy(eth_layer);
 
     eth_layer.set_src_mac(try MacAddress.init_from_string("14:4f:8a:a4:15:7d"));
     eth_layer.set_dst_mac(try MacAddress.init_from_string("38:06:e6:92:63:ac"));
@@ -116,6 +115,9 @@ fn add_eth(packet: *Packet.Packet) !void {
 
 fn add_ip(packet: *Packet.Packet) !void {
     var ipv4_layer: *IPv4Layer = try packet.create_new_layer(IPv4Layer);
+
+    defer packet.allocator.destroy(ipv4_layer);
+
     var ip_hdr = ipv4_layer.get_header();
     ip_hdr.version_ihl = 0x45;
     ip_hdr.ttl = 64;
@@ -130,6 +132,8 @@ fn add_ip(packet: *Packet.Packet) !void {
 
 fn add_udp(packet: *Packet.Packet) !void {
     var udp_layer: *UDPLayer = try packet.create_new_layer(UDPLayer);
+
+    defer packet.allocator.destroy(udp_layer);
 
     udp_layer.set_src_port(1234);
     udp_layer.set_dst_port(30045);
@@ -147,15 +151,17 @@ fn add_udp(packet: *Packet.Packet) !void {
     // Calculate checksums
     ip_hdr.calculate_checksum();
     udp_layer.calculate_checksum(ip_hdr.src_ip, ip_hdr.dst_ip);
-    var udp_hdr = udp_layer.get_header();
+    //   var udp_hdr = udp_layer.get_header();
 
-    udp_hdr.set_length(8);
+    //    udp_hdr.set_length(8);
 }
 
 fn test_eth(packet: *Packet.Packet) !void {
     var eth_layer = try packet.get_layer(EthLayer) orelse {
         return error.EthLayerMissing;
     };
+
+    defer packet.allocator.destroy(eth_layer);
 
     _ = &eth_layer;
 
@@ -168,6 +174,8 @@ fn test_ip(packet: *Packet.Packet) !void {
     var ipv4_layer = try packet.get_layer(IPv4Layer) orelse {
         return error.IPLayerMissing;
     };
+
+    defer packet.allocator.destroy(ipv4_layer);
 
     print("In test ip: {s}\n", .{ipv4_layer.to_string(std.heap.page_allocator)});
 }
@@ -185,30 +193,25 @@ pub fn main() !void {
     var packet = try Packet.Packet.create(pkt_data_allocator);
     defer packet.deinit();
 
-    add_eth(&packet) catch |err| {
-        print("Failed to add eth: {s}\n", .{@errorName(err)});
-        return;
-    };
+    const pkt_data: []u8 = try pkt_data_allocator.alloc(u8, raw.len);
 
-    try add_ip(&packet);
+    std.mem.copyForwards(u8, pkt_data, &raw);
 
-    try test_eth(&packet);
+    var wire_packet = WirePacket.init(0, 0, pkt_data, LinkLayerProtocols.ETHERNET);
+
+    try packet.from_wire_packet(&wire_packet);
+
+    print("{}\n", .{packet.aligned_buffer.len});
+
     try test_ip(&packet);
-    try add_udp(&packet);
+}
 
-    //    try packet.to_string(page_allocator);
-
-    print("wire size: {}\n", .{packet.get_wire_size()});
-
-    const wire_buf = packet.get_wire_format();
-
-    print("Wire buffer: {x}\n", .{wire_buf});
-
+pub fn send_packet(buf: []u8) !void {
     var wifi_interface = try open_pcap() orelse {
         return error.FailedToOpen;
     };
 
-    try wifi_interface.send(wire_buf);
+    try wifi_interface.send(buf);
 
     print("No error during send.\n", .{});
 }

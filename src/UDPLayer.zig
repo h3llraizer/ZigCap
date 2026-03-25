@@ -6,6 +6,8 @@ const Layer = @import("Layer.zig");
 
 const DNS = @import("DNS.zig");
 
+const LayerProtocols = @import("Layer.zig").LayerProtocols;
+
 pub const UDPHeaderSize = 8;
 
 // UDP Header structure (extern struct for exact layout)
@@ -25,7 +27,7 @@ pub const UDPHeader = extern struct {
         return .{
             .src_port = 0,
             .dst_port = 0,
-            .length = 0,
+            .length = UDPHeaderSize,
             .checksum = 0,
         };
     }
@@ -46,7 +48,9 @@ pub const UDPHeader = extern struct {
         return @byteSwap(self.dst_port);
     }
 
-    pub fn set_length(self: *UDPHeader, len: u16) void {
+    pub fn set_length(self: *UDPHeader, len: u16) !void {
+        if (len < UDPHeaderSize) return error.UDPLenTooSmall;
+
         self.length = @byteSwap(len);
     }
 
@@ -164,6 +168,7 @@ pub const UDPLayer = struct {
     }
 
     pub fn preallocated_buffer(buffer: []u8) Layer.LayerError!UDPLayer {
+        print("buffer given to UDP Layer {x} ({})", .{ buffer, buffer.len });
         if (buffer.len < @sizeOf(UDPHeader)) return Layer.LayerError.BufferTooSmall;
 
         // Verify alignment (optional)
@@ -288,11 +293,16 @@ pub const UDPLayer = struct {
         }) catch return "";
     }
 
-    pub fn parse_next_layer(self: *UDPLayer, buffer_allocator: Allocator, layer_allocator: Allocator) ?*Layer.Layer {
-        const packet_layer: *Layer.Layer = layer_allocator.create(Layer.Layer) catch return null;
-        _ = buffer_allocator;
+    pub fn get_next_layer_type(self: *UDPLayer) LayerProtocols {
+        _ = self;
+        return LayerProtocols{ .Application = .Generic };
+    }
+
+    pub fn parse_next_layer(self: *UDPLayer, buffer: []u8, allocator: Allocator) ?*Layer.Layer {
+        const packet_layer: *Layer.Layer = allocator.create(Layer.Layer) catch return null;
         _ = &self;
         _ = packet_layer;
+        _ = buffer;
 
         //       if (self.get_dst_port() == 53 or self.get_src_port() == 53) {
         //           const dns_layer = DNS.DNSLayer.init(self.data[0..], allocator) catch return null;

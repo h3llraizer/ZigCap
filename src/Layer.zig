@@ -9,17 +9,20 @@ const UDPHeader = @import("UDPLayer.zig").UDPHeader;
 pub const ApplicationProtocols = enum(u16) {
     HTTP = 80,
     DNS = 53,
+    Generic = 0,
 };
 
 pub const TransportProtocols = enum(u8) {
     ICMP = 1,
     TCP = 6,
     UDP = 17,
+    Generic = 0,
 };
 
 pub const NetworkProtocols = enum(u16) {
     IPv4 = 4,
     IPv6 = 6,
+    Generic = 0,
 };
 
 pub const LinkLayerProtocols = enum(u16) {
@@ -41,16 +44,11 @@ pub const LinkLayerProtocols = enum(u16) {
     INVALID = 0xFFFF,
 };
 
-pub const Generic = enum(u16) {
-    Generic,
-};
-
 pub const LayerProtocols = union(enum) {
     LinkLayer: LinkLayerProtocols,
     Network: NetworkProtocols,
     Transport: TransportProtocols,
     Application: ApplicationProtocols,
-    Generic,
 };
 
 pub fn from_protocol_layer(layer: *Layer, protocol_layer: LayerProtocols, layer_type: anytype) ?*layer_type {
@@ -70,12 +68,11 @@ pub const Layer = struct {
     next_layer: ?*Layer,
     prev_layer: ?*Layer,
 
-    //    data: []u8,
-
     v_get_data: *const fn (*anyopaque) []u8,
     v_get_payload: *const fn (*anyopaque) []u8,
     v_to_string: *const fn (*anyopaque, Allocator) []const u8,
-    v_parse_next_layer: *const fn (*anyopaque, Allocator, Allocator) ?*Layer,
+    v_get_next_layer_type: *const fn (*anyopaque) LayerProtocols,
+    v_parse_next_layer: *const fn (*anyopaque, []u8, Allocator) ?*Layer,
     v_get_protocol: *const fn (*anyopaque) LayerProtocols,
     v_deinit: *const fn (*anyopaque, Allocator) void,
 
@@ -86,10 +83,10 @@ pub const Layer = struct {
             .layer_type = layer_type,
             .next_layer = null,
             .prev_layer = null,
-            //           .data = delegate.get_data(layer_type),
             .v_get_data = delegate.get_data,
             .v_get_payload = delegate.get_payload,
             .v_to_string = delegate.to_string,
+            .v_get_next_layer_type = delegate.get_next_layer_type,
             .v_parse_next_layer = delegate.parse_next_layer,
 
             .v_get_protocol = delegate.get_protocol,
@@ -99,12 +96,12 @@ pub const Layer = struct {
 
     /// get slice of data (hdr+payload)
     pub fn get_data(self: *Layer) []u8 {
-        return self.v_get_data(self);
+        return self.v_get_data(self.layer_type);
     }
 
     /// return mutable slice of the payload
     pub fn get_payload(self: *Layer) []u8 {
-        return self.v_get_payload(self);
+        return self.v_get_payload(self.layer_type);
     }
 
     // Public functions
@@ -129,8 +126,12 @@ pub const Layer = struct {
         return self.v_to_string(self.layer_type, allocator);
     }
 
-    pub fn parse_next_layer(self: *Layer, buffer_allocator: Allocator, layer_allocator: Allocator) ?*Layer {
-        return self.v_parse_next_layer(self.layer_type, buffer_allocator, layer_allocator);
+    pub fn get_next_layer_type(self: *Layer) LayerProtocols {
+        return self.v_get_next_layer_type(self.layer_type);
+    }
+
+    pub fn parse_next_layer(self: *Layer, buffer: []u8, allocator: Allocator) ?*Layer {
+        return self.v_parse_next_layer(self.layer_type, buffer, allocator);
     }
 
     pub fn get_protocol(self: *Layer) LayerProtocols {
@@ -148,7 +149,9 @@ inline fn LayerDelegate(layer_type: anytype) type { // VTable Link
 
     return struct {
         pub fn get_data(layer: *anyopaque) []u8 {
-            return TPtr(LayerType, layer).get_data();
+            const ptr = TPtr(LayerType, layer);
+            const result = ptr.get_data();
+            return result;
         }
 
         pub fn get_payload(layer: *anyopaque) []u8 {
@@ -159,8 +162,12 @@ inline fn LayerDelegate(layer_type: anytype) type { // VTable Link
             return TPtr(LayerType, layer).to_string(allocator);
         }
 
-        pub fn parse_next_layer(layer: *anyopaque, buffer_allocator: Allocator, layer_allocator: Allocator) ?*Layer {
-            return TPtr(LayerType, layer).parse_next_layer(buffer_allocator, layer_allocator);
+        pub fn get_next_layer_type(layer: *anyopaque) LayerProtocols {
+            return TPtr(LayerType, layer).get_next_layer_type();
+        }
+
+        pub fn parse_next_layer(layer: *anyopaque, buffer: []u8, allocator: Allocator) ?*Layer {
+            return TPtr(LayerType, layer).parse_next_layer(buffer, allocator);
         }
 
         pub fn get_protocol(layer: *anyopaque) LayerProtocols {

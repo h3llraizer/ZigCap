@@ -7,26 +7,20 @@ pub const WirePacket = struct {
     timestamp_s: i64,
     timestamp_ms: i64,
     raw_data: []u8,
-    raw_len: u32,
     link_type: LinkLayerProtocols,
-    additional: ?*anyopaque, // Optional additional member to store any data of the developers choosing
 
-    pub fn init(ts_usec: i64, ts_sec: i64, raw: []const u8, len: c_uint, link_type: LinkLayerProtocols, allocator: std.mem.Allocator) !*WirePacket {
-        var p: *WirePacket = try allocator.create(WirePacket);
+    pub fn init(ts_usec: i64, ts_sec: i64, raw: []u8, link_type: LinkLayerProtocols) WirePacket {
+        const self: WirePacket = WirePacket{
+            .timestamp_ms = ts_usec,
 
-        p.timestamp_ms = ts_usec;
+            .timestamp_s = ts_sec,
 
-        p.timestamp_s = ts_sec;
+            .raw_data = raw,
 
-        p.raw_len = @intCast(len);
+            .link_type = link_type,
+        };
 
-        p.raw_data = try allocator.alloc(u8, p.raw_len);
-
-        p.link_type = link_type;
-
-        @memmove(p.raw_data, raw[0..p.raw_len]);
-
-        return p;
+        return self;
     }
 
     pub fn slice(self: *WirePacket, offset: usize, len: usize) ![]const u8 {

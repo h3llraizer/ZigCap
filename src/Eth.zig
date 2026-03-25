@@ -89,28 +89,6 @@ pub const EthLayer = struct {
     data: []u8, // ethhdr + payload
     const Protocol = LayerProtocols{ .LinkLayer = .ETHERNET };
 
-    pub fn init(raw: []u8, allocator: std.mem.Allocator) !*EthLayer {
-        if (raw.len < EthHeaderSize) {
-            return error.RawPayloadTooSmall;
-        }
-
-        const e = try allocator.create(EthLayer);
-        e.data = raw;
-        return e;
-    }
-
-    pub fn stack() EthLayer {
-        const d: [14]u8 = undefined;
-        return EthLayer{ .data = d };
-    }
-
-    pub fn allocator_owned_buffer(allocator: Allocator) !EthLayer {
-        var self = EthLayer{ .data = undefined };
-        self.data = try allocator.alloc(u8, EthHeaderSize);
-        //self = try EthLayer.preallocated_buffer(self.data);
-        return self;
-    }
-
     pub fn preallocated_buffer(buffer: []u8) LayerError!EthLayer {
         if (buffer.len < @sizeOf(EthHeader)) return LayerError.BufferTooSmall;
 
@@ -134,14 +112,13 @@ pub const EthLayer = struct {
         return @ptrCast(aligned_ptr);
     }
 
-    pub fn create(allocator: std.mem.Allocator) !*EthLayer {
-        const self = try allocator.create(EthLayer);
-        self.data = try allocator.alloc(u8, EthHeaderSize);
-        return self;
-    }
-
     pub fn to_string(self: *EthLayer, allocator: Allocator) []const u8 {
+        print("EthLayer to string called:\n", .{});
         const hdr = self.get_header();
+
+        print("hdr to bytes: {x}\n", .{std.mem.asBytes(hdr)});
+        print("data: {x}\n", .{self.data});
+        print("data ptr: {*}\n", .{self.data.ptr});
 
         const src_mac = hdr.get_src_mac().to_string(allocator) catch |err| blk: {
             std.debug.print("src_mac to_string failed: {s}\n", .{@errorName(err)});
@@ -172,6 +149,7 @@ pub const EthLayer = struct {
 
     /// get slice of data (hdr+payload)
     pub fn get_data(self: *EthLayer) []u8 {
+        //print("get_data: self={*}, self.data.ptr={*}, self.data.len={}\n", .{ self, self.data.ptr, self.data.len });
         return self.data;
     }
 
@@ -180,16 +158,22 @@ pub const EthLayer = struct {
         return self.data[EthHeaderSize..];
     }
 
-    /// this method assumes it's parsing from a contiguous/wire buffer. It will realloc and add padding for alignment
-    pub fn parse_next_layer(self: *EthLayer, buffer_allocator: Allocator, layer_allocator: Allocator) ?*Layer {
+    ///
+    pub fn parse_next_layer(self: *EthLayer, buffer: []u8, allocator: Allocator) ?*Layer {
+        self.* = EthLayer.preallocated_buffer(buffer[0..]) catch |err| {
+            print("{s}\n", .{@errorName(err)});
+            return null;
+        };
+
         const hdr = self.get_header();
         const eth_type = hdr.get_eth_type();
 
-        const packet_layer: *Layer = layer_allocator.create(Layer) catch return null;
+        print("eth payload: {x}\n", .{self.get_payload()});
+
+        const packet_layer: *Layer = allocator.create(Layer) catch return null;
 
         switch (eth_type) {
             EthType.IP => {
-                // Check if we have at least the first byte to determine IP version
                 if (self.data.len <= EthHeaderSize) return null;
 
                 const ihl_byte = self.data[EthHeaderSize];
@@ -199,33 +183,23 @@ pub const EthLayer = struct {
                 if (ip_version == @intFromEnum(NetworkProtocols.IPv4)) {
                     if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) return null;
 
-                    // Calculate the new total size needed
-                    const current_offset: usize = EthHeaderSize; // where the IP header starts
-                    const ipv4_size: usize = @sizeOf(IPv4Header);
-                    const new_total_size = current_offset + ipv4_size;
-
-                    // Reallocate the entire buffer
-                    self.data = buffer_allocator.realloc(self.data, new_total_size) catch |err| {
-                        print("Error reallocing for IPv4 Layer: {s}\n", .{@errorName(err)});
+                    const ipv4_layer = allocator.create(IPv4Layer) catch |err| { // does this really need to be created?
+                        print("Error creating IPv4 layer struct: {s}\n", .{@errorName(err)});
                         return null;
                     };
-
-                    print("Realloc'd: {x}\n", .{self.data});
 
                     // Now you can work with the IP header at the correct offset
-                    var ipv4_layer = IPv4Layer.preallocated_buffer(self.data[current_offset..][0..ipv4_size]) catch |err| {
+                    ipv4_layer.* = IPv4Layer.preallocated_buffer(buffer[0..]) catch |err| {
                         print("Error creating IPv4 Layer: {s}\n", .{@errorName(err)});
+                        print("buffer: {x} ({})\n", .{ buffer, buffer.len });
                         return null;
                     };
 
-                    packet_layer.* = Layer.implBy(&ipv4_layer);
+                    packet_layer.* = Layer.implBy(ipv4_layer);
                     return packet_layer;
                 }
 
-                if (ip_version == @intFromEnum(NetworkProtocols.IPv6)) { // this isn't implemented yet and will likely fail
-                    //                   const ipv6_layer = IPv6Layer.init(self.data[EthHeaderSize..], layer_allocator) catch return null;
-                    //                   packet_layer.* = Layer.implBy(ipv6_layer);
-                    //                   return packet_layer;
+                if (ip_version == @intFromEnum(NetworkProtocols.IPv6)) {
                     print("ipv6 layer not implemented yet.\n", .{});
                     return null;
                 }
@@ -234,13 +208,47 @@ pub const EthLayer = struct {
                 return null;
             },
             EthType.IPV6 => {
-                const ipv6_layer = IPv6Layer.init(self.data[EthHeaderSize..], layer_allocator) catch return null;
+                const ipv6_layer = IPv6Layer.init(self.data[EthHeaderSize..], allocator) catch return null;
                 packet_layer.* = Layer.implBy(ipv6_layer);
                 return packet_layer;
             },
             else => {
                 print("Unhandled EthType: {s}\n", .{@tagName(eth_type)});
                 return null;
+            },
+        }
+    }
+
+    /// this method assumes it's parsing from a contiguous/wire buffer. It will realloc and add padding for alignment
+    pub fn get_next_layer_type(self: *EthLayer) LayerProtocols {
+        const hdr = self.get_header();
+        const eth_type = hdr.get_eth_type();
+
+        switch (eth_type) {
+            EthType.IP => {
+                if (self.data.len <= EthHeaderSize) return LayerProtocols{ .Network = .Generic };
+
+                const ihl_byte = self.data[EthHeaderSize];
+                const ip_version = ihl_byte >> 4;
+                const hdr_len = (ihl_byte & 0x0F) * 4;
+
+                if (ip_version == @intFromEnum(NetworkProtocols.IPv4)) {
+                    if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) return LayerProtocols{ .Network = .Generic };
+
+                    return LayerProtocols{ .Network = .IPv4 };
+                }
+
+                if (ip_version == @intFromEnum(NetworkProtocols.IPv6)) {
+                    return LayerProtocols{ .Network = .IPv6 };
+                } else {
+                    return LayerProtocols{ .Network = .Generic };
+                }
+            },
+            EthType.IPV6 => {
+                return LayerProtocols{ .Network = .IPv6 };
+            },
+            else => {
+                return LayerProtocols{ .Network = .Generic };
             },
         }
     }

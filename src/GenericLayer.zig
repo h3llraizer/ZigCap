@@ -6,8 +6,8 @@ const Layer = @import("Layer.zig").Layer;
 const Allocator = std.mem.Allocator;
 
 pub const GenericLayer = struct {
-    data: []u8, // UDP header + payload
-    const Protocol = LayerProtocols{ .Generic = .Generic };
+    data: []u8,
+    protocol: LayerProtocols,
 
     pub fn init(data: []u8, protocol: LayerProtocols) GenericLayer {
         return GenericLayer{ .data = data, .protocol = protocol };

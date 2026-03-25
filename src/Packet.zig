@@ -40,6 +40,42 @@ pub fn get_pre_alloc_init(choice: type) !*const fn ([]u8) LayerError!choice {
     }
 }
 
+pub fn get_init(choice: LayerProtocols) !*Layer {
+    switch (choice) {
+        LayerProtocols{ .LinkLayer = .ETHERNET },
+        => return EthLayer.preallocated_buffer,
+        LayerProtocols{ .Network = .IPv4 },
+        => return IPv4.IPv4Layer.preallocated_buffer,
+        LayerProtocols{ .Transport = .UDP },
+        => return UDP.UDPLayer.preallocated_buffer,
+        else => return error.LayerInvalid,
+    }
+}
+
+/// returns a slice in an existing buffer for layer to be created from
+pub fn get_padded_buffer(layer_type: type, current_offset: usize, buffer: *[]u8, allocator: Allocator) ![]u8 {
+    print("Getting padded buffer for {s}: \n", .{@typeName(layer_type)});
+    const protocol_enum = try get_layer_type_enum(layer_type);
+
+    print("\tcurrent offset: {}\n", .{current_offset});
+    const hdr_size: usize = get_layer_size(protocol_enum); // get the size of the layers hdr type
+    print("\thdr size: {}\n", .{hdr_size});
+    const alignment_size: usize = get_layer_alignment(protocol_enum); // get the alignment size of the layers hdr type
+    print("\talignment size: {}\n", .{alignment_size});
+    const next_offset = get_next_relative_offset(current_offset, alignment_size);
+    print("\tnext_offset: {}\n", .{next_offset});
+
+    const pad_size = buffer.*[current_offset..next_offset].len;
+
+    print("\tpad size: {}\n", .{pad_size});
+
+    _ = try insert_padding(buffer, current_offset, pad_size, allocator);
+
+    print("\tslice {x}\n", .{buffer.*[0..]});
+
+    return buffer.*[next_offset..];
+}
+
 pub const Packet = struct {
     first_layer: ?*Layer,
     last_layer: ?*Layer,
@@ -56,23 +92,28 @@ pub const Packet = struct {
         };
     }
 
-    /// Creates a Packet from an existing buffer which is in wire format. The buffer needs to be mutable so padding can be inserted
+    /// Creates a Packet from an existing wire packet. The buffer needs to be mutable so padding can be inserted
     /// if required and the alllocator used to allocate the buffer needs to be passed for potentail realloc.
-    /// The LinkType needs to be specified.
-    pub fn from_contig(buffer: []u8, buffer_allocator: Allocator, link_type: LinkLayerProtocols, allocator: Allocator) !Packet {
-        var self = Packet.create(allocator);
-        switch (link_type) {
+    pub fn from_wire_packet(self: *Packet, wire_packet: *WirePacket) !void {
+        self.aligned_buffer = wire_packet.raw_data;
+
+        var starting_offset: usize = 0;
+
+        switch (wire_packet.link_type) {
             LinkLayerProtocols.ETHERNET => {
-                if (buffer.len < @sizeOf(Eth.EthHeader)) return error.BufferTooSmallForEth;
-                var eth_layer = try Eth.EthLayer.preallocated_buffer(buffer[0..]);
-                try self.add_layer(&eth_layer);
+                if (self.aligned_buffer.len < @sizeOf(Eth.EthHeader)) return error.BufferTooSmallForEth;
+                const eth_layer = try self.allocator.create(EthLayer);
+                eth_layer.* = try EthLayer.preallocated_buffer(self.aligned_buffer);
+                starting_offset = 0;
+                try self.add_layer(eth_layer);
+
+                //                const next_type = eth_layer.get_next_layer_type();
+                //                print("{any}\n", .{next_type});
             },
             else => return error.UnknownLinkType,
         }
-
-        self.parse_all_layers(buffer_allocator, 1);
-
-        return self;
+        try self.accum_layers(self.get_first_layer(), starting_offset);
+        //try self.accumulate_all_layers(starting_offset);
     }
 
     /// Creates new layer in the Packet. Specify the layer (e.g. EthLayer, IPv4Layer etc), and the layer will be returned with it's memory allocated in the aligned_buffer. You must free the layer returned when done with it. The underlying bytes representing the layer are preserved in the aligned buffer
@@ -100,19 +141,115 @@ pub const Packet = struct {
         return impl_layer;
     }
 
-    fn parse_all_layers(self: *Packet, depth: usize) void {
-        var cur = self.first_layer;
+    pub fn get_all_layers(self: *Packet) void {
+        var cur = self.get_first_layer();
+        while (cur) |layer| {
+            print("Next layer type: {any}\n", .{layer.get_next_layer_type() orelse return});
+            cur = layer.get_next_layer();
+        }
+    }
 
-        var cur_depth: usize = 0;
+    /// returns a slice in an existing buffer for layer to be created from
+    fn return_padded_buffer(self: *Packet, layer_type: LayerProtocols, current_offset: usize) ![]u8 {
+        print("current offset: {}\n", .{current_offset});
+        const hdr_size: usize = get_layer_size(layer_type); // get the size of the layers hdr type
+        print("hdr size: {}\n", .{hdr_size});
+        const alignment_size: usize = get_layer_alignment(layer_type); // get the alignment size of the layers hdr type
+        print("alignment size: {}\n", .{alignment_size});
+        const next_offset = get_next_relative_offset(current_offset, alignment_size);
+        print("next_offset: {}\n", .{next_offset});
+
+        const pad_size = self.aligned_buffer[current_offset..next_offset].len;
+
+        print("pad size: {}\n", .{pad_size});
+
+        var slice = try insert_padding(&self.aligned_buffer, current_offset, pad_size, self.allocator);
+
+        print("slice {x}\n", .{self.aligned_buffer[0..]});
+
+        return slice[next_offset..];
+    }
+
+    fn accum_layers(self: *Packet, layer: ?*Layer, current_offset: usize) !void {
+        if (layer) |cur| {
+            print("cur layer data: {x}\n", .{cur.get_data()});
+
+            const next_protocol_layer = cur.get_next_layer_type();
+
+            switch (cur.get_next_layer_type()) {
+                .Network => |net| switch (net) {
+                    .IPv4 => {
+                        print("IPv4\n", .{});
+                        _ = try self.return_padded_buffer(next_protocol_layer, 14);
+                        const ipv4_layer = try self.allocator.create(IPv4.IPv4Layer);
+                        ipv4_layer.* = try IPv4.IPv4Layer.preallocated_buffer(self.aligned_buffer);
+                        try self.add_layer(ipv4_layer);
+                    },
+                    .IPv6 => {
+                        print("IPv6\n", .{});
+                    },
+                    .Generic => {
+                        print("Generic network protocol\n", .{});
+                    },
+                },
+                else => {}, // Ignore other layers
+            }
+
+            try self.accum_layers(cur.get_next_layer(), current_offset);
+        }
+
+        return;
+    }
+
+    fn accumulate_all_layers(self: *Packet, current_offset: usize) !void {
+        print("parsing layers. offset {}\n", .{current_offset});
+        var cur = self.get_first_layer();
 
         while (cur) |layer| {
-            if (cur_depth == depth) {
-                break;
+            const next_protocol = layer.get_next_layer_type();
+
+            print("LAYER DATA: {x}\n", .{layer.get_data()});
+
+            print("{any}\n", .{next_protocol});
+
+            const buffer_slice = try self.return_padded_buffer(next_protocol, current_offset);
+
+            print("slice for next layer: {x}\n", .{buffer_slice});
+
+            print("aligned buffer {x}\n", .{self.aligned_buffer});
+
+            const next_layer = layer.parse_next_layer(self.aligned_buffer, self.allocator);
+
+            if (next_layer) |next| {
+                print("data from next layer: {x}\n", .{next.get_data()});
+            } else {
+                print("no next layer.\n", .{});
             }
+
+            cur = layer.get_next_layer();
+
+            break;
+        }
+
+        self.last_layer = cur;
+    }
+
+    fn parse_all_layers(self: *Packet) void {
+        print("parsing layers:\n", .{});
+        var cur = self.get_first_layer();
+
+        while (cur) |layer| {
+            print("cur offset: {x}\n", .{layer.get_data()});
+            print("current: {any}\n", .{layer.get_protocol()});
+            const next_protocol = layer.get_next_layer_type();
+
+            print("{any}\n", .{next_protocol});
+
             const next = layer.parse_next_layer(self.allocator) orelse break;
 
+            print("data from next layer: {x}\n", .{next.get_data()});
+
             layer.set_next_layer(next);
-            cur_depth += 1;
             cur = next;
         }
 
@@ -123,11 +260,6 @@ pub const Packet = struct {
     fn add_layer(self: *Packet, layer: anytype) !void {
         const new_layer = try self.allocator.create(Layer);
         new_layer.* = Layer.implBy(layer);
-
-        const protocol = new_layer.get_protocol();
-        const hdr_size = get_layer_size(protocol);
-
-        print("protocol: {any}, hdr size {}\n", .{ protocol, hdr_size });
 
         if (self.first_layer == null) {
             self.first_layer = new_layer;
@@ -152,7 +284,6 @@ pub const Packet = struct {
 
     /// returns the Layer desired if it is present
     pub fn get_layer(self: *Packet, layer_type: type) !?*layer_type {
-        print("Getting layer: {s}\n", .{@typeName(layer_type)});
         const protocol_enum = try get_layer_type_enum(layer_type);
 
         const impl_init = try get_pre_alloc_init(layer_type);
@@ -161,7 +292,6 @@ pub const Packet = struct {
 
         while (cur) |l| {
             if (activeTag(l.get_protocol()) == activeTag(protocol_enum)) {
-                //const layer: *layer_type = TPtr(*layer_type, l.layer_type);
                 const layer: *layer_type = try self.allocator.create(layer_type);
                 const layer_slice: []u8 = self.get_layer_from_buffer(protocol_enum) orelse {
                     return null;
@@ -220,7 +350,8 @@ pub const Packet = struct {
         return self.last_layer;
     }
 
-    pub fn to_string(self: *Packet, allocator: Allocator) !void { // use this to determine "actual size"
+    /// does not work currently
+    pub fn to_string(self: *Packet, allocator: Allocator) !void {
         var cur = self.first_layer;
 
         while (cur) |l| {
@@ -233,7 +364,7 @@ pub const Packet = struct {
     pub fn print_protocol_stack(self: *Packet) void {
         var cur = self.first_layer;
         while (cur) |layer| {
-            print("{s} ", .{@tagName(std.meta.activeTag(layer.get_protocol()))});
+            print("{s}\n", .{@tagName(std.meta.activeTag(layer.get_protocol()))});
             cur = layer.next_layer;
         }
     }
@@ -344,6 +475,32 @@ pub fn calculate_padding(current_offset: usize, comptime HdrType: type) usize {
     const alignment = @alignOf(HdrType);
     const padding = (alignment - (current_offset % alignment)) % alignment;
     return padding;
+}
+
+fn insert_padding(buf: *[]u8, offset: usize, len: usize, allocator: std.mem.Allocator) ![]u8 {
+    std.debug.assert(offset <= buf.len);
+
+    const original_len = buf.len;
+    const new_len = original_len + len;
+
+    // Reallocate to make room for padding
+    var padded_slice = try allocator.realloc(buf.*, new_len);
+
+    // Move the trailing bytes (from offset to end) to the right
+    // to make space for the padding
+    @memmove(
+        padded_slice[offset + len .. new_len],
+        padded_slice[offset..original_len],
+    );
+
+    // Fill the padding area with 'X'
+    @memset(padded_slice[offset .. offset + len], 0);
+
+    // Update the original slice pointer
+    buf.* = padded_slice;
+
+    // Return the entire padded slice
+    return padded_slice[0..];
 }
 
 fn removeRangeInPlace(buf: []u8, offset: usize, len: usize) []u8 {

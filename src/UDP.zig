@@ -220,6 +220,11 @@ pub const UDPLayer = struct {
         };
     }
 
+    pub fn get_next_layer_type(self: *UDPLayer) LayerProtocols {
+        _ = self;
+        return LayerProtocols{ .Application = .Generic };
+    }
+
     pub fn parse_next_layer(self: *UDPLayer, allocator: std.mem.Allocator) ?*Layer {
         const packet_layer: *Layer = allocator.create(Layer) catch return null;
 

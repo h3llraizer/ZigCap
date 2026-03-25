@@ -84,13 +84,14 @@ pub const IPv6Layer = struct {
         return self.data[20..];
     }
 
-    pub fn parse_next_layer(self: *IPv6Layer, buffer_allocator: Allocator, layer_allocator: Allocator) ?*Layer {
-        _ = buffer_allocator;
+    pub fn parse_next_layer(self: *IPv6Layer, buffer: []u8, allocator: Allocator) ?*Layer {
         const transport_type: TransportProtocol = self.get_transport_type() catch return null;
 
         _ = transport_type;
 
-        const packet_layer: *Layer = layer_allocator.create(Layer) catch return null;
+        _ = buffer;
+
+        const packet_layer: *Layer = allocator.create(Layer) catch return null;
 
         _ = packet_layer;
 
@@ -112,6 +113,25 @@ pub const IPv6Layer = struct {
         //        return packet_layer;
 
         return null;
+    }
+
+    pub fn get_next_layer_type(self: *IPv6Layer) LayerProtocols {
+        const transport_type: TransportProtocol = self.get_transport_type() catch return LayerProtocols{ .Transport = .Generic };
+
+        switch (transport_type) {
+            TransportProtocol.TCP => {
+                return LayerProtocols{ .Transport = .TCP };
+            },
+            TransportProtocol.UDP => {
+                return LayerProtocols{ .Transport = .UDP };
+            },
+            else => {
+                print("Unhandled Transport layer.\n", .{});
+                return LayerProtocols{ .Transport = .Generic };
+            },
+        }
+
+        return LayerProtocols{ .Transport = .Generic };
     }
 
     pub fn get_transport_type(self: *IPv6Layer) !TransportProtocol {

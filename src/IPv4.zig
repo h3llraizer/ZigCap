@@ -102,7 +102,7 @@ pub const IPv4Layer = struct {
     }
 
     pub fn preallocated_buffer(buffer: []u8) LayerError!IPv4Layer {
-        print("buffer len: {}\n", .{buffer.len});
+        print("buffer given to IPv4 layer: {x} ({})\n", .{ buffer, buffer.len });
         if (buffer.len < @sizeOf(IPv4Header)) return error.BufferTooSmall;
 
         // Verify alignment
@@ -161,10 +161,11 @@ pub const IPv4Layer = struct {
         return self.data[header_len..];
     }
 
-    pub fn parse_next_layer(self: *IPv4Layer, buffer_allocator: Allocator, layer_allocator: Allocator) ?*Layer {
+    pub fn parse_next_layer(self: *IPv4Layer, buffer: []u8, allocator: Allocator) ?*Layer {
         const transport_type: TransportProtocol = self.get_transport_type() catch return null;
 
-        const packet_layer: *Layer = layer_allocator.create(Layer) catch return null;
+        //const current_offset: usize = @sizeOf(IPv4Header);
+        const packet_layer: *Layer = allocator.create(Layer) catch return null;
 
         switch (transport_type) {
             TransportProtocol.TCP => {
@@ -174,22 +175,31 @@ pub const IPv4Layer = struct {
             },
             TransportProtocol.UDP => {
                 // Calculate the new total size needed
-                const current_offset: usize = @sizeOf(IPv4Header); // where the UDP header starts
-                const udp_size: usize = @sizeOf(UDP.UDPHeader);
-                const new_total_size = current_offset + udp_size;
 
-                // Reallocate the entire buffer
-                self.data = buffer_allocator.realloc(self.data, new_total_size) catch |err| {
-                    print("Error reallocing for UDP Layer: {s}\n", .{@errorName(err)});
+                //               var udp_buffer = Packet.get_padded_buffer(UDP.UDPLayer, current_offset, &self.data, allocator) catch |err| {
+                //                   print("Error creating UDP layer buffer: {s}\n", .{@errorName(err)});
+                //                   return null;
+                //               };
+
+                const udp_layer = allocator.create(UDP.UDPLayer) catch |err| { // does this really need to be created?
+                    print("Error creating UDP layer struct: {s}\n", .{@errorName(err)});
                     return null;
                 };
 
-                // Now you can work with the UDP header at the correct offset
-                var udp_layer = IPv4Layer.preallocated_buffer(self.data[current_offset..][0..udp_size]) catch |err| {
-                    print("Error creating IPv4 Layer: {s}\n", .{@errorName(err)});
+                // Now you can work with the IP header at the correct offset
+                udp_layer.* = UDP.UDPLayer.preallocated_buffer(buffer[0..]) catch |err| {
+                    print("Error creating UDP Layer: {s}\n", .{@errorName(err)});
+                    print("buffer: {x} ({})\n", .{ buffer, buffer.len });
                     return null;
                 };
-                packet_layer.* = Layer.implBy(&udp_layer);
+
+                print("UDP layer data: {x}\n", .{udp_layer.data});
+
+                print("{s}\n", .{udp_layer.to_string(std.heap.page_allocator)});
+
+                packet_layer.* = Layer.implBy(udp_layer);
+                print("UDP layer interface data: {x}\n", .{packet_layer.get_data()});
+                return packet_layer;
             },
             else => {
                 print("Unhandled Transport layer.\n", .{});
@@ -198,6 +208,26 @@ pub const IPv4Layer = struct {
         }
 
         return packet_layer;
+    }
+
+    pub fn get_next_layer_type(self: *IPv4Layer) LayerProtocols {
+        const transport_type: TransportProtocol = self.get_transport_type() catch return LayerProtocols{ .Transport = .Generic };
+
+        switch (transport_type) {
+            TransportProtocol.TCP => {
+                return LayerProtocols{ .Transport = .TCP };
+            },
+            TransportProtocol.UDP => {
+                return LayerProtocols{ .Transport = .UDP };
+            },
+            else => {
+                print("Unhandled Transport layer.\n", .{});
+
+                return LayerProtocols{ .Transport = .Generic };
+            },
+        }
+
+        return LayerProtocols{ .Transport = .Generic };
     }
 
     pub fn get_checksum(self: *IPv4Layer) u16 {

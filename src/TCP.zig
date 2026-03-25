@@ -156,8 +156,14 @@ pub const TCPLayer = struct {
         return self.data[20..];
     }
 
-    pub fn parse_next_layer(self: *TCPLayer, allocator: std.mem.Allocator) ?*Layer {
+    pub fn get_next_layer_type(self: *TCPLayer) LayerProtocols {
+        _ = self;
+        return LayerProtocols{ .Application = .Generic };
+    }
+
+    pub fn parse_next_layer(self: *TCPLayer, buffer: []u8, allocator: Allocator) ?*Layer {
         _ = allocator;
+        _ = buffer;
         print("Reached application layer. Payload len: {d}\n", .{self.data.len});
         return null;
     }
