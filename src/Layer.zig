@@ -51,14 +51,6 @@ pub const LayerProtocols = union(enum) {
     Application: ApplicationProtocols,
 };
 
-pub fn from_protocol_layer(layer: *Layer, protocol_layer: LayerProtocols, layer_type: anytype) ?*layer_type {
-    if (std.meta.activeTag(layer.get_protocol()) == std.meta.activeTag(protocol_layer)) {
-        return TPtr(*layer_type, layer.layer_type);
-    }
-
-    return null;
-}
-
 pub const LayerError = error{ OutOfMemory, BufferTooSmall, MisalignedBuffer };
 
 /// Layer interface
@@ -72,7 +64,6 @@ pub const Layer = struct {
     v_get_payload: *const fn (*anyopaque) []u8,
     v_to_string: *const fn (*anyopaque, Allocator) []const u8,
     v_get_next_layer_type: *const fn (*anyopaque) LayerProtocols,
-    v_parse_next_layer: *const fn (*anyopaque, []u8, Allocator) ?*Layer,
     v_get_protocol: *const fn (*anyopaque) LayerProtocols,
     v_deinit: *const fn (*anyopaque, Allocator) void,
 
@@ -87,7 +78,6 @@ pub const Layer = struct {
             .v_get_payload = delegate.get_payload,
             .v_to_string = delegate.to_string,
             .v_get_next_layer_type = delegate.get_next_layer_type,
-            .v_parse_next_layer = delegate.parse_next_layer,
 
             .v_get_protocol = delegate.get_protocol,
             .v_deinit = delegate.deinit,
@@ -130,10 +120,6 @@ pub const Layer = struct {
         return self.v_get_next_layer_type(self.layer_type);
     }
 
-    pub fn parse_next_layer(self: *Layer, buffer: []u8, allocator: Allocator) ?*Layer {
-        return self.v_parse_next_layer(self.layer_type, buffer, allocator);
-    }
-
     pub fn get_protocol(self: *Layer) LayerProtocols {
         return self.v_get_protocol(self.layer_type);
     }
@@ -164,10 +150,6 @@ inline fn LayerDelegate(layer_type: anytype) type { // VTable Link
 
         pub fn get_next_layer_type(layer: *anyopaque) LayerProtocols {
             return TPtr(LayerType, layer).get_next_layer_type();
-        }
-
-        pub fn parse_next_layer(layer: *anyopaque, buffer: []u8, allocator: Allocator) ?*Layer {
-            return TPtr(LayerType, layer).parse_next_layer(buffer, allocator);
         }
 
         pub fn get_protocol(layer: *anyopaque) LayerProtocols {

@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 
 const LayerProtocols = @import("Layer.zig").LayerProtocols;
 const Layer = @import("Layer.zig").Layer;
+const LayerError = @import("Layer.zig").LayerError;
 
 const TransportProtocol = @import("Layer.zig").TransportProtocols;
 
@@ -59,13 +60,17 @@ pub const IPv6Layer = struct {
     data: []u8,
     const Protocol = LayerProtocols{ .Network = .IPv6 };
 
-    pub fn init(raw: []u8, allocator: std.mem.Allocator) !*IPv6Layer {
-        if (raw.len < HeaderSize) return error.RawTooSmallForIPv6;
+    pub fn init(buffer: []u8) LayerError!IPv6Layer {
+        if (buffer.len < HeaderSize) return LayerError.BufferTooSmall;
 
-        const self = try allocator.create(IPv6Layer);
+        // Verify alignment (optional)
+        const alignment = @alignOf(IPv6Header);
+        const addr = @intFromPtr(buffer.ptr);
+        if (addr % alignment != 0) {
+            return Layer.LayerError.MisalignedBuffer;
+        }
 
-        self.data = raw;
-        return self;
+        return IPv6Layer{ .data = buffer };
     }
 
     pub fn to_string(self: *IPv6Layer, allocator: Allocator) []const u8 {
@@ -82,37 +87,6 @@ pub const IPv6Layer = struct {
     /// return mutable slice of the payload
     pub fn get_payload(self: *IPv6Layer) []u8 {
         return self.data[20..];
-    }
-
-    pub fn parse_next_layer(self: *IPv6Layer, buffer: []u8, allocator: Allocator) ?*Layer {
-        const transport_type: TransportProtocol = self.get_transport_type() catch return null;
-
-        _ = transport_type;
-
-        _ = buffer;
-
-        const packet_layer: *Layer = allocator.create(Layer) catch return null;
-
-        _ = packet_layer;
-
-        //       switch (transport_type) {
-        //           TransportProtocol.TCP => {
-        //               const tcp_layer = TCPLayer.init(self.data[HeaderSize..], layer_allocator) catch return null;
-        //               packet_layer.* = Layer.implBy(tcp_layer);
-        //           },
-        //           TransportProtocol.UDP => {
-        //               const udp_layer = UDPLayer.init(self.data[HeaderSize..], layer_allocator) catch return null;
-        //               packet_layer.* = Layer.implBy(udp_layer);
-        //           },
-        //           else => {
-        //               print("Unhandled Transport layer.\n", .{});
-        //               return null;
-        //           },
-        //       }
-
-        //        return packet_layer;
-
-        return null;
     }
 
     pub fn get_next_layer_type(self: *IPv6Layer) LayerProtocols {

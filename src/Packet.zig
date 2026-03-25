@@ -31,11 +31,11 @@ fn get_layer_type_enum(value: type) !LayerProtocols {
     }
 }
 
-pub fn get_pre_alloc_init(choice: type) !*const fn ([]u8) LayerError!choice {
+pub fn get_layer_init(choice: type) !*const fn ([]u8) LayerError!choice {
     switch (choice) {
-        EthLayer => return EthLayer.preallocated_buffer,
-        IPv4.IPv4Layer => return IPv4.IPv4Layer.preallocated_buffer,
-        UDP.UDPLayer => return UDP.UDPLayer.preallocated_buffer,
+        EthLayer => return EthLayer.init,
+        IPv4.IPv4Layer => return IPv4.IPv4Layer.init,
+        UDP.UDPLayer => return UDP.UDPLayer.init,
         else => return error.LayerInvalid,
     }
 }
@@ -103,7 +103,7 @@ pub const Packet = struct {
             LinkLayerProtocols.ETHERNET => {
                 if (self.aligned_buffer.len < @sizeOf(Eth.EthHeader)) return error.BufferTooSmallForEth;
                 const eth_layer = try self.allocator.create(EthLayer);
-                eth_layer.* = try EthLayer.preallocated_buffer(self.aligned_buffer);
+                eth_layer.* = try EthLayer.init(self.aligned_buffer);
                 starting_offset = 0;
                 try self.add_layer(eth_layer);
 
@@ -112,8 +112,7 @@ pub const Packet = struct {
             },
             else => return error.UnknownLinkType,
         }
-        try self.accum_layers(self.get_first_layer(), starting_offset);
-        //try self.accumulate_all_layers(starting_offset);
+        try self.accumulate_layers(self.get_first_layer(), starting_offset);
     }
 
     /// Creates new layer in the Packet. Specify the layer (e.g. EthLayer, IPv4Layer etc), and the layer will be returned with it's memory allocated in the aligned_buffer. You must free the layer returned when done with it. The underlying bytes representing the layer are preserved in the aligned buffer
@@ -130,7 +129,7 @@ pub const Packet = struct {
         self.aligned_buffer = new_buffer;
         @memset(new_buffer[current_offset..], 0); // zero the pad bytes
 
-        const impl_init = try get_pre_alloc_init(layer_type);
+        const impl_init = try get_layer_init(layer_type);
 
         const impl_layer: *layer_type = try self.allocator.create(layer_type);
 
@@ -170,19 +169,21 @@ pub const Packet = struct {
         return slice[next_offset..];
     }
 
-    fn accum_layers(self: *Packet, layer: ?*Layer, current_offset: usize) !void {
+    fn accumulate_layers(self: *Packet, layer: ?*Layer, current_offset: usize) !void {
         if (layer) |cur| {
             print("cur layer data: {x}\n", .{cur.get_data()});
 
             const next_protocol_layer = cur.get_next_layer_type();
+            // store the sliced buf for the layer init here
+            // store the layer init here
 
             switch (cur.get_next_layer_type()) {
                 .Network => |net| switch (net) {
                     .IPv4 => {
                         print("IPv4\n", .{});
-                        _ = try self.return_padded_buffer(next_protocol_layer, 14);
+                        var ipv4_buf = try self.return_padded_buffer(next_protocol_layer, 14);
                         const ipv4_layer = try self.allocator.create(IPv4.IPv4Layer);
-                        ipv4_layer.* = try IPv4.IPv4Layer.preallocated_buffer(self.aligned_buffer);
+                        ipv4_layer.* = try IPv4.IPv4Layer.init(ipv4_buf[0..]);
                         try self.add_layer(ipv4_layer);
                     },
                     .IPv6 => {
@@ -195,43 +196,15 @@ pub const Packet = struct {
                 else => {}, // Ignore other layers
             }
 
-            try self.accum_layers(cur.get_next_layer(), current_offset);
+            // call init here
+            // call layer.set_next_layer() here
+
+            try self.accumulate_layers(cur.get_next_layer(), current_offset);
         }
+
+        // Remember to add the tail layer at the end
 
         return;
-    }
-
-    fn accumulate_all_layers(self: *Packet, current_offset: usize) !void {
-        print("parsing layers. offset {}\n", .{current_offset});
-        var cur = self.get_first_layer();
-
-        while (cur) |layer| {
-            const next_protocol = layer.get_next_layer_type();
-
-            print("LAYER DATA: {x}\n", .{layer.get_data()});
-
-            print("{any}\n", .{next_protocol});
-
-            const buffer_slice = try self.return_padded_buffer(next_protocol, current_offset);
-
-            print("slice for next layer: {x}\n", .{buffer_slice});
-
-            print("aligned buffer {x}\n", .{self.aligned_buffer});
-
-            const next_layer = layer.parse_next_layer(self.aligned_buffer, self.allocator);
-
-            if (next_layer) |next| {
-                print("data from next layer: {x}\n", .{next.get_data()});
-            } else {
-                print("no next layer.\n", .{});
-            }
-
-            cur = layer.get_next_layer();
-
-            break;
-        }
-
-        self.last_layer = cur;
     }
 
     fn parse_all_layers(self: *Packet) void {
@@ -286,7 +259,7 @@ pub const Packet = struct {
     pub fn get_layer(self: *Packet, layer_type: type) !?*layer_type {
         const protocol_enum = try get_layer_type_enum(layer_type);
 
-        const impl_init = try get_pre_alloc_init(layer_type);
+        const impl_init = try get_layer_init(layer_type);
 
         var cur = self.first_layer;
 

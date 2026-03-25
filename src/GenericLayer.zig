@@ -9,8 +9,10 @@ pub const GenericLayer = struct {
     data: []u8,
     protocol: LayerProtocols,
 
-    pub fn init(data: []u8, protocol: LayerProtocols) GenericLayer {
-        return GenericLayer{ .data = data, .protocol = protocol };
+    pub fn init(data: []u8) GenericLayer {
+        return GenericLayer{
+            .data = data,
+        };
     }
 
     /// Get slice of data (header + payload)
@@ -26,15 +28,6 @@ pub const GenericLayer = struct {
     pub fn to_string(self: *GenericLayer, allocator: Allocator) []const u8 {
         _ = allocator;
         return self.data;
-    }
-
-    pub fn parse_next_layer(self: *GenericLayer, buffer_allocator: Allocator, layer_allocator: Allocator) ?*Layer {
-        const packet_layer: *Layer = layer_allocator.create(Layer) catch return null;
-        _ = buffer_allocator;
-        _ = &self;
-        _ = packet_layer;
-
-        return null;
     }
 
     pub fn set_protocol(self: *GenericLayer, protocol: LayerProtocols) void {

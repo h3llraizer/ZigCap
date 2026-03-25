@@ -204,6 +204,8 @@ pub fn main() !void {
     print("{}\n", .{packet.aligned_buffer.len});
 
     try test_ip(&packet);
+
+    print("{}\n", .{@sizeOf(Layer)});
 }
 
 pub fn send_packet(buf: []u8) !void {

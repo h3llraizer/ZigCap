@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 
 const LayerProtocols = @import("Layer.zig").LayerProtocols;
 const Layer = @import("Layer.zig").Layer;
+const LayerError = @import("Layer.zig").LayerError;
 
 pub const TCPHeader = packed struct {
     src_port: u16,
@@ -24,14 +25,19 @@ pub const TCPLayer = struct {
     // add pointer to packet it's attached to?
 
     //// Creates layer from ptr to 8 byte length buffer - ensure that the buffer outlives the TCPLayer or UB occurs
-    pub fn init(raw: []u8, allocator: std.mem.Allocator) !*TCPLayer {
-        if (raw.len < 20) {
-            return error.RawTooSmall;
+    pub fn init(buffer: []u8) LayerError!TCPLayer {
+        if (buffer.len < 20) {
+            return LayerError.BufferTooSmall;
         }
 
-        const self = try allocator.create(TCPLayer);
-        self.data = raw;
-        return self;
+        // Verify alignment (optional)
+        const alignment = @alignOf(TCPHeader);
+        const addr = @intFromPtr(buffer.ptr);
+        if (addr % alignment != 0) {
+            return Layer.LayerError.MisalignedBuffer;
+        }
+
+        return TCPLayer{ .data = buffer };
     }
 
     //// Create empty TCP layer. TCPHeader values are Zero initialised

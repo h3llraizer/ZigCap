@@ -85,23 +85,7 @@ pub const IPv4Layer = struct {
     data: []u8,
     const Protocol = LayerProtocols{ .Network = .IPv4 };
 
-    pub fn init(raw: []u8, allocator: std.mem.Allocator) !*IPv4Layer {
-        if (raw.len < 20) {
-            return error.RawPayloadTooSmall;
-        }
-
-        const self = try allocator.create(IPv4Layer);
-        self.data = raw;
-        return self;
-    }
-
-    pub fn allocator_owned_buffer(allocator: Allocator) !IPv4Layer {
-        var self = IPv4Layer{ .data = undefined };
-        self.data = try allocator.alloc(u8, @sizeOf(IPv4Header));
-        return self;
-    }
-
-    pub fn preallocated_buffer(buffer: []u8) LayerError!IPv4Layer {
+    pub fn init(buffer: []u8) LayerError!IPv4Layer {
         print("buffer given to IPv4 layer: {x} ({})\n", .{ buffer, buffer.len });
         if (buffer.len < @sizeOf(IPv4Header)) return error.BufferTooSmall;
 

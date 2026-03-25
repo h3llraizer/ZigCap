@@ -89,7 +89,7 @@ pub const EthLayer = struct {
     data: []u8, // ethhdr + payload
     const Protocol = LayerProtocols{ .LinkLayer = .ETHERNET };
 
-    pub fn preallocated_buffer(buffer: []u8) LayerError!EthLayer {
+    pub fn init(buffer: []u8) LayerError!EthLayer {
         if (buffer.len < @sizeOf(EthHeader)) return LayerError.BufferTooSmall;
 
         // Verify alignment
@@ -156,67 +156,6 @@ pub const EthLayer = struct {
     /// return mutable slice of the payload
     pub fn get_payload(self: *EthLayer) []u8 {
         return self.data[EthHeaderSize..];
-    }
-
-    ///
-    pub fn parse_next_layer(self: *EthLayer, buffer: []u8, allocator: Allocator) ?*Layer {
-        self.* = EthLayer.preallocated_buffer(buffer[0..]) catch |err| {
-            print("{s}\n", .{@errorName(err)});
-            return null;
-        };
-
-        const hdr = self.get_header();
-        const eth_type = hdr.get_eth_type();
-
-        print("eth payload: {x}\n", .{self.get_payload()});
-
-        const packet_layer: *Layer = allocator.create(Layer) catch return null;
-
-        switch (eth_type) {
-            EthType.IP => {
-                if (self.data.len <= EthHeaderSize) return null;
-
-                const ihl_byte = self.data[EthHeaderSize];
-                const ip_version = ihl_byte >> 4;
-                const hdr_len = (ihl_byte & 0x0F) * 4;
-
-                if (ip_version == @intFromEnum(NetworkProtocols.IPv4)) {
-                    if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) return null;
-
-                    const ipv4_layer = allocator.create(IPv4Layer) catch |err| { // does this really need to be created?
-                        print("Error creating IPv4 layer struct: {s}\n", .{@errorName(err)});
-                        return null;
-                    };
-
-                    // Now you can work with the IP header at the correct offset
-                    ipv4_layer.* = IPv4Layer.preallocated_buffer(buffer[0..]) catch |err| {
-                        print("Error creating IPv4 Layer: {s}\n", .{@errorName(err)});
-                        print("buffer: {x} ({})\n", .{ buffer, buffer.len });
-                        return null;
-                    };
-
-                    packet_layer.* = Layer.implBy(ipv4_layer);
-                    return packet_layer;
-                }
-
-                if (ip_version == @intFromEnum(NetworkProtocols.IPv6)) {
-                    print("ipv6 layer not implemented yet.\n", .{});
-                    return null;
-                }
-
-                print("Unknown IP version: {}\n", .{ip_version});
-                return null;
-            },
-            EthType.IPV6 => {
-                const ipv6_layer = IPv6Layer.init(self.data[EthHeaderSize..], allocator) catch return null;
-                packet_layer.* = Layer.implBy(ipv6_layer);
-                return packet_layer;
-            },
-            else => {
-                print("Unhandled EthType: {s}\n", .{@tagName(eth_type)});
-                return null;
-            },
-        }
     }
 
     /// this method assumes it's parsing from a contiguous/wire buffer. It will realloc and add padding for alignment

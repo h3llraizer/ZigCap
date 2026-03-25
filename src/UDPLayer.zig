@@ -157,18 +157,7 @@ pub const UDPLayer = struct {
     data: []u8, // UDP header + payload
     const Protocol = Layer.LayerProtocols{ .Transport = .UDP };
 
-    pub fn init(raw: []u8, allocator: std.mem.Allocator) !*UDPLayer {
-        if (raw.len < UDPHeaderSize) {
-            return error.RawPayloadTooSmall;
-        }
-
-        const self = try allocator.create(UDPLayer);
-        self.data = raw;
-        return self;
-    }
-
-    pub fn preallocated_buffer(buffer: []u8) Layer.LayerError!UDPLayer {
-        print("buffer given to UDP Layer {x} ({})", .{ buffer, buffer.len });
+    pub fn init(buffer: []u8) Layer.LayerError!UDPLayer {
         if (buffer.len < @sizeOf(UDPHeader)) return Layer.LayerError.BufferTooSmall;
 
         // Verify alignment (optional)
