@@ -56,6 +56,35 @@ pub const IPv6Header = packed struct {
     dst_addr_15: u8,
 };
 
+pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
+    if (buffer.len < HeaderSize) return LayerError.BufferTooSmall;
+
+    // Verify alignment (optional)
+    const alignment = @alignOf(IPv6Header);
+    const addr = @intFromPtr(buffer.ptr);
+    if (addr % alignment != 0) {
+        return LayerError.MisalignedBuffer;
+    }
+
+    const hdr: *IPv6Header = @ptrCast(@alignCast(buffer[0..40]));
+
+    const transport_type = std.meta.intToEnum(TransportProtocol, hdr.next_header) catch return LayerProtocols{ .Transport = .Generic };
+
+    switch (transport_type) {
+        TransportProtocol.TCP => {
+            return LayerProtocols{ .Transport = .TCP };
+        },
+        TransportProtocol.UDP => {
+            return LayerProtocols{ .Transport = .UDP };
+        },
+        else => {
+            return LayerProtocols{ .Transport = .Generic };
+        },
+    }
+
+    return LayerProtocols{ .Transport = .Generic };
+}
+
 pub const IPv6Layer = struct {
     data: []u8,
     const Protocol = LayerProtocols{ .Network = .IPv6 };

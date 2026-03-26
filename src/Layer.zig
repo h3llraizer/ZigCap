@@ -13,13 +13,13 @@ pub const ApplicationProtocols = enum(u16) {
 };
 
 pub const TransportProtocols = enum(u8) {
-    ICMP = 1,
     TCP = 6,
     UDP = 17,
     Generic = 0,
 };
 
 pub const NetworkProtocols = enum(u16) {
+    ICMP = 1,
     IPv4 = 4,
     IPv6 = 6,
     Generic = 0,

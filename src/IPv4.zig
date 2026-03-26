@@ -81,19 +81,50 @@ pub const IPv4Header = extern struct {
     }
 };
 
+pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
+    if (buffer.len < @sizeOf(IPv4Header)) return error.BufferTooSmall;
+
+    const alignment = @alignOf(IPv4Header);
+    const addr = @intFromPtr(buffer.ptr);
+
+    if (addr % alignment != 0) {
+        return error.MisalignedBuffer;
+    }
+    const aligned_ptr: [*]align(@alignOf(IPv4Header)) u8 = @alignCast(buffer.ptr);
+    const hdr: *IPv4Header = @ptrCast(aligned_ptr);
+
+    const transport_type = std.meta.intToEnum(TransportProtocol, hdr.protocol) catch {
+        return LayerProtocols{ .Transport = .Generic };
+    };
+
+    switch (transport_type) {
+        TransportProtocol.TCP => {
+            return LayerProtocols{ .Transport = .TCP };
+        },
+        TransportProtocol.UDP => {
+            return LayerProtocols{ .Transport = .UDP };
+        },
+        else => {
+            return LayerProtocols{ .Transport = .Generic };
+        },
+    }
+
+    return LayerProtocols{ .Transport = .Generic };
+}
+
 pub const IPv4Layer = struct {
     data: []u8,
     const Protocol = LayerProtocols{ .Network = .IPv4 };
 
     pub fn init(buffer: []u8) LayerError!IPv4Layer {
-        print("buffer given to IPv4 layer: {x} ({})\n", .{ buffer, buffer.len });
+        //print("buffer given to IPv4 layer: {x} ({})\n", .{ buffer, buffer.len });
         if (buffer.len < @sizeOf(IPv4Header)) return error.BufferTooSmall;
 
         // Verify alignment
         const alignment = @alignOf(IPv4Header);
         const addr = @intFromPtr(buffer.ptr);
-        print("addr {any}\n", .{addr});
-        print("mod {any}\n", .{addr % alignment});
+        //print("addr {any}\n", .{addr});
+        //print("mod {any}\n", .{addr % alignment});
 
         if (addr % alignment != 0) {
             return error.MisalignedBuffer;
@@ -143,55 +174,6 @@ pub const IPv4Layer = struct {
     pub fn get_payload(self: *IPv4Layer) []u8 {
         const header_len = (self.get_header().version_ihl & 0x0F) * 4;
         return self.data[header_len..];
-    }
-
-    pub fn parse_next_layer(self: *IPv4Layer, buffer: []u8, allocator: Allocator) ?*Layer {
-        const transport_type: TransportProtocol = self.get_transport_type() catch return null;
-
-        //const current_offset: usize = @sizeOf(IPv4Header);
-        const packet_layer: *Layer = allocator.create(Layer) catch return null;
-
-        switch (transport_type) {
-            TransportProtocol.TCP => {
-                //                const tcp_layer = TCPLayer.init(self.get_payload(), allocator) catch return null;
-                //                packet_layer.* = Layer.implBy(tcp_layer);
-                return null;
-            },
-            TransportProtocol.UDP => {
-                // Calculate the new total size needed
-
-                //               var udp_buffer = Packet.get_padded_buffer(UDP.UDPLayer, current_offset, &self.data, allocator) catch |err| {
-                //                   print("Error creating UDP layer buffer: {s}\n", .{@errorName(err)});
-                //                   return null;
-                //               };
-
-                const udp_layer = allocator.create(UDP.UDPLayer) catch |err| { // does this really need to be created?
-                    print("Error creating UDP layer struct: {s}\n", .{@errorName(err)});
-                    return null;
-                };
-
-                // Now you can work with the IP header at the correct offset
-                udp_layer.* = UDP.UDPLayer.preallocated_buffer(buffer[0..]) catch |err| {
-                    print("Error creating UDP Layer: {s}\n", .{@errorName(err)});
-                    print("buffer: {x} ({})\n", .{ buffer, buffer.len });
-                    return null;
-                };
-
-                print("UDP layer data: {x}\n", .{udp_layer.data});
-
-                print("{s}\n", .{udp_layer.to_string(std.heap.page_allocator)});
-
-                packet_layer.* = Layer.implBy(udp_layer);
-                print("UDP layer interface data: {x}\n", .{packet_layer.get_data()});
-                return packet_layer;
-            },
-            else => {
-                print("Unhandled Transport layer.\n", .{});
-                return null;
-            },
-        }
-
-        return packet_layer;
     }
 
     pub fn get_next_layer_type(self: *IPv4Layer) LayerProtocols {

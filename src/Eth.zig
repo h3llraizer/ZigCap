@@ -85,16 +85,67 @@ pub const EthHeader = extern struct {
     }
 };
 
+pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
+    if (buffer.len < @sizeOf(EthHeader)) return LayerError.BufferTooSmall;
+    // Verify alignment
+    const alignment = @alignOf(EthHeader);
+    const addr = @intFromPtr(buffer.ptr);
+
+    if (addr % alignment != 0) {
+        return LayerError.MisalignedBuffer;
+    }
+
+    print("eth buf: {x}\n", .{buffer});
+
+    const aligned_ptr: [*]align(@alignOf(EthHeader)) u8 = @alignCast(buffer.ptr);
+    const hdr: *EthHeader = @ptrCast(aligned_ptr);
+    const eth_type = hdr.get_eth_type();
+
+    switch (eth_type) {
+        EthType.IP => {
+            if (buffer.len <= EthHeaderSize) {
+                print("buf len too small.\n", .{});
+                return LayerProtocols{ .Network = .Generic };
+            }
+
+            const ihl_byte = buffer[EthHeaderSize];
+            const ip_version = ihl_byte >> 4;
+            const hdr_len = (ihl_byte & 0x0F) * 4;
+
+            if (ip_version == @intFromEnum(NetworkProtocols.IPv4)) {
+                if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) {
+                    return LayerProtocols{ .Network = .Generic };
+                }
+
+                return LayerProtocols{ .Network = .IPv4 };
+            }
+
+            if (ip_version == @intFromEnum(NetworkProtocols.IPv6)) {
+                return LayerProtocols{ .Network = .IPv6 };
+            } else {
+                return LayerProtocols{ .Network = .Generic };
+            }
+        },
+        EthType.IPV6 => {
+            return LayerProtocols{ .Network = .IPv6 };
+        },
+        else => {
+            return LayerProtocols{ .Network = .Generic };
+        },
+    }
+}
+
 pub const EthLayer = struct {
     data: []u8, // ethhdr + payload
     const Protocol = LayerProtocols{ .LinkLayer = .ETHERNET };
 
     pub fn init(buffer: []u8) LayerError!EthLayer {
         if (buffer.len < @sizeOf(EthHeader)) return LayerError.BufferTooSmall;
-
+        print("eth layer init buffer ptr: {*}\n", .{buffer.ptr});
         // Verify alignment
         const alignment = @alignOf(EthHeader);
         const addr = @intFromPtr(buffer.ptr);
+
         if (addr % alignment != 0) {
             return LayerError.MisalignedBuffer;
         }
@@ -149,7 +200,7 @@ pub const EthLayer = struct {
 
     /// get slice of data (hdr+payload)
     pub fn get_data(self: *EthLayer) []u8 {
-        //print("get_data: self={*}, self.data.ptr={*}, self.data.len={}\n", .{ self, self.data.ptr, self.data.len });
+        print("Eth get_data: self={*}, self.data.ptr={*}, self.data.len={}\n", .{ self, self.data.ptr, self.data.len });
         return self.data;
     }
 
@@ -158,21 +209,25 @@ pub const EthLayer = struct {
         return self.data[EthHeaderSize..];
     }
 
-    /// this method assumes it's parsing from a contiguous/wire buffer. It will realloc and add padding for alignment
+    /// return the next layer protocol type
     pub fn get_next_layer_type(self: *EthLayer) LayerProtocols {
         const hdr = self.get_header();
         const eth_type = hdr.get_eth_type();
 
         switch (eth_type) {
             EthType.IP => {
-                if (self.data.len <= EthHeaderSize) return LayerProtocols{ .Network = .Generic };
+                if (self.data.len <= EthHeaderSize) {
+                    return LayerProtocols{ .Network = .Generic };
+                }
 
                 const ihl_byte = self.data[EthHeaderSize];
                 const ip_version = ihl_byte >> 4;
                 const hdr_len = (ihl_byte & 0x0F) * 4;
 
                 if (ip_version == @intFromEnum(NetworkProtocols.IPv4)) {
-                    if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) return LayerProtocols{ .Network = .Generic };
+                    if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) {
+                        return LayerProtocols{ .Network = .Generic };
+                    }
 
                     return LayerProtocols{ .Network = .IPv4 };
                 }

@@ -14,6 +14,7 @@ const LinkLayerProtocols = @import("Layer.zig").LinkLayerProtocols;
 const IPv4Proto = @import("ProtocolEnums.zig").IPv4Proto;
 const WirePacket = @import("WirePacket.zig").WirePacket;
 
+const Eth = @import("Eth.zig");
 const EthLayer = @import("Eth.zig").EthLayer;
 const EthType = @import("Eth.zig").EthType;
 const EthHeader = @import("Eth.zig").EthHeader;
@@ -180,6 +181,28 @@ fn test_ip(packet: *Packet.Packet) !void {
     print("In test ip: {s}\n", .{ipv4_layer.to_string(std.heap.page_allocator)});
 }
 
+fn test_traverse(packet: *Packet.Packet) !void {
+    print("getting first layer. (should be eth)\n", .{});
+    var layer = packet.get_first_layer() orelse {
+        return error.IPLayerMissing;
+    };
+
+    defer packet.allocator.destroy(layer);
+
+    print("first layer ptr: {*}\n", .{layer});
+    print("first layer data ptr: {*}\n", .{layer.get_data().ptr});
+    print("first layer data: {x}\n", .{layer.get_data()});
+
+    //    print("In test ip: {s}\n", .{layer.to_string(std.heap.page_allocator)});
+}
+
+pub fn alignment_check(buffer: []u8, protocol_hdr: anytype) usize {
+    const alignment = @alignOf(protocol_hdr);
+    const addr = @intFromPtr(buffer.ptr);
+
+    return addr % alignment;
+}
+
 pub fn main() !void {
     var pkt_data_backing_buffer: [2048]u8 = undefined;
 
@@ -195,17 +218,15 @@ pub fn main() !void {
 
     const pkt_data: []u8 = try pkt_data_allocator.alloc(u8, raw.len);
 
-    std.mem.copyForwards(u8, pkt_data, &raw);
+    std.mem.copyForwards(u8, pkt_data, raw[0..raw.len]);
 
     var wire_packet = WirePacket.init(0, 0, pkt_data, LinkLayerProtocols.ETHERNET);
 
     try packet.from_wire_packet(&wire_packet);
 
-    print("{}\n", .{packet.aligned_buffer.len});
+    print("{x} ({})\n", .{ packet.aligned_buffer, packet.aligned_buffer.len });
 
-    try test_ip(&packet);
-
-    print("{}\n", .{@sizeOf(Layer)});
+    //print("aligned_buffer: {*} aligned_buffer_len: {}\n", .{ packet.aligned_buffer.ptr, packet.aligned_buffer.len });
 }
 
 pub fn send_packet(buf: []u8) !void {
@@ -235,15 +256,11 @@ pub fn open_pcap() !?*PcapWrapper.Interface {
     if (device_list.items.len > 0) {
         const main_iface = interfaces.find_by_ip(ip);
         if (main_iface) |iface| {
-            //print("Found:\n{s}\n", .{iface.toString(allocator)});
-
             try iface.open(allocator);
 
             if (iface.isOpened()) {
-                //print("Device is open.\n", .{});
                 return iface;
             } else {
-                //print("Device not open.\n", .{});
                 return null;
             }
         } else {

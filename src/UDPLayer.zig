@@ -153,6 +153,22 @@ pub const UDPHeader = extern struct {
     }
 };
 
+pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
+    if (buffer.len < @sizeOf(UDPHeader)) return Layer.LayerError.BufferTooSmall;
+
+    // Verify alignment (optional)
+    const alignment = @alignOf(UDPHeader);
+    const addr = @intFromPtr(buffer.ptr);
+    if (addr % alignment != 0) {
+        return Layer.LayerError.MisalignedBuffer;
+    }
+
+    const aligned_ptr: [*]align(@alignOf(UDPHeader)) u8 = @alignCast(buffer.ptr);
+    const hdr: *UDPHeader = @ptrCast(aligned_ptr);
+    _ = hdr;
+    return LayerProtocols{ .Application = .Generic };
+}
+
 pub const UDPLayer = struct {
     data: []u8, // UDP header + payload
     const Protocol = Layer.LayerProtocols{ .Transport = .UDP };
@@ -285,21 +301,6 @@ pub const UDPLayer = struct {
     pub fn get_next_layer_type(self: *UDPLayer) LayerProtocols {
         _ = self;
         return LayerProtocols{ .Application = .Generic };
-    }
-
-    pub fn parse_next_layer(self: *UDPLayer, buffer: []u8, allocator: Allocator) ?*Layer.Layer {
-        const packet_layer: *Layer.Layer = allocator.create(Layer.Layer) catch return null;
-        _ = &self;
-        _ = packet_layer;
-        _ = buffer;
-
-        //       if (self.get_dst_port() == 53 or self.get_src_port() == 53) {
-        //           const dns_layer = DNS.DNSLayer.init(self.data[0..], allocator) catch return null;
-        //           packet_layer.* = Layer.Layer.implBy(dns_layer);
-        //           return packet_layer;
-        //       }
-        //
-        return null;
     }
 
     pub fn get_protocol(self: *UDPLayer) Layer.LayerProtocols {

@@ -17,6 +17,24 @@ pub const TCPHeader = packed struct {
     urgent_ptr: u16,
 };
 
+pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
+    if (buffer.len < 20) {
+        return LayerError.BufferTooSmall;
+    }
+
+    // Verify alignment (optional)
+    const alignment = @alignOf(TCPHeader);
+    const addr = @intFromPtr(buffer.ptr);
+    if (addr % alignment != 0) {
+        return LayerError.MisalignedBuffer;
+    }
+
+    const hdr: *TCPHeader = @ptrCast(@alignCast(buffer[0..20]));
+
+    _ = hdr;
+    return LayerProtocols{ .Application = .Generic };
+}
+
 /// TCPLayer wraps mutable pointer to TCPHeader and functions to work on the header.
 /// If header values are changed manually or via setter then ensure calculate_length and calculate_checksum are called to avoid invalidating the layer after all desired changes are made.
 pub const TCPLayer = struct {
