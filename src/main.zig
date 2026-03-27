@@ -213,12 +213,14 @@ pub fn main() !void {
 
     _ = &page_allocator;
 
-    var packet = try Packet.Packet.create(pkt_data_allocator);
+    var packet = try Packet.Packet.create(pkt_data_allocator, LinkLayerProtocols.ETHERNET);
     defer packet.deinit();
 
     const pkt_data: []u8 = try pkt_data_allocator.alloc(u8, raw.len);
 
     std.mem.copyForwards(u8, pkt_data, raw[0..raw.len]);
+
+    print("Original: {x} ({})\n", .{ pkt_data, pkt_data.len });
 
     var wire_packet = WirePacket.init(0, 0, pkt_data, LinkLayerProtocols.ETHERNET);
 
@@ -226,7 +228,10 @@ pub fn main() !void {
 
     print("{x} ({})\n", .{ packet.aligned_buffer, packet.aligned_buffer.len });
 
-    //print("aligned_buffer: {*} aligned_buffer_len: {}\n", .{ packet.aligned_buffer.ptr, packet.aligned_buffer.len });
+    const result = try packet.remove_layer_of_type(UDPLayer);
+    print("removal result: {}\n", .{result});
+
+    print("aligned_buffer: {x} aligned_buffer_len: {}\n", .{ packet.aligned_buffer, packet.aligned_buffer.len });
 }
 
 pub fn send_packet(buf: []u8) !void {

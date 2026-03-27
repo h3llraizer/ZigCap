@@ -95,7 +95,7 @@ pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
         return LayerError.MisalignedBuffer;
     }
 
-    print("eth buf: {x}\n", .{buffer});
+    //print("eth buf: {x}\n", .{buffer});
 
     const aligned_ptr: [*]align(@alignOf(EthHeader)) u8 = @alignCast(buffer.ptr);
     const hdr: *EthHeader = @ptrCast(aligned_ptr);
@@ -141,7 +141,7 @@ pub const EthLayer = struct {
 
     pub fn init(buffer: []u8) LayerError!EthLayer {
         if (buffer.len < @sizeOf(EthHeader)) return LayerError.BufferTooSmall;
-        print("eth layer init buffer ptr: {*}\n", .{buffer.ptr});
+        //print("eth layer init buffer ptr: {*}\n", .{buffer.ptr});
         // Verify alignment
         const alignment = @alignOf(EthHeader);
         const addr = @intFromPtr(buffer.ptr);

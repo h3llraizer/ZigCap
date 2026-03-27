@@ -41,6 +41,21 @@ pub fn get_layer_init(choice: type) !*const fn ([]u8) LayerError!choice {
     }
 }
 
+pub fn get_layer_to_string(protocol: LayerProtocols) !fn (*anyopaque) []const u8 {
+    switch (protocol) {
+        LayerProtocols{ .LinkLayer = .ETHERNET } => {
+            return @ptrCast(EthLayer.to_string);
+        },
+        LayerProtocols{ .Network = .IPv4 } => {
+            return @ptrCast(IPv4.IPv4Layer.to_string);
+        },
+        LayerProtocols{ .Transport = .UDP } => {
+            return @ptrCast(UDP.UDPLayer.to_string);
+        },
+        else => return error.LayerInvalid,
+    }
+}
+
 pub fn get_init(choice: LayerProtocols) !*Layer {
     switch (choice) {
         LayerProtocols{ .LinkLayer = .ETHERNET },
@@ -52,6 +67,7 @@ pub fn get_init(choice: LayerProtocols) !*Layer {
         else => return error.LayerInvalid,
     }
 }
+
 pub fn alignment_check(buffer: []u8, alignment: usize) usize {
     const addr = @intFromPtr(buffer.ptr);
 
@@ -63,14 +79,16 @@ pub const Packet = struct {
     last_layer: ?*Layer,
     allocator: Allocator,
     aligned_buffer: []u8,
+    link_layer: LinkLayerProtocols,
 
     /// Creates an empty Packet - alloc's zero bytes to aligned buffer initially
-    pub fn create(allocator: Allocator) !Packet {
+    pub fn create(allocator: Allocator, link_layer: LinkLayerProtocols) !Packet {
         return Packet{
             .first_layer = null,
             .last_layer = null,
             .allocator = allocator,
             .aligned_buffer = try allocator.alloc(u8, 0),
+            .link_layer = link_layer,
         };
     }
 
@@ -121,28 +139,129 @@ pub const Packet = struct {
         return slice[next_offset..];
     }
 
-    fn accum_layers(self: *Packet, current_offset: usize, protocol_layer: LayerProtocols) !void {
-        print("aligned buf: {x} len: {}\n", .{ self.aligned_buffer, self.aligned_buffer.len });
+    pub fn get_layer_of_type(self: *Packet, layer_type: anytype) !?layer_type {
+        const layer_type_enum = try get_layer_type_enum(layer_type);
 
-        print("current offset: {}\n", .{current_offset});
+        const layer_init = try get_layer_init(layer_type);
 
+        const buf = try self.find_layer(layer_type_enum);
+
+        if (buf) |b| {
+            // Compute the offset of the layer in the buffer
+            const start = b.ptr - self.aligned_buffer.ptr;
+            const size = get_layer_size(layer_type_enum);
+            const end = start + (calculate_padding(start, layer_type)); // calculate padding from start
+
+            return try layer_init(self.aligned_buffer[end .. end + size]);
+        }
+
+        return null;
+    }
+
+    pub fn detach_layer(self: *Packet, layer_type: anytype, allocator: Allocator) !?layer_type {
+        const layer_type_enum = try get_layer_type_enum(layer_type);
+
+        const layer_init = try get_layer_init(layer_type);
+
+        var init_buf: []u8 = undefined;
+
+        const buf = try self.find_layer(layer_type_enum);
+
+        if (buf) |b| {
+            // Compute the offset of the layer in the buffer
+            const start = b.ptr - self.aligned_buffer.ptr;
+            const size = get_layer_size(layer_type_enum);
+            const end = start + (calculate_padding(start, layer_type)); // calculate padding from start
+
+            init_buf = try allocator.alloc(u8, size);
+
+            // Move bytes into the init buffer
+            @memmove(init_buf[0..size], // destination
+            self.aligned_buffer[end..(end + size)] // source
+            );
+
+            const remaining_start = end + size; // where the rest of the bytes after the removed layer ends
+
+            const remaining_bytes_len = self.aligned_buffer[remaining_start..].len;
+            @memmove(
+                self.aligned_buffer[start .. start + remaining_bytes_len],
+                self.aligned_buffer[remaining_start..],
+            );
+
+            const new_len = start + remaining_bytes_len;
+            self.aligned_buffer = self.aligned_buffer[0..new_len];
+
+            return try layer_init(init_buf);
+        }
+
+        return null;
+    }
+
+    /// Warning: removing a layer in between two layers will result in invalidating layer chain
+    /// Consider swapping the layer
+    pub fn remove_layer_of_type(self: *Packet, layer_type: anytype) !bool {
+        const layer_type_enum = try get_layer_type_enum(layer_type);
+
+        const buf = try self.find_layer(layer_type_enum);
+        if (buf) |b| {
+            // Compute the offset of the layer in the buffer
+            const start = b.ptr - self.aligned_buffer.ptr;
+            const size = get_layer_size(layer_type_enum);
+            const end = start + (calculate_padding(start, layer_type)); // calculate padding from start
+
+            const remaining_start = end + size; // where the rest of the bytes after the removed layer ends
+
+            const remaining_bytes_len = self.aligned_buffer[remaining_start..].len;
+            @memmove(
+                self.aligned_buffer[start .. start + remaining_bytes_len],
+                self.aligned_buffer[remaining_start..],
+            );
+
+            const new_len = start + remaining_bytes_len;
+            self.aligned_buffer = self.aligned_buffer[0..new_len];
+
+            return true;
+        }
+
+        print("layer not found.\n", .{});
+        return false;
+    }
+
+    fn find_layer(self: *Packet, protocol_layer: LayerProtocols) !?[]u8 {
+        const offset = try self.search_layers(0, LayerProtocols{ .LinkLayer = self.link_layer }, protocol_layer);
+        if (offset) |layer_begin| {
+            const header_size = get_layer_size(protocol_layer);
+            print("layer begin: {}\n", .{layer_begin});
+            return self.aligned_buffer[layer_begin .. layer_begin + header_size];
+        }
+        return null;
+    }
+
+    fn search_layers(self: *Packet, current_offset: usize, protocol_layer: LayerProtocols, target: LayerProtocols) !?usize {
         var next_layer_type: LayerProtocols = undefined;
 
+        if (activeTag(protocol_layer) == activeTag(target)) {
+            print("current offset: {}\n", .{current_offset});
+            return current_offset;
+        }
+
+        print("current layer: ", .{});
         switch (protocol_layer) {
             .LinkLayer => |protocol| switch (protocol) {
                 .ETHERNET => {
                     print("Link Layer: ETHERNET (Ethernet)\n", .{});
+                    print("buffer: {x}\n", .{self.aligned_buffer[current_offset..]});
                     next_layer_type = try Eth.get_next_layer_type(self.aligned_buffer[current_offset..]);
-                }, // if linktype is RAW uses Eth.get_next_layer_type to get the IP version
+                },
                 else => {
                     next_layer_type = LayerProtocols{ .Network = .Generic };
-                    return;
+                    return null;
                 },
             },
             .Network => |protocol| switch (protocol) {
                 .ICMP => {
                     print("Transport Layer: ICMP\n", .{});
-                    return;
+                    return null;
                 },
                 .IPv4 => {
                     print("Network Layer: IPv4\n", .{});
@@ -155,7 +274,7 @@ pub const Packet = struct {
                 .Generic => {
                     next_layer_type = LayerProtocols{ .Transport = .Generic };
                     print("Network Layer: Generic/Unknown\n", .{});
-                    return;
+                    return null;
                 },
             },
             .Transport => |protocol| switch (protocol) {
@@ -170,23 +289,110 @@ pub const Packet = struct {
                 .Generic => {
                     print("Transport Layer: Generic/Unknown\n", .{});
                     next_layer_type = LayerProtocols{ .Transport = .Generic };
-                    return;
+                    return null;
                 },
             },
             .Application => |protocol| switch (protocol) {
                 .DNS => {
                     print("Application Layer: Generic/Unknown\n", .{});
                     next_layer_type = LayerProtocols{ .Application = .Generic };
-                    return;
+                    return null;
                 },
                 .HTTP => {
                     print("Application Layer: Generic/Unknown\n", .{});
                     next_layer_type = LayerProtocols{ .Application = .Generic };
-                    return;
+                    return null;
                 },
                 .Generic => {
                     print("Application Layer: Generic/Unknown\n", .{});
                     next_layer_type = LayerProtocols{ .Application = .Generic };
+                    //print("app layer: {x}\n", .{self.aligned_buffer[current_offset..]});
+                    return null;
+                },
+            },
+        }
+
+        print("next layer type: {any}\n", .{next_layer_type});
+
+        const next_layer_hdr_size = get_layer_size(next_layer_type);
+        print("next layer header size: {}\n", .{next_layer_hdr_size});
+
+        //        const next_layer_offset = calc_padding(, next_layer_hdr_size);
+        //        print("next layer offset: {}\n", .{next_layer_offset});
+
+        const next_offset = current_offset + get_layer_size(protocol_layer);
+
+        print("recalling with next offset: {}\n", .{next_offset});
+
+        const offset = try self.search_layers(next_offset, next_layer_type, target);
+
+        return offset;
+    }
+
+    fn accum_layers(self: *Packet, current_offset: usize, protocol_layer: LayerProtocols) !void {
+        var next_layer_type: LayerProtocols = undefined;
+
+        switch (protocol_layer) {
+            .LinkLayer => |protocol| switch (protocol) {
+                .ETHERNET => {
+                    //print("Link Layer: ETHERNET (Ethernet)\n", .{});
+                    next_layer_type = try Eth.get_next_layer_type(self.aligned_buffer[current_offset..]);
+                }, // if linktype is RAW uses Eth.get_next_layer_type to get the IP version
+                else => {
+                    next_layer_type = LayerProtocols{ .Network = .Generic };
+                    return;
+                },
+            },
+            .Network => |protocol| switch (protocol) {
+                .ICMP => {
+                    //print("Transport Layer: ICMP\n", .{});
+                    return;
+                },
+                .IPv4 => {
+                    //print("Network Layer: IPv4\n", .{});
+                    next_layer_type = try IPv4.get_next_layer_type(self.aligned_buffer[current_offset..]);
+                    ////print("next layer buf: {x}\n", .{self.aligned_buffer[current_offset..]});
+                },
+                .IPv6 => {
+                    //print("Network Layer: IPv6\n", .{});
+                    next_layer_type = try IPv6Layer.get_next_layer_type(self.aligned_buffer[current_offset..]);
+                },
+                .Generic => {
+                    next_layer_type = LayerProtocols{ .Transport = .Generic };
+                    //print("Network Layer: Generic/Unknown\n", .{});
+                    return;
+                },
+            },
+            .Transport => |protocol| switch (protocol) {
+                .TCP => {
+                    //print("Transport Layer: TCP\n", .{});
+                    next_layer_type = try TCP.get_next_layer_type(self.aligned_buffer[current_offset..]);
+                },
+                .UDP => {
+                    //print("Transport Layer: UDP\n", .{});
+                    next_layer_type = try UDP.get_next_layer_type(self.aligned_buffer[current_offset..]);
+                },
+                .Generic => {
+                    //print("Transport Layer: Generic/Unknown\n", .{});
+                    next_layer_type = LayerProtocols{ .Transport = .Generic };
+                    return;
+                },
+            },
+            .Application => |protocol| switch (protocol) {
+                .DNS => {
+                    //print("Application Layer: Generic/Unknown\n", .{});
+                    next_layer_type = LayerProtocols{ .Application = .Generic };
+                    return;
+                },
+                .HTTP => {
+                    //print("Application Layer: Generic/Unknown\n", .{});
+                    next_layer_type = LayerProtocols{ .Application = .Generic };
+                    return;
+                },
+                .Generic => {
+                    //print("Application Layer: Generic/Unknown\n", .{});
+                    next_layer_type = LayerProtocols{ .Application = .Generic };
+                    //print("app layer: {x}\n", .{self.aligned_buffer[current_offset..]});
                     return;
                 },
             },
@@ -202,82 +408,9 @@ pub const Packet = struct {
 
         try insert_padding_in_place(&self.aligned_buffer, current_end, padding, self.allocator);
 
-        print("recalling with next offset: {}\n", .{next_offset});
+        //print("recalling with next offset: {}\n", .{next_offset});
 
         try self.accum_layers(next_offset, next_layer_type);
-    }
-
-    // Layer data[] are getting invalidated on realloc
-    fn accumulate_layers(self: *Packet, layer: ?*Layer, current_offset: usize) !void {
-        if (layer) |cur| {
-            //print("cur layer data: {x}\n", .{cur.get_data()});
-            //print("{s}\n", .{cur.to_string(std.heap.page_allocator)});
-
-            print("aligned buffer ptr={*} len={}\n", .{ self.aligned_buffer.ptr, self.aligned_buffer.len });
-            print("cur data: {x}\n", .{cur.get_data()});
-            const next_protocol_layer = cur.get_next_layer_type();
-            // store the sliced buf for the layer init here
-            //var layer_buf: []u8 = undefined;
-            // store the layer init here
-
-            print("current offset: {}\n", .{current_offset});
-            var next_offset = current_offset;
-
-            switch (cur.get_next_layer_type()) {
-                .Network => |net| switch (net) {
-                    .IPv4 => {
-                        print("Adding IPv4 layer:\n", .{});
-                        var ipv4_buf = try self.return_padded_buffer(next_protocol_layer, current_offset); // should add a check to determine if realloc is even required
-                        print("padded buf len: {}\n", .{ipv4_buf.len});
-                        const ipv4_layer = try self.allocator.create(IPv4.IPv4Layer);
-                        ipv4_layer.* = try IPv4.IPv4Layer.init(ipv4_buf[0..]);
-                        try self.add_layer(ipv4_layer);
-                        next_offset = calculate_next_offset(next_offset, IPv4.IPv4Header);
-                    },
-                    .IPv6 => {
-                        print("IPv6\n", .{});
-                    },
-                    .Generic => {
-                        print("Generic network protocol\n", .{});
-                    },
-                },
-                .Transport => |tx| switch (tx) {
-                    .UDP => {
-                        print("Adding UDP layer:\n", .{});
-                        var udp_buf = try self.return_padded_buffer(next_protocol_layer, current_offset);
-                        print("padded buf len: {}\n", .{udp_buf.len});
-                        const udp_layer = try self.allocator.create(UDP.UDPLayer);
-                        udp_layer.* = try UDP.UDPLayer.init(udp_buf[0..]);
-                        try self.add_layer(udp_layer);
-                        next_offset = calculate_next_offset(next_offset, UDP.UDPHeader);
-                    },
-                    else => {},
-                },
-                else => {}, // Ignore other layers
-            }
-
-            next_offset += get_layer_size(next_protocol_layer);
-            print("next offset: {}\n", .{next_offset});
-            if (next_offset > current_offset) {
-                if (cur.get_prev_layer()) |prev| {
-                    print("prev data: {x}\n", .{prev.get_data()});
-                    print("cur layer: {any}\n", .{cur.get_protocol()});
-                    print("{*}\n", .{cur.get_data().ptr}); // = self.aligned_buffer;
-                    print("prev layer: {any}\n", .{prev.get_protocol()});
-                    print("{*}\n", .{prev.get_data().ptr}); // = self.aligned_buffer;
-                } else {
-                    print("cur layer is first layer: {any}\n", .{cur.get_protocol()});
-                    print("{*}\n", .{cur.get_data().ptr}); // = self.aligned_buffer;
-
-                }
-            }
-            print("cur_layer_if: {any}, self={*}, self.data.ptr={*}, self.data.len={}\n", .{ cur.get_protocol(), cur, cur.get_data().ptr, cur.get_data().len });
-            try self.accumulate_layers(cur.get_next_layer(), next_offset);
-        }
-
-        // Remember to add the tail layer at the end
-
-        return;
     }
 
     // Adds a layer to the tail of the layers.

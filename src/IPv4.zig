@@ -84,6 +84,8 @@ pub const IPv4Header = extern struct {
 pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
     if (buffer.len < @sizeOf(IPv4Header)) return error.BufferTooSmall;
 
+    print("getting transport layer.\n", .{});
+
     const alignment = @alignOf(IPv4Header);
     const addr = @intFromPtr(buffer.ptr);
 
