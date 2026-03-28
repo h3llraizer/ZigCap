@@ -1,7 +1,6 @@
 const std = @import("std");
 const Packet = @import("Packet.zig").Packet;
-const LayerProtocols = @import("Layer.zig").LayerProtocols;
-const Layer = @import("Layer.zig").Layer;
+const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
 
 const Allocator = std.mem.Allocator;
 

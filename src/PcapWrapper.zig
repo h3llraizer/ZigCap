@@ -1,8 +1,8 @@
 const std = @import("std");
 const print = std.debug.print;
-const RawPacket = @import("PacketStructs.zig").RawPacket;
 const MAX_PATH = std.os.windows.MAX_PATH;
 const allocPrint = std.fmt.allocPrint;
+const WirePacket = @import("WirePacket.zig").WirePacket;
 
 const pcap = @cImport({
     @cDefine("WIN32", "1"); // needed on Windows
@@ -126,7 +126,7 @@ pub const Interface = struct {
 
     pub fn capture(
         self: Interface,
-        callback_fn: fn (*RawPacket, Allocator) void,
+        callback_fn: fn (*WirePacket, Allocator) void,
         allocator: std.mem.Allocator,
     ) !void {
         var captured: usize = 0;
@@ -148,7 +148,7 @@ pub const Interface = struct {
 
                 //                print("Link-layer type: {s}\n", pcap.pcap_datalink_val_to_name(dlt));
 
-                const raw_packet = try RawPacket.init(h.*.ts.tv_usec, h.*.ts.tv_sec, pkt_ptr[0..h.*.len], h.*.len, self.link_type.?, allocator);
+                const raw_packet = try WirePacket.init(h.*.ts.tv_usec, h.*.ts.tv_sec, pkt_ptr[0..h.*.len], h.*.len, self.link_type.?, allocator);
 
                 // remember to realloc the buffer to avoid wasting memory
 

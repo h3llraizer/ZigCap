@@ -4,12 +4,11 @@ const Allocator = std.mem.Allocator;
 
 const Packet = @import("Packet.zig");
 
-const Layer = @import("Layer.zig").Layer;
-const LayerProtocols = @import("Layer.zig").LayerProtocols;
+const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
 
-const LayerError = @import("Layer.zig").LayerError;
+const LayerError = @import("ProtocolHelpers.zig").LayerError;
 
-const NetworkProtocols = @import("Layer.zig").NetworkProtocols;
+const NetworkProtocols = @import("ProtocolHelpers.zig").NetworkProtocols;
 
 const IPv4Layer = @import("IPv4.zig").IPv4Layer;
 const IPv4Header = @import("IPv4.zig").IPv4Header;
@@ -95,16 +94,22 @@ pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
         return LayerError.MisalignedBuffer;
     }
 
-    //print("eth buf: {x}\n", .{buffer});
+    print("eth buf: {x}\n", .{buffer});
 
     const aligned_ptr: [*]align(@alignOf(EthHeader)) u8 = @alignCast(buffer.ptr);
     const hdr: *EthHeader = @ptrCast(aligned_ptr);
     const eth_type = hdr.get_eth_type();
 
+    var layer = Packet.Layer{ .protocol = undefined, .offset = 0, .length = 0, .next_layer = null };
+
+    //    print("{ipv4_buf len: {}\n", .{buffer.len});
+
     switch (eth_type) {
         EthType.IP => {
             if (buffer.len <= EthHeaderSize) {
                 print("buf len too small.\n", .{});
+                layer.protocol = LayerProtocols{ .Network = .Generic };
+                layer.length = buffer.len;
                 return LayerProtocols{ .Network = .Generic };
             }
 
@@ -112,17 +117,27 @@ pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
             const ip_version = ihl_byte >> 4;
             const hdr_len = (ihl_byte & 0x0F) * 4;
 
+            print("ip version: {}\n", .{ip_version});
+            print("ip hdr_len: {}\n", .{hdr_len});
+
             if (ip_version == @intFromEnum(NetworkProtocols.IPv4)) {
                 if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) {
+                    print("hdr size invalid.\n", .{});
+                    layer.protocol = LayerProtocols{ .Network = .Generic };
+                    layer.length = buffer.len;
                     return LayerProtocols{ .Network = .Generic };
                 }
-
+                layer.protocol = LayerProtocols{ .Network = .IPv4 };
+                layer.length = hdr_len;
                 return LayerProtocols{ .Network = .IPv4 };
             }
 
             if (ip_version == @intFromEnum(NetworkProtocols.IPv6)) {
                 return LayerProtocols{ .Network = .IPv6 };
             } else {
+                print("ip version not known.\n", .{});
+                layer.protocol = LayerProtocols{ .Network = .Generic };
+                layer.length = buffer.len;
                 return LayerProtocols{ .Network = .Generic };
             }
         },
@@ -130,6 +145,9 @@ pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
             return LayerProtocols{ .Network = .IPv6 };
         },
         else => {
+            print("eth type unknown.\n", .{});
+            layer.protocol = LayerProtocols{ .Network = .Generic };
+            layer.length = buffer.len;
             return LayerProtocols{ .Network = .Generic };
         },
     }

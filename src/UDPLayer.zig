@@ -2,11 +2,10 @@ const std = @import("std");
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
-const Layer = @import("Layer.zig");
-
 const DNS = @import("DNS.zig");
 
-const LayerProtocols = @import("Layer.zig").LayerProtocols;
+const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
+const LayerError = @import("ProtocolHelpers.zig").LayerError;
 
 pub const UDPHeaderSize = 8;
 
@@ -154,13 +153,13 @@ pub const UDPHeader = extern struct {
 };
 
 pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
-    if (buffer.len < @sizeOf(UDPHeader)) return Layer.LayerError.BufferTooSmall;
+    if (buffer.len < @sizeOf(UDPHeader)) return LayerError.BufferTooSmall;
 
     // Verify alignment (optional)
     const alignment = @alignOf(UDPHeader);
     const addr = @intFromPtr(buffer.ptr);
     if (addr % alignment != 0) {
-        return Layer.LayerError.MisalignedBuffer;
+        return LayerError.MisalignedBuffer;
     }
 
     const aligned_ptr: [*]align(@alignOf(UDPHeader)) u8 = @alignCast(buffer.ptr);
@@ -171,16 +170,16 @@ pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
 
 pub const UDPLayer = struct {
     data: []u8, // UDP header + payload
-    const Protocol = Layer.LayerProtocols{ .Transport = .UDP };
+    const Protocol = LayerProtocols{ .Transport = .UDP };
 
-    pub fn init(buffer: []u8) Layer.LayerError!UDPLayer {
-        if (buffer.len < @sizeOf(UDPHeader)) return Layer.LayerError.BufferTooSmall;
+    pub fn init(buffer: []u8) LayerError!UDPLayer {
+        if (buffer.len < @sizeOf(UDPHeader)) return LayerError.BufferTooSmall;
 
         // Verify alignment (optional)
         const alignment = @alignOf(UDPHeader);
         const addr = @intFromPtr(buffer.ptr);
         if (addr % alignment != 0) {
-            return Layer.LayerError.MisalignedBuffer;
+            return LayerError.MisalignedBuffer;
         }
 
         return UDPLayer{ .data = buffer };
@@ -303,7 +302,7 @@ pub const UDPLayer = struct {
         return LayerProtocols{ .Application = .Generic };
     }
 
-    pub fn get_protocol(self: *UDPLayer) Layer.LayerProtocols {
+    pub fn get_protocol(self: *UDPLayer) LayerProtocols {
         _ = self;
         return UDPLayer.Protocol;
     }

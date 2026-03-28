@@ -7,10 +7,11 @@ const PcapWrapper = @import("PcapWrapper.zig");
 
 const Packet = @import("Packet.zig");
 
-const LayerProtocols = @import("Layer.zig").LayerProtocols;
-const Layer = @import("Layer.zig").Layer;
+const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
 
-const LinkLayerProtocols = @import("Layer.zig").LinkLayerProtocols;
+const LinkLayerProtocols = @import("ProtocolHelpers.zig").LinkLayerProtocols;
+const NetworkProtocols = @import("ProtocolHelpers.zig").NetworkProtocols;
+
 const IPv4Proto = @import("ProtocolEnums.zig").IPv4Proto;
 const WirePacket = @import("WirePacket.zig").WirePacket;
 
@@ -30,8 +31,6 @@ const UDPHeader = @import("UDPLayer.zig").UDPHeader;
 const DNS = @import("DNS.zig");
 
 const GenericLayer = @import("GenericLayer.zig").GenericLayer;
-
-const from_protocol_layer = @import("Layer.zig").from_protocol_layer;
 
 /// Returns the slice which the next layer can be allocated in
 fn add_layer_slice_in_buffer(self: *Packet, comptime HdrType: type) ![]u8 {
@@ -204,6 +203,8 @@ pub fn alignment_check(buffer: []u8, protocol_hdr: anytype) usize {
 }
 
 pub fn main() !void {
+    print("{}", .{ipv4_ext_raw.len});
+
     var pkt_data_backing_buffer: [2048]u8 = undefined;
 
     var pkt_data_fba = std.heap.FixedBufferAllocator.init(&pkt_data_backing_buffer);
@@ -213,12 +214,14 @@ pub fn main() !void {
 
     _ = &page_allocator;
 
+    print("Packet size: {}\n", .{@sizeOf(Packet.Packet)});
+
     var packet = try Packet.Packet.create(pkt_data_allocator, LinkLayerProtocols.ETHERNET);
     defer packet.deinit();
 
-    const pkt_data: []u8 = try pkt_data_allocator.alloc(u8, raw.len);
+    const pkt_data: []u8 = try pkt_data_allocator.alloc(u8, ipv4_ext_raw.len);
 
-    std.mem.copyForwards(u8, pkt_data, raw[0..raw.len]);
+    std.mem.copyForwards(u8, pkt_data, ipv4_ext_raw[0..ipv4_ext_raw.len]);
 
     print("Original: {x} ({})\n", .{ pkt_data, pkt_data.len });
 
@@ -226,10 +229,12 @@ pub fn main() !void {
 
     try packet.from_wire_packet(&wire_packet);
 
-    print("{x} ({})\n", .{ packet.aligned_buffer, packet.aligned_buffer.len });
+    var layer = try packet.get_layer_of_type(IPv4Layer) orelse {
+        print("failed to get layer.\n", .{});
+        return;
+    };
 
-    const result = try packet.remove_layer_of_type(UDPLayer);
-    print("removal result: {}\n", .{result});
+    print("{s}\n", .{layer.to_string(page_allocator)});
 
     print("aligned_buffer: {x} aligned_buffer_len: {}\n", .{ packet.aligned_buffer, packet.aligned_buffer.len });
 }
@@ -275,5 +280,40 @@ pub fn open_pcap() !?*PcapWrapper.Interface {
         return null;
     }
 }
+
+const ipv4_ext_raw = [54]u8{
+    // Ethernet Header
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, // Dest MAC
+    0x00, 0x11, 0x22, 0x33, 0x44, 0x55, // Src MAC
+    0x08, 0x00, // EtherType (IPv4)
+
+    // IPv4 Header (IHL = 6 → includes 4 bytes options)
+    0x46, // Version + IHL
+    0x00, // DSCP/ECN
+    0x00, 0x2c, // Total Length
+    0x12, 0x34, // Identification
+    0x40, 0x00, // Flags + Fragment Offset
+    0x40, // TTL
+    0x11, // Protocol (UDP)
+    0xa6, 0xec, // Header checksum (approx)
+    0xc0, 0xa8, 0x01, 0x01, // Src IP
+    0xc0, 0xa8, 0x01, 0x02, // Dst IP
+
+    // IPv4 Options (4 bytes to align to 24-byte header)
+    0x01, // NOP
+    0x02, 0x03, 0x04, // Arbitrary option data
+
+    // UDP Header
+    0x1f, 0x90, // Src port (8080)
+    0x00, 0x35, // Dst port (53)
+    0x00, 0x18, // Length
+    0x00, 0x00, // Checksum (0 = unused in IPv4)
+
+    // Payload ("HelloUDP")
+    0x48, 0x65,
+    0x6c, 0x6c,
+    0x6f, 0x55,
+    0x44, 0x50,
+};
 
 const raw: [87]u8 = .{ 0x14, 0x4f, 0x8a, 0xa4, 0x15, 0x7d, 0x38, 0x6, 0xe6, 0x92, 0x63, 0xac, 0x8, 0x0, 0x45, 0x0, 0x0, 0x49, 0x5d, 0xf7, 0x40, 0x0, 0x40, 0x11, 0x57, 0x7d, 0xc0, 0xa8, 0x1, 0xfe, 0xc0, 0xa8, 0x1, 0xe1, 0x0, 0x35, 0xfd, 0xdf, 0x0, 0x35, 0x9d, 0xff, 0x3a, 0xd0, 0x81, 0x80, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x7, 0x7a, 0x69, 0x67, 0x6c, 0x61, 0x6e, 0x67, 0x3, 0x6f, 0x72, 0x67, 0x0, 0x0, 0x1, 0x0, 0x1, 0xc0, 0xc, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x1, 0x2c, 0x0, 0x4, 0x41, 0x6d, 0x69, 0xb2 };

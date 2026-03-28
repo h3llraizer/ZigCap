@@ -2,9 +2,8 @@ const std = @import("std");
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
-const LayerProtocols = @import("Layer.zig").LayerProtocols;
-const Layer = @import("Layer.zig").Layer;
-const LayerError = @import("Layer.zig").LayerError;
+const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
+const LayerError = @import("ProtocolHelpers.zig").LayerError;
 
 pub const TCPHeader = packed struct {
     src_port: u16,
@@ -52,7 +51,7 @@ pub const TCPLayer = struct {
         const alignment = @alignOf(TCPHeader);
         const addr = @intFromPtr(buffer.ptr);
         if (addr % alignment != 0) {
-            return Layer.LayerError.MisalignedBuffer;
+            return LayerError.MisalignedBuffer;
         }
 
         return TCPLayer{ .data = buffer };
@@ -183,13 +182,6 @@ pub const TCPLayer = struct {
     pub fn get_next_layer_type(self: *TCPLayer) LayerProtocols {
         _ = self;
         return LayerProtocols{ .Application = .Generic };
-    }
-
-    pub fn parse_next_layer(self: *TCPLayer, buffer: []u8, allocator: Allocator) ?*Layer {
-        _ = allocator;
-        _ = buffer;
-        print("Reached application layer. Payload len: {d}\n", .{self.data.len});
-        return null;
     }
 
     pub fn get_header(self: *TCPLayer) *TCPHeader {

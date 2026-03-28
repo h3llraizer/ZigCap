@@ -2,62 +2,292 @@ const std = @import("std");
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
-const LayerProtocols = @import("Layer.zig").LayerProtocols;
-const Layer = @import("Layer.zig").Layer;
-const LayerError = @import("Layer.zig").LayerError;
+const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
+const LayerError = @import("ProtocolHelpers.zig").LayerError;
 
-const TransportProtocol = @import("Layer.zig").TransportProtocols;
+const TransportProtocol = @import("ProtocolHelpers.zig").TransportProtocols;
 
 const TCPLayer = @import("TCP.zig").TCPLayer;
-const UDPLayer = @import("UDP.zig").UDPLayer;
+const UDPLayer = @import("UDPLayer.zig").UDPLayer;
 
-pub const HeaderSize = 40;
+pub const IPv6HeaderSize = 40;
 
-pub const IPv6Header = packed struct {
-    version_traffic_flow: u32, // 4-bit version, 8-bit traffic class, 20-bit flow label
-    data_length: u16, // Length of data in bytes (excluding header)
-    next_header: u8, // Identifies next header type (TCP=6, UDP=17, etc.)
-    hop_limit: u8, // Decremented at each hop
+// IPv6 Next Header Types
+pub const NextHeader = enum(u8) {
+    HopByHop = 0,
+    ICMP = 1,
+    IGMP = 2,
+    TCP = 6,
+    UDP = 17,
+    IPv6 = 41,
+    Routing = 43,
+    Fragment = 44,
+    ESP = 50,
+    AH = 51,
+    ICMPv6 = 58,
+    NoNext = 59,
+    DestOpts = 60,
+    Mobility = 135,
+    HostIdentity = 139,
+    Shim6 = 140,
+    Reserved = 253,
+    Experimental1 = 254,
+    Experimental2 = 255,
 
-    // Source address (128 bits) as individual bytes
-    src_addr_0: u8,
-    src_addr_1: u8,
-    src_addr_2: u8,
-    src_addr_3: u8,
-    src_addr_4: u8,
-    src_addr_5: u8,
-    src_addr_6: u8,
-    src_addr_7: u8,
-    src_addr_8: u8,
-    src_addr_9: u8,
-    src_addr_10: u8,
-    src_addr_11: u8,
-    src_addr_12: u8,
-    src_addr_13: u8,
-    src_addr_14: u8,
-    src_addr_15: u8,
+    pub fn to_string(self: NextHeader) []const u8 {
+        return switch (self) {
+            .HopByHop => "Hop-by-Hop Options",
+            .ICMP => "ICMP",
+            .IGMP => "IGMP",
+            .TCP => "TCP",
+            .UDP => "UDP",
+            .IPv6 => "IPv6",
+            .Routing => "Routing",
+            .Fragment => "Fragment",
+            .ESP => "ESP",
+            .AH => "AH",
+            .ICMPv6 => "ICMPv6",
+            .NoNext => "No Next Header",
+            .DestOpts => "Destination Options",
+            .Mobility => "Mobility",
+            .HostIdentity => "Host Identity",
+            .Shim6 => "SHIM6",
+            .Reserved => "Reserved",
+            .Experimental1 => "Experimental 1",
+            .Experimental2 => "Experimental 2",
+        };
+    }
+};
 
-    // Destination address (128 bits) as individual bytes
-    dst_addr_0: u8,
-    dst_addr_1: u8,
-    dst_addr_2: u8,
-    dst_addr_3: u8,
-    dst_addr_4: u8,
-    dst_addr_5: u8,
-    dst_addr_6: u8,
-    dst_addr_7: u8,
-    dst_addr_8: u8,
-    dst_addr_9: u8,
-    dst_addr_10: u8,
-    dst_addr_11: u8,
-    dst_addr_12: u8,
-    dst_addr_13: u8,
-    dst_addr_14: u8,
-    dst_addr_15: u8,
+// IPv6 Extension Header Types
+pub const ExtensionHeader = struct {
+    next_header: NextHeader,
+    length: u8, // Length in 8-octet units, not including first 8 octets
+    data: []u8,
+};
+
+// IPv6 Hop-by-Hop Options Header
+pub const HopByHopHeader = extern struct {
+    next_header: u8 = 0,
+    hdr_ext_len: u8 = 0, // Length in 8-octet units, not including first 8 octets
+    // Options follow...
+
+    comptime {
+        if (@sizeOf(HopByHopHeader) != 2) {
+            @compileError("HopByHopHeader must be 2 bytes");
+        }
+    }
+};
+
+// IPv6 Routing Header Types
+pub const RoutingType = enum(u8) {
+    Type0 = 0,
+    Type2 = 2, // Mobile IPv6
+    Type3 = 3, // RPL Source Route Header
+    Type4 = 4, // Segment Routing Header
+
+    pub fn to_string(self: RoutingType) []const u8 {
+        return switch (self) {
+            .Type0 => "Type 0 (deprecated)",
+            .Type2 => "Type 2 (Mobile IPv6)",
+            .Type3 => "Type 3 (RPL)",
+            .Type4 => "Type 4 (Segment Routing)",
+        };
+    }
+};
+
+// IPv6 Routing Header
+pub const RoutingHeader = extern struct {
+    next_header: u8 = 0,
+    hdr_ext_len: u8 = 0, // Length in 8-octet units, not including first 8 octets
+    routing_type: u8 = 0,
+    segments_left: u8 = 0,
+    // Type-specific data follows...
+
+    comptime {
+        if (@sizeOf(RoutingHeader) != 4) {
+            @compileError("RoutingHeader must be 4 bytes");
+        }
+    }
+};
+
+// IPv6 Fragment Header
+pub const FragmentHeader = extern struct {
+    next_header: u8 = 0,
+    reserved: u8 = 0,
+    fragment_offset: u13 = 0,
+    reserved2: u2 = 0,
+    m_flag: u1 = 0, // More fragments flag
+    identification: u32 = 0,
+
+    comptime {
+        if (@sizeOf(FragmentHeader) != 8) {
+            @compileError("FragmentHeader must be 8 bytes");
+        }
+    }
+
+    pub fn set_fragment_offset(self: *FragmentHeader, offset: u13) void {
+        self.fragment_offset = offset;
+    }
+
+    pub fn get_fragment_offset(self: *const FragmentHeader) u13 {
+        return self.fragment_offset;
+    }
+
+    pub fn set_more_fragments(self: *FragmentHeader, more: bool) void {
+        self.m_flag = @intFromBool(more);
+    }
+
+    pub fn get_more_fragments(self: *const FragmentHeader) bool {
+        return self.m_flag == 1;
+    }
+};
+
+// IPv6 Destination Options Header (similar to Hop-by-Hop)
+pub const DestOptsHeader = extern struct {
+    next_header: u8 = 0,
+    hdr_ext_len: u8 = 0,
+    // Options follow...
+
+    comptime {
+        if (@sizeOf(DestOptsHeader) != 2) {
+            @compileError("DestOptsHeader must be 2 bytes");
+        }
+    }
+};
+
+// IPv6 Option (for Hop-by-Hop and Destination Options)
+pub const IPv6Option = struct {
+    type: u8,
+    length: u8, // Length of option data in octets
+    data: []u8,
+
+    pub const Pad1 = 0;
+    pub const PadN = 1;
+    pub const JumboPayload = 194;
+    pub const RouterAlert = 5;
+    pub const QuickStart = 26;
+    pub const CALIPSO = 12;
+    pub const HomeAddress = 201;
+
+    pub fn initPad1() IPv6Option {
+        return IPv6Option{
+            .type = Pad1,
+            .length = 0,
+            .data = &[_]u8{},
+        };
+    }
+
+    pub fn initPadN(len: u8) IPv6Option {
+        var data = std.ArrayList(u8).init(std.heap.page_allocator);
+        defer data.deinit();
+        for (0..len) |_| {
+            data.append(0) catch unreachable;
+        }
+        return IPv6Option{
+            .type = PadN,
+            .length = len,
+            .data = data.items,
+        };
+    }
+
+    pub fn initJumboPayload(len: u32) IPv6Option {
+        var data = std.ArrayList(u8).init(std.heap.page_allocator);
+        defer data.deinit();
+        data.appendSlice(&@as([4]u8, @bitCast(@byteSwap(len)))) catch unreachable;
+        return IPv6Option{
+            .type = JumboPayload,
+            .length = 4,
+            .data = data.items,
+        };
+    }
+
+    pub fn toBytes(self: IPv6Option) []u8 {
+        var bytes = std.ArrayList(u8).init(std.heap.page_allocator);
+        defer bytes.deinit();
+
+        bytes.append(self.type) catch unreachable;
+
+        if (self.type != Pad1) {
+            bytes.append(self.length) catch unreachable;
+            bytes.appendSlice(self.data) catch unreachable;
+        }
+
+        return bytes.toOwnedSlice() catch &[_]u8{};
+    }
+};
+
+// IPv6 Header
+pub const IPv6Header = extern struct {
+    version_traffic_flow: u32 = 0x60000000, // Version 6, Traffic Class 0, Flow Label 0
+    payload_length: u16 = 0, // Payload length (excluding IPv6 header)
+    next_header: u8 = 0, // Next header type
+    hop_limit: u8 = 64, // Hop limit (similar to TTL)
+    src_ip: [16]u8 = .{0} ** 16, // Source IPv6 address
+    dst_ip: [16]u8 = .{0} ** 16, // Destination IPv6 address
+
+    comptime {
+        if (@sizeOf(IPv6Header) != IPv6HeaderSize) {
+            @compileError("IPv6Header must be 40 bytes, got " ++ @typeName(@sizeOf(IPv6Header)));
+        }
+    }
+
+    pub fn get_version(self: *const IPv6Header) u4 {
+        return @truncate(self.version_traffic_flow >> 28);
+    }
+
+    pub fn set_version(self: *IPv6Header, version: u4) void {
+        self.version_traffic_flow = (self.version_traffic_flow & 0x0FFFFFFF) | (@as(u32, version) << 28);
+    }
+
+    pub fn get_traffic_class(self: *const IPv6Header) u8 {
+        return @truncate((self.version_traffic_flow >> 20) & 0xFF);
+    }
+
+    pub fn set_traffic_class(self: *IPv6Header, tc: u8) void {
+        self.version_traffic_flow = (self.version_traffic_flow & 0xF00FFFFF) | (@as(u32, tc) << 20);
+    }
+
+    pub fn get_flow_label(self: *const IPv6Header) u20 {
+        return @truncate(self.version_traffic_flow & 0xFFFFF);
+    }
+
+    pub fn set_flow_label(self: *IPv6Header, label: u20) void {
+        self.version_traffic_flow = (self.version_traffic_flow & 0xFFF00000) | (label & 0xFFFFF);
+    }
+
+    pub fn get_payload_length(self: *const IPv6Header) u16 {
+        return std.mem.bigToNative(u16, self.payload_length);
+    }
+
+    pub fn set_payload_length(self: *IPv6Header, len: u16) void {
+        self.payload_length = @byteSwap(len);
+    }
+
+    pub fn get_next_header(self: *const IPv6Header) NextHeader {
+        return @enumFromInt(self.next_header);
+    }
+
+    pub fn set_next_header(self: *IPv6Header, nh: NextHeader) void {
+        self.next_header = @intFromEnum(nh);
+    }
+
+    pub fn init_default() IPv6Header {
+        var hdr = IPv6Header{
+            .version_traffic_flow = 0x60000000,
+            .payload_length = 0,
+            .next_header = 0,
+            .hop_limit = 64,
+            .src_ip = .{0} ** 16,
+            .dst_ip = .{0} ** 16,
+        };
+        hdr.set_version(6);
+        return hdr;
+    }
 };
 
 pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
-    if (buffer.len < HeaderSize) return LayerError.BufferTooSmall;
+    if (buffer.len < IPv6HeaderSize) return LayerError.BufferTooSmall;
 
     // Verify alignment (optional)
     const alignment = @alignOf(IPv6Header);
@@ -90,22 +320,57 @@ pub const IPv6Layer = struct {
     const Protocol = LayerProtocols{ .Network = .IPv6 };
 
     pub fn init(buffer: []u8) LayerError!IPv6Layer {
-        if (buffer.len < HeaderSize) return LayerError.BufferTooSmall;
+        if (buffer.len < IPv6HeaderSize) return LayerError.BufferTooSmall;
 
         // Verify alignment (optional)
         const alignment = @alignOf(IPv6Header);
         const addr = @intFromPtr(buffer.ptr);
         if (addr % alignment != 0) {
-            return Layer.LayerError.MisalignedBuffer;
+            return LayerError.MisalignedBuffer;
         }
 
         return IPv6Layer{ .data = buffer };
     }
 
     pub fn to_string(self: *IPv6Layer, allocator: Allocator) []const u8 {
-        _ = self;
-        _ = allocator;
-        return "";
+        const hdr = self.get_header();
+
+        const src_ip_str = self.ip_to_string(hdr.src_ip, allocator) catch return "";
+        defer allocator.free(src_ip_str);
+
+        const dst_ip_str = self.ip_to_string(hdr.dst_ip, allocator) catch return "";
+        defer allocator.free(dst_ip_str);
+
+        var ext_str = std.ArrayList(u8).init(allocator);
+        defer ext_str.deinit();
+
+        for (self.extensions.items, 0..) |ext, i| {
+            ext_str.appendSlice(std.fmt.allocPrint(allocator, "\n    {}: {s}", .{ i, @tagName(ext.next_header) }) catch "") catch {};
+        }
+
+        return std.fmt.allocPrint(allocator,
+            \\IPv6 Layer:
+            \\  version: {}
+            \\  traffic_class: {}
+            \\  flow_label: {}
+            \\  payload_length: {}
+            \\  next_header: {s}
+            \\  hop_limit: {}
+            \\  src_ip: {s}
+            \\  dst_ip: {s}
+            \\  extensions: {s}
+            \\
+        , .{
+            hdr.get_version(),
+            hdr.get_traffic_class(),
+            hdr.get_flow_label(),
+            hdr.get_payload_length(),
+            @tagName(hdr.get_next_header()),
+            hdr.hop_limit,
+            src_ip_str,
+            dst_ip_str,
+            ext_str.items,
+        }) catch return "";
     }
 
     /// get slice of data (hdr+payload)
@@ -118,23 +383,117 @@ pub const IPv6Layer = struct {
         return self.data[20..];
     }
 
-    pub fn get_next_layer_type(self: *IPv6Layer) LayerProtocols {
-        const transport_type: TransportProtocol = self.get_transport_type() catch return LayerProtocols{ .Transport = .Generic };
+    fn parse_extensions(self: *IPv6Layer) !void {
+        var offset: usize = IPv6HeaderSize;
+        var current_next: u8 = self.get_header().next_header;
 
-        switch (transport_type) {
-            TransportProtocol.TCP => {
-                return LayerProtocols{ .Transport = .TCP };
-            },
-            TransportProtocol.UDP => {
-                return LayerProtocols{ .Transport = .UDP };
-            },
-            else => {
-                print("Unhandled Transport layer.\n", .{});
-                return LayerProtocols{ .Transport = .Generic };
-            },
+        while (current_next != @intFromEnum(NextHeader.NoNext) and
+            current_next != @intFromEnum(NextHeader.TCP) and
+            current_next != @intFromEnum(NextHeader.UDP) and
+            current_next != @intFromEnum(NextHeader.ICMP) and
+            current_next != @intFromEnum(NextHeader.ICMPv6))
+        {
+            if (offset >= self.data.len) break;
+
+            const next_header_type: NextHeader = @enumFromInt(current_next);
+
+            switch (next_header_type) {
+                .HopByHop => {
+                    const hbh = @as(*HopByHopHeader, @ptrCast(self.data[offset..].ptr));
+                    const ext_len = (hbh.hdr_ext_len + 1) * 8;
+
+                    try self.extensions.append(ExtensionHeader{
+                        .next_header = @enumFromInt(hbh.next_header),
+                        .length = ext_len,
+                        .data = self.data[offset .. offset + ext_len],
+                    });
+
+                    current_next = hbh.next_header;
+                    offset += ext_len;
+                },
+                .Routing => {
+                    const routing = @as(*RoutingHeader, @ptrCast(self.data[offset..].ptr));
+                    const ext_len = (routing.hdr_ext_len + 1) * 8;
+
+                    try self.extensions.append(ExtensionHeader{
+                        .next_header = @enumFromInt(routing.next_header),
+                        .length = ext_len,
+                        .data = self.data[offset .. offset + ext_len],
+                    });
+
+                    current_next = routing.next_header;
+                    offset += ext_len;
+                },
+                .Fragment => {
+                    const frag = @as(*FragmentHeader, @ptrCast(self.data[offset..].ptr));
+
+                    try self.extensions.append(ExtensionHeader{
+                        .next_header = @enumFromInt(frag.next_header),
+                        .length = @sizeOf(FragmentHeader),
+                        .data = self.data[offset .. offset + @sizeOf(FragmentHeader)],
+                    });
+
+                    current_next = frag.next_header;
+                    offset += @sizeOf(FragmentHeader);
+                },
+                .DestOpts => {
+                    const dest = @as(*DestOptsHeader, @ptrCast(self.data[offset..].ptr));
+                    const ext_len = (dest.hdr_ext_len + 1) * 8;
+
+                    try self.extensions.append(ExtensionHeader{
+                        .next_header = @enumFromInt(dest.next_header),
+                        .length = ext_len,
+                        .data = self.data[offset .. offset + ext_len],
+                    });
+
+                    current_next = dest.next_header;
+                    offset += ext_len;
+                },
+                .AH, .ESP => {
+                    // Authentication Header or Encapsulating Security Payload
+                    // These have variable length, simplified for now
+                    const len = @as(u8, self.data[offset + 1]);
+                    const ext_len = (len + 2) * 4;
+
+                    try self.extensions.append(ExtensionHeader{
+                        .next_header = @enumFromInt(self.data[offset]),
+                        .length = ext_len,
+                        .data = self.data[offset .. offset + ext_len],
+                    });
+
+                    current_next = self.data[offset];
+                    offset += ext_len;
+                },
+                else => {
+                    // Unknown extension header, stop parsing
+                    break;
+                },
+            }
+        }
+    }
+
+    pub fn add_extension_header(self: *IPv6Layer, next_header: NextHeader, data: []const u8, allocator: Allocator) !void {
+        const old_len = self.data.len;
+        const new_len = old_len + data.len;
+
+        self.data = try allocator.realloc(self.data, new_len);
+        @memcpy(self.data[old_len..][0..data.len], data);
+
+        // Update the previous header's next_header field
+        if (self.extensions.items.len == 0) {
+            var hdr = self.get_header();
+            hdr.set_next_header(next_header);
+        } else {
+            const last_ext = &self.extensions.items[self.extensions.items.len - 1];
+            var last_ext_header = @as(*HopByHopHeader, @ptrCast(last_ext.data.ptr));
+            last_ext_header.next_header = @intFromEnum(next_header);
         }
 
-        return LayerProtocols{ .Transport = .Generic };
+        try self.extensions.append(ExtensionHeader{
+            .next_header = next_header,
+            .length = @intCast(data.len),
+            .data = self.data[old_len..new_len],
+        });
     }
 
     pub fn get_transport_type(self: *IPv6Layer) !TransportProtocol {

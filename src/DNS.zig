@@ -2,8 +2,7 @@ const std = @import("std");
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
-const LayerProtocols = @import("Layer.zig").LayerProtocols;
-const Layer = @import("Layer.zig").Layer;
+const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
 
 pub const QueryType = enum(u16) {
     A = 1, // IPv4 address record
@@ -481,13 +480,6 @@ pub const DNSLayer = struct {
     /// get slice of data (hdr+payload)
     pub fn get_data(self: *DNSLayer) []u8 {
         return self.raw;
-    }
-
-    /// Does nothing for this layer
-    pub fn parse_next_layer(self: *DNSLayer, allocator: std.mem.Allocator) ?*Layer {
-        _ = self;
-        _ = allocator;
-        return null;
     }
 
     pub fn get_payload(self: *DNSLayer) []u8 {

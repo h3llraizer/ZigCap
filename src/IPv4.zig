@@ -2,12 +2,11 @@ const std = @import("std");
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
-const LayerProtocols = @import("Layer.zig").LayerProtocols;
-const TransportProtocol = @import("Layer.zig").TransportProtocols;
+const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
+const TransportProtocol = @import("ProtocolHelpers.zig").TransportProtocols;
 
-const Layer = @import("Layer.zig").Layer;
-
-const LayerError = @import("Layer.zig").LayerError;
+const LayerError = @import("ProtocolHelpers.zig").LayerError;
+const NetworkProtocols = @import("ProtocolHelpers.zig").NetworkProtocols;
 
 const Packet = @import("Packet.zig");
 
@@ -81,6 +80,71 @@ pub const IPv4Header = extern struct {
     }
 };
 
+// IPv4 Option Types
+pub const IPOptionType = enum(u8) {
+    EndOfOptions = 0,
+    NoOperation = 1,
+    Security = 2,
+    LooseSourceRoute = 3,
+    Timestamp = 4,
+    ExtendedSecurity = 5,
+    CommercialSecurity = 6,
+    RecordRoute = 7,
+    StreamID = 8,
+    StrictSourceRoute = 9,
+    ExperimentalMeasurement = 10,
+    MTUProbe = 11,
+    MTUReply = 12,
+    FlowControl = 13,
+    AccessControl = 14,
+    ExtendedInternet = 15,
+    RouterAlert = 20,
+    SelectiveRedirect = 21,
+    DynamicPacketState = 23,
+    ExperimentalFlowControl = 25,
+    QuickStart = 26,
+    RFC3692 = 30,
+    End,
+};
+
+pub const IPOption = struct {
+    type: IPOptionType,
+    length: u8,
+    data: []u8,
+
+    pub fn init(opt_type: IPOptionType, data: []u8) !IPOption {
+        const len = 2 + data.len; // type + length + data
+        if (len > 40) return error.OptionTooLong;
+        return IPOption{
+            .type = opt_type,
+            .length = @as(u8, @intCast(len)),
+            .data = data,
+        };
+    }
+
+    pub fn initNoData(opt_type: IPOptionType) IPOption {
+        return IPOption{
+            .type = opt_type,
+            .length = 1, // type only (NoOperation or EndOfOptions)
+            .data = &[_]u8{},
+        };
+    }
+
+    pub fn toBytes(self: IPOption) []u8 {
+        var bytes = std.ArrayList(u8).init(std.heap.page_allocator);
+        defer bytes.deinit();
+
+        bytes.append(@intFromEnum(self.type)) catch unreachable;
+
+        if (self.length > 1) {
+            bytes.append(self.length) catch unreachable;
+            bytes.appendSlice(self.data) catch unreachable;
+        }
+
+        return bytes.toOwnedSlice() catch &[_]u8{};
+    }
+};
+
 pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
     if (buffer.len < @sizeOf(IPv4Header)) return error.BufferTooSmall;
 
@@ -95,7 +159,10 @@ pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
     const aligned_ptr: [*]align(@alignOf(IPv4Header)) u8 = @alignCast(buffer.ptr);
     const hdr: *IPv4Header = @ptrCast(aligned_ptr);
 
+    print("ipv4 buf: {x}\n", .{buffer});
+
     const transport_type = std.meta.intToEnum(TransportProtocol, hdr.protocol) catch {
+        print("transport invalid.\n", .{});
         return LayerProtocols{ .Transport = .Generic };
     };
 
@@ -176,6 +243,56 @@ pub const IPv4Layer = struct {
     pub fn get_payload(self: *IPv4Layer) []u8 {
         const header_len = (self.get_header().version_ihl & 0x0F) * 4;
         return self.data[header_len..];
+    }
+
+    pub fn get_options(self: *IPv4Layer) []u8 {
+        const hdr = self.get_header();
+        const ihl = hdr.get_ihl();
+        const header_len = ihl * 4;
+        return self.data[MinHeaderLength..header_len];
+    }
+
+    pub fn add_option(self: *IPv4Layer, option: IPOption, allocator: Allocator) !void {
+        const hdr = self.get_header();
+        const current_ihl = hdr.get_ihl();
+        const current_options_len = (current_ihl - 5) * 4;
+
+        const new_option_bytes = option.toBytes();
+        defer if (new_option_bytes.len > 0) allocator.free(new_option_bytes);
+
+        const new_options_len = current_options_len + new_option_bytes.len;
+        const new_ihl = 5 + (new_options_len + 3) / 4; // Round up to 4-byte boundary
+        const new_header_len = new_ihl * 4;
+
+        if (new_header_len > MaxHeaderLength) {
+            return error.OptionsTooLong;
+        }
+
+        // Reallocate buffer if needed
+        if (self.data.len < new_header_len) {
+            const new_data = try allocator.realloc(self.data, new_header_len);
+            self.data = new_data;
+        }
+
+        // Copy new options
+        @memcpy(self.data[MinHeaderLength + current_options_len ..][0..new_option_bytes.len], new_option_bytes);
+
+        // Zero padding if needed
+        if (new_options_len % 4 != 0) {
+            const padding = 4 - (new_options_len % 4);
+            @memset(self.data[MinHeaderLength + new_options_len ..][0..padding], 0);
+        }
+
+        // Update IHL in header
+        hdr.set_ihl(@intCast(new_ihl));
+
+        // Update total length (must be updated by caller)
+    }
+
+    pub fn remove_options(self: *IPv4Layer) void {
+        const hdr = self.get_header();
+        hdr.set_ihl(5); // Reset to minimum
+        // Options are now ignored (they remain in buffer but won't be used)
     }
 
     pub fn get_next_layer_type(self: *IPv4Layer) LayerProtocols {
