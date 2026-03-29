@@ -69,6 +69,18 @@ pub fn main() !void {
         return;
     };
 
+    const original_sender = arp_layer.get_sender_mac();
+    const original_target = arp_layer.get_target_mac();
+
+    arp_layer.set_sender_mac(original_target);
+    arp_layer.set_target_mac(original_sender);
+
+    const original_sender_ip = arp_layer.get_sender_ip();
+    const original_target_ip = arp_layer.get_target_ip();
+
+    arp_layer.set_sender_ip(original_target_ip);
+    arp_layer.set_target_ip(original_sender_ip);
+
     print("{s}\n", .{arp_layer.to_string(page_allocator)});
 
     print("Arp data: {x} ({})\n", .{ arp_layer.data, arp_layer.data.len });

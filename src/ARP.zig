@@ -125,7 +125,7 @@ pub const ArpHeader = extern struct {
     }
 
     pub fn set_sender_ip(self: *ArpHeader, ip: IPv4.IPv4Address) void {
-        self.sender_ip = ip.addr;
+        self.sender_ip = ip.array;
     }
 
     pub fn get_sender_ip(self: *const ArpHeader) IPv4.IPv4Address {
@@ -141,7 +141,7 @@ pub const ArpHeader = extern struct {
     }
 
     pub fn set_target_ip(self: *ArpHeader, ip: IPv4.IPv4Address) void {
-        self.target_ip = ip.addr;
+        self.target_ip = ip.array;
     }
 
     pub fn get_target_ip(self: *const ArpHeader) IPv4.IPv4Address {
@@ -253,9 +253,19 @@ pub const ArpLayer = struct {
         return hdr.get_sender_mac();
     }
 
+    pub fn set_sender_mac(self: *ArpLayer, mac: Eth.MacAddress) void {
+        const hdr = self.get_header();
+        return hdr.set_sender_mac(mac);
+    }
+
     pub fn get_target_mac(self: *ArpLayer) Eth.MacAddress {
         const hdr = self.get_header();
         return hdr.get_target_mac();
+    }
+
+    pub fn set_target_mac(self: *ArpLayer, mac: Eth.MacAddress) void {
+        const hdr = self.get_header();
+        return hdr.set_target_mac(mac);
     }
 
     pub fn get_sender_ip(self: *ArpLayer) IPv4.IPv4Address {
@@ -263,9 +273,19 @@ pub const ArpLayer = struct {
         return hdr.get_sender_ip();
     }
 
+    pub fn set_sender_ip(self: *ArpLayer, ip: IPv4.IPv4Address) void {
+        const hdr = self.get_header();
+        return hdr.set_sender_ip(ip);
+    }
+
     pub fn get_target_ip(self: *ArpLayer) IPv4.IPv4Address {
         const hdr = self.get_header();
         return hdr.get_target_ip();
+    }
+
+    pub fn set_target_ip(self: *ArpLayer, ip: IPv4.IPv4Address) void {
+        const hdr = self.get_header();
+        return hdr.set_target_ip(ip);
     }
 
     pub fn get_opcode(self: *ArpLayer) u16 {
