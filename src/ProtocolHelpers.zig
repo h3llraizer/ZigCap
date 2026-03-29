@@ -3,6 +3,7 @@ const activeTag = @import("std").meta.activeTag;
 const Eth = @import("Eth.zig");
 const IPv4 = @import("IPv4.zig");
 const UDP = @import("UDPLayer.zig");
+const ARP = @import("ARP.zig");
 
 pub const ApplicationProtocols = enum(u16) {
     HTTP = 80,
@@ -20,6 +21,7 @@ pub const NetworkProtocols = enum(u4) {
     ICMP = 1,
     IPv4 = 4,
     IPv6 = 6,
+    ARP = 7,
     Generic = 0,
 };
 
@@ -70,6 +72,7 @@ pub fn get_layer_type_enum(value: type) !LayerProtocols {
         Eth.EthLayer => return LayerProtocols{ .LinkLayer = .ETHERNET },
         IPv4.IPv4Layer => return LayerProtocols{ .Network = .IPv4 },
         UDP.UDPLayer => return LayerProtocols{ .Transport = .UDP },
+        ARP.ArpLayer => return LayerProtocols{ .Network = .ARP },
         else => return error.LayerInvalid,
     }
 }
@@ -94,6 +97,7 @@ pub fn get_layer_init(choice: type) !*const fn ([]u8) LayerError!choice {
         Eth.EthLayer => return Eth.EthLayer.init,
         IPv4.IPv4Layer => return IPv4.IPv4Layer.init,
         UDP.UDPLayer => return UDP.UDPLayer.init,
+        ARP.ArpLayer => return ARP.ArpLayer.init,
         else => return error.LayerInvalid,
     }
 }
@@ -108,6 +112,7 @@ pub fn get_layer_size(protocol: LayerProtocols) usize {
 
         .Network => |net_proto| switch (net_proto) {
             .IPv4 => return @sizeOf(IPv4.IPv4Header),
+            .ARP => return @sizeOf(ARP.ArpHeader),
             else => return 0,
         },
 
@@ -129,6 +134,7 @@ pub fn get_layer_alignment(protocol: LayerProtocols) usize {
 
         .Network => |net_proto| switch (net_proto) {
             .IPv4 => return @alignOf(IPv4.IPv4Header),
+            .ARP => return @alignOf(ARP.ArpHeader),
             else => return 2,
         },
 

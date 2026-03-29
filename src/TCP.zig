@@ -44,14 +44,11 @@ pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
     //    return LayerProtocols{ .Application = .Generic };
 }
 
-/// TCPLayer wraps mutable pointer to TCPHeader and functions to work on the header.
-/// If header values are changed manually or via setter then ensure calculate_length and calculate_checksum are called to avoid invalidating the layer after all desired changes are made.
 pub const TCPLayer = struct {
     data: []u8,
     const Protocol = LayerProtocols{ .Transport = .TCP };
-    // add pointer to packet it's attached to?
 
-    //// Creates layer from ptr to 8 byte length buffer - ensure that the buffer outlives the TCPLayer or UB occurs
+    //// Creates layer from ptr to minimum 20 byte length buffer - ensure that the buffer outlives the TCPLayer or UB occurs
     pub fn init(buffer: []u8) LayerError!TCPLayer {
         if (buffer.len < 20) {
             return LayerError.BufferTooSmall;
@@ -65,15 +62,6 @@ pub const TCPLayer = struct {
         }
 
         return TCPLayer{ .data = buffer };
-    }
-
-    //// Create empty TCP layer. TCPHeader values are Zero initialised
-    pub fn create(allocator: std.mem.Allocator) !*TCPLayer {
-        const self = try allocator.create(TCPLayer);
-
-        self.data = undefined;
-
-        return self;
     }
 
     //// Get Source Port of the TCPHeader - converts u16 value from Big to Native and returns

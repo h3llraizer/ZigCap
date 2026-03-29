@@ -32,6 +32,8 @@ const DNS = @import("DNS.zig");
 
 const GenericLayer = @import("GenericLayer.zig").GenericLayer;
 
+const ARP = @import("ARP.zig");
+
 pub fn alignment_check(buffer: []u8, protocol_hdr: anytype) usize {
     const alignment = @alignOf(protocol_hdr);
     const addr = @intFromPtr(buffer.ptr);
@@ -52,9 +54,9 @@ pub fn main() !void {
     var packet = try Packet.Packet.create(pkt_data_allocator, LinkLayerProtocols.ETHERNET);
     defer packet.deinit();
 
-    const pkt_data: []u8 = try pkt_data_allocator.alloc(u8, ipv4_ext_raw.len);
+    const pkt_data: []u8 = try pkt_data_allocator.alloc(u8, arp_request_raw.len);
 
-    std.mem.copyForwards(u8, pkt_data, ipv4_ext_raw[0..ipv4_ext_raw.len]);
+    std.mem.copyForwards(u8, pkt_data, arp_request_raw[0..arp_request_raw.len]);
 
     print("Original: ({}) {x}\n", .{ pkt_data.len, pkt_data });
 
@@ -62,33 +64,18 @@ pub fn main() !void {
 
     try packet.from_wire_packet(&wire_packet);
 
-    var ipv4_data = try page_allocator.alloc(u8, @sizeOf(IPv4Header));
-
-    var ipv4_layer = try IPv4Layer.init(ipv4_data[0..]);
-
-    var ip_hdr = ipv4_layer.get_header();
-    ip_hdr.version_ihl = 0x45;
-    ip_hdr.ttl = 64;
-    ip_hdr.protocol = @intFromEnum(IPv4Proto.UDP);
-    ip_hdr.checksum = 0;
-
-    ipv4_layer.set_src_ip(try IPv4Address.init_from_string("192.168.1.225"));
-    ipv4_layer.set_dst_ip(try IPv4Address.init_from_string("192.168.1.254"));
-
-    print("created ipv4_layer.\n", .{});
-
-    var result: bool = packet.add_layer(IPv4Layer, ipv4_layer.data) catch |err| {
-        print("{s}.\n", .{@errorName(err)});
+    var arp_layer: ARP.ArpLayer = try packet.get_layer_of_type(ARP.ArpLayer) orelse {
+        print("failed to get arp layer.\n", .{});
         return;
     };
 
-    _ = &result;
+    print("{s}\n", .{arp_layer.to_string(page_allocator)});
 
-    //print("{s}", .{ip_layer.to_string(page_allocator)});
+    print("Arp data: {x} ({})\n", .{ arp_layer.data, arp_layer.data.len });
 
     print("aligned_buffer: ({}) {x}\n\n", .{ packet.aligned_buffer.len, packet.aligned_buffer });
 
-    //    packet.print_layers();
+    //packet.print_layers();
 }
 
 pub fn send_packet(buf: []u8) !void {
@@ -132,6 +119,8 @@ pub fn open_pcap() !?*PcapWrapper.Interface {
         return null;
     }
 }
+
+const arp_request_raw = [60]u8{ 0x14, 0x4f, 0x8a, 0xa4, 0x15, 0x7d, 0x38, 0x6, 0xe6, 0x92, 0x63, 0xac, 0x8, 0x6, 0x0, 0x1, 0x8, 0x0, 0x6, 0x4, 0x0, 0x1, 0x38, 0x6, 0xe6, 0x92, 0x63, 0xac, 0xc0, 0xa8, 0x1, 0xfe, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xc0, 0xa8, 0x1, 0xe1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
 
 const ipv4_ext_raw = [54]u8{
     // Ethernet Header

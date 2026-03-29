@@ -169,19 +169,13 @@ pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
 
     var layer = Packet.Layer{ .protocol = undefined, .offset = 0, .length = 0, .next_layer = null };
 
-    print("udp buf: {x}\n", .{buffer});
-
     print("total length length: {}\n", .{hdr.get_length()});
 
     layer.length = buffer.len - UDPHeaderSize;
 
-    print("application start: {x}\n", .{buffer[layer.length..]});
-
     layer.protocol = LayerProtocols{ .Application = .Generic };
 
     return layer;
-
-    //return LayerProtocols{ .Application = .Generic };
 }
 
 pub const UDPLayer = struct {

@@ -117,6 +117,9 @@ pub const Packet = struct {
 
         self.aligned_buffer = new_buf[0..];
 
+        _ = try layer_init(dest[0..20]); // confirms the data provided is valid
+        //print("{s}\n", .{n.to_string(std.heap.page_allocator)});
+
         return true;
     }
 
@@ -308,6 +311,9 @@ pub const Packet = struct {
                 .IPv6 => {
                     next_layer = try IPv6Layer.get_next_layer_type(self.aligned_buffer[layer.offset..]);
                 },
+                .ARP => {
+                    return;
+                },
                 .Generic => {
                     //next_layer = LayerProtocols{ .Transport = .Generic };
                     return;
@@ -367,37 +373,6 @@ pub const Packet = struct {
 
         try self.accum_layers(next_layer_);
     }
-
-    // Adds a layer to the tail of the layers.
-    //  fn add_layer(self: *Packet, layer: anytype) !void {
-    //      print("adding layer:\n", .{});
-    //      print("add_layer: impl_layer={*}\n", .{layer});
-    //      const new_layer = try self.allocator.create(Layer);
-    //      print("add_layer: interface={*}\n", .{new_layer});
-
-    //      new_layer.* = Layer.implBy(layer);
-    //      print("add_layer: new_layer_type_ptr={*}, new_layer.data.ptr={*}, new_layer.data.len={}\n", .{ new_layer, new_layer.get_data().ptr, new_layer.get_data().len });
-
-    //      if (self.first_layer == null) {
-    //          self.first_layer = new_layer;
-    //          print("added first layer.\n", .{});
-    //          return;
-    //      }
-
-    //      var cur = self.first_layer;
-
-    //      while (cur) |current_layer| {
-    //          if (current_layer.next_layer == null) {
-    //              current_layer.set_next_layer(new_layer);
-    //              if (current_layer.next_layer) |next_layer| {
-    //                  next_layer.set_prev_layer(current_layer);
-    //                  self.last_layer = current_layer.next_layer;
-    //              }
-    //              break;
-    //          }
-    //          cur = current_layer.next_layer;
-    //      }
-    //  }
 
     /// This method will return the actual size of packet buffer as it would be on the wire, not including the padding bytes
     pub fn get_wire_size(self: *Packet) usize { // use this to determine "actual size"

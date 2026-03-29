@@ -176,30 +176,21 @@ pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
     print("transport start: {x}\n", .{buffer[hdr_len..]});
 
     const transport_type = std.meta.intToEnum(TransportProtocol, hdr.protocol) catch {
-        //print("transport invalid.\n", .{});
         next_layer.protocol = LayerProtocols{ .Transport = .Generic };
-        //layer.length = buffer.len;
         return next_layer;
-        //return LayerProtocols{ .Transport = .Generic };
     };
 
     switch (transport_type) {
         TransportProtocol.TCP => {
             next_layer.protocol = LayerProtocols{ .Transport = .TCP };
-            next_layer.length -= 20; // temp magic number
-            //next_layer.length = next_next_layer_len;
-            //return LayerProtocols{ .Transport = .TCP };
+            next_layer.length -= 20; // temp magic number (min tcp header len)
         },
         TransportProtocol.UDP => {
             next_layer.protocol = LayerProtocols{ .Transport = .UDP };
             next_layer.length -= UDP.UDPHeaderSize;
-            //next_layer.length = ;
-            //return LayerProtocols{ .Transport = .UDP };
         },
         else => {
             next_layer.protocol = LayerProtocols{ .Transport = .Generic };
-            //next_layer.length = buffer.len;
-            //return LayerProtocols{ .Transport = .Generic };
         },
     }
 
@@ -225,12 +216,6 @@ pub const IPv4Layer = struct {
         }
 
         return IPv4Layer{ .data = buffer };
-    }
-
-    pub fn create(allocator: std.mem.Allocator) !*IPv4Layer {
-        const self = try allocator.create(IPv4Layer);
-        self.data = try allocator.alloc(u8, @sizeOf(IPv4Header));
-        return self;
     }
 
     // In your IPv4Layer, update set_src_ip and set_dst_ip:

@@ -17,6 +17,8 @@ const IPv4 = @import("IPv4.zig");
 const IPv6Layer = @import("IPv6.zig").IPv6Layer;
 const IPv6HeaderSize = @import("IPv6.zig").IPv6HeaderSize;
 
+const ArpHeaderSize = @import("Arp.zig").ArpHeaderSize;
+
 pub const EthType = enum(u16) {
     IP = 0x0800,
     ARP = 0x0806,
@@ -103,15 +105,13 @@ pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
 
     var layer = Packet.Layer{ .protocol = undefined, .offset = 0, .length = 0, .next_layer = null };
 
-    //    print("{ipv4_buf len: {}\n", .{buffer.len});
-
     // ethtype for IPv4 and IPv6 will always either be 0x800 or 0x8dd respectively TODO: combine logic where appropriate and validate ip version accordingly
     switch (eth_type) {
         EthType.IP => {
             if (buffer.len <= EthHeaderSize) {
                 print("buf len too small.\n", .{});
                 layer.protocol = LayerProtocols{ .Network = .Generic };
-                layer.length = buffer.len;
+                layer.length = buffer.len; // should be buffer.len - sizeOf(ethhdr)
                 return layer;
             }
 
@@ -150,6 +150,11 @@ pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
             layer.length = IPv6HeaderSize;
             return layer;
         },
+        EthType.ARP => {
+            layer.protocol = LayerProtocols{ .Network = .ARP };
+            layer.length = buffer.len - EthHeaderSize;
+            return layer;
+        },
         else => {
             print("eth type unknown.\n", .{});
             layer.protocol = LayerProtocols{ .Network = .Generic };
@@ -165,8 +170,6 @@ pub const EthLayer = struct {
 
     pub fn init(buffer: []u8) LayerError!EthLayer {
         if (buffer.len < @sizeOf(EthHeader)) return LayerError.BufferTooSmall;
-        //print("eth layer init buffer ptr: {*}\n", .{buffer.ptr});
-        // Verify alignment
         const alignment = @alignOf(EthHeader);
         const addr = @intFromPtr(buffer.ptr);
 
@@ -188,12 +191,7 @@ pub const EthLayer = struct {
     }
 
     pub fn to_string(self: *EthLayer, allocator: Allocator) []const u8 {
-        print("EthLayer to string called:\n", .{});
         const hdr = self.get_header();
-
-        print("hdr to bytes: {x}\n", .{std.mem.asBytes(hdr)});
-        print("data: {x}\n", .{self.data});
-        print("data ptr: {*}\n", .{self.data.ptr});
 
         const src_mac = hdr.get_src_mac().to_string(allocator) catch |err| blk: {
             std.debug.print("src_mac to_string failed: {s}\n", .{@errorName(err)});
