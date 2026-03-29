@@ -11,7 +11,7 @@ const NetworkProtocols = @import("ProtocolHelpers.zig").NetworkProtocols;
 const Packet = @import("Packet.zig");
 
 const UDP = @import("UDPLayer.zig");
-const TCPLayer = @import("TCP.zig").TCPLayer;
+const TCP = @import("TCP.zig");
 
 pub const MaxHeaderLength = 60;
 pub const MinHeaderLength = 20;
@@ -145,7 +145,7 @@ pub const IPOption = struct {
     }
 };
 
-pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
+pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
     if (buffer.len < @sizeOf(IPv4Header)) return error.BufferTooSmall;
 
     print("getting transport layer.\n", .{});
@@ -161,24 +161,49 @@ pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
 
     print("ipv4 buf: {x}\n", .{buffer});
 
+    var next_layer = Packet.Layer{ .protocol = undefined, .offset = 0, .length = 0, .next_layer = null };
+
+    const ihl_byte = buffer[0];
+    const hdr_len = (ihl_byte & 0x0F) * 4;
+
+    print("hdr_len: {}\n", .{hdr_len});
+
+    next_layer.length = buffer[hdr_len..].len;
+
+    print("buffer length: {}\n", .{buffer.len});
+    print("next layer length: {}\n", .{next_layer.length});
+
+    print("transport start: {x}\n", .{buffer[hdr_len..]});
+
     const transport_type = std.meta.intToEnum(TransportProtocol, hdr.protocol) catch {
-        print("transport invalid.\n", .{});
-        return LayerProtocols{ .Transport = .Generic };
+        //print("transport invalid.\n", .{});
+        next_layer.protocol = LayerProtocols{ .Transport = .Generic };
+        //layer.length = buffer.len;
+        return next_layer;
+        //return LayerProtocols{ .Transport = .Generic };
     };
 
     switch (transport_type) {
         TransportProtocol.TCP => {
-            return LayerProtocols{ .Transport = .TCP };
+            next_layer.protocol = LayerProtocols{ .Transport = .TCP };
+            next_layer.length -= 20; // temp magic number
+            //next_layer.length = next_next_layer_len;
+            //return LayerProtocols{ .Transport = .TCP };
         },
         TransportProtocol.UDP => {
-            return LayerProtocols{ .Transport = .UDP };
+            next_layer.protocol = LayerProtocols{ .Transport = .UDP };
+            next_layer.length -= UDP.UDPHeaderSize;
+            //next_layer.length = ;
+            //return LayerProtocols{ .Transport = .UDP };
         },
         else => {
-            return LayerProtocols{ .Transport = .Generic };
+            next_layer.protocol = LayerProtocols{ .Transport = .Generic };
+            //next_layer.length = buffer.len;
+            //return LayerProtocols{ .Transport = .Generic };
         },
     }
 
-    return LayerProtocols{ .Transport = .Generic };
+    return next_layer;
 }
 
 pub const IPv4Layer = struct {

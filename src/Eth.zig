@@ -15,7 +15,7 @@ const IPv4Header = @import("IPv4.zig").IPv4Header;
 const IPv4 = @import("IPv4.zig");
 
 const IPv6Layer = @import("IPv6.zig").IPv6Layer;
-const IPv6HeaderSize = @import("IPv6.zig").HeaderSize;
+const IPv6HeaderSize = @import("IPv6.zig").IPv6HeaderSize;
 
 pub const EthType = enum(u16) {
     IP = 0x0800,
@@ -84,7 +84,8 @@ pub const EthHeader = extern struct {
     }
 };
 
-pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
+/// return the next layer and its size
+pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
     if (buffer.len < @sizeOf(EthHeader)) return LayerError.BufferTooSmall;
     // Verify alignment
     const alignment = @alignOf(EthHeader);
@@ -104,13 +105,14 @@ pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
 
     //    print("{ipv4_buf len: {}\n", .{buffer.len});
 
+    // ethtype for IPv4 and IPv6 will always either be 0x800 or 0x8dd respectively TODO: combine logic where appropriate and validate ip version accordingly
     switch (eth_type) {
         EthType.IP => {
             if (buffer.len <= EthHeaderSize) {
                 print("buf len too small.\n", .{});
                 layer.protocol = LayerProtocols{ .Network = .Generic };
                 layer.length = buffer.len;
-                return LayerProtocols{ .Network = .Generic };
+                return layer;
             }
 
             const ihl_byte = buffer[EthHeaderSize];
@@ -125,30 +127,34 @@ pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
                     print("hdr size invalid.\n", .{});
                     layer.protocol = LayerProtocols{ .Network = .Generic };
                     layer.length = buffer.len;
-                    return LayerProtocols{ .Network = .Generic };
+                    return layer;
                 }
                 layer.protocol = LayerProtocols{ .Network = .IPv4 };
                 layer.length = hdr_len;
-                return LayerProtocols{ .Network = .IPv4 };
+                return layer;
             }
 
             if (ip_version == @intFromEnum(NetworkProtocols.IPv6)) {
-                return LayerProtocols{ .Network = .IPv6 };
+                layer.protocol = LayerProtocols{ .Network = .IPv6 };
+                layer.length = hdr_len;
+                return layer;
             } else {
                 print("ip version not known.\n", .{});
                 layer.protocol = LayerProtocols{ .Network = .Generic };
                 layer.length = buffer.len;
-                return LayerProtocols{ .Network = .Generic };
+                return layer;
             }
         },
         EthType.IPV6 => {
-            return LayerProtocols{ .Network = .IPv6 };
+            layer.protocol = LayerProtocols{ .Network = .IPv6 };
+            layer.length = IPv6HeaderSize;
+            return layer;
         },
         else => {
             print("eth type unknown.\n", .{});
             layer.protocol = LayerProtocols{ .Network = .Generic };
             layer.length = buffer.len;
-            return LayerProtocols{ .Network = .Generic };
+            return layer;
         },
     }
 }

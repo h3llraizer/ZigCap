@@ -7,8 +7,10 @@ const LayerError = @import("ProtocolHelpers.zig").LayerError;
 
 const TransportProtocol = @import("ProtocolHelpers.zig").TransportProtocols;
 
-const TCPLayer = @import("TCP.zig").TCPLayer;
-const UDPLayer = @import("UDPLayer.zig").UDPLayer;
+const TCP = @import("TCP.zig");
+const UDP = @import("UDPLayer.zig");
+
+const Packet = @import("Packet.zig");
 
 pub const IPv6HeaderSize = 40;
 
@@ -286,7 +288,7 @@ pub const IPv6Header = extern struct {
     }
 };
 
-pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
+pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
     if (buffer.len < IPv6HeaderSize) return LayerError.BufferTooSmall;
 
     // Verify alignment (optional)
@@ -296,23 +298,41 @@ pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
         return LayerError.MisalignedBuffer;
     }
 
-    const hdr: *IPv6Header = @ptrCast(@alignCast(buffer[0..40]));
+    //const hdr: *IPv6Header = @ptrCast(@alignCast(buffer[0..40]));
 
-    const transport_type = std.meta.intToEnum(TransportProtocol, hdr.next_header) catch return LayerProtocols{ .Transport = .Generic };
+    var layer = Packet.Layer{ .protocol = undefined, .offset = 0, .length = 0, .next_layer = null };
 
-    switch (transport_type) {
-        TransportProtocol.TCP => {
-            return LayerProtocols{ .Transport = .TCP };
-        },
-        TransportProtocol.UDP => {
-            return LayerProtocols{ .Transport = .UDP };
-        },
-        else => {
-            return LayerProtocols{ .Transport = .Generic };
-        },
-    }
+    layer.protocol = LayerProtocols{ .Transport = .Generic };
 
-    return LayerProtocols{ .Transport = .Generic };
+    layer.length = buffer.len - IPv6HeaderSize;
+
+    //   const transport_type = std.meta.intToEnum(TransportProtocol, hdr.protocol) catch {
+    //       print("transport invalid.\n", .{});
+    //       layer.protocol = LayerProtocols{ .Transport = .Generic };
+    //       //layer.length = buffer.len;
+    //       return layer;
+    //       //return LayerProtocols{ .Transport = .Generic };
+    //   };
+    //
+    //   switch (transport_type) {
+    //       TransportProtocol.TCP => {
+    //           layer.protocol = LayerProtocols{ .Transport = .TCP };
+    //           //layer.length = next_layer_len;
+    //           //return LayerProtocols{ .Transport = .TCP };
+    //       },
+    //       TransportProtocol.UDP => {
+    //           layer.protocol = LayerProtocols{ .Transport = .UDP };
+    //           //layer.length = ;
+    //           //return LayerProtocols{ .Transport = .UDP };
+    //       },
+    //       else => {
+    //           layer.protocol = LayerProtocols{ .Transport = .Generic };
+    //           //layer.length = buffer.len;
+    //           //return LayerProtocols{ .Transport = .Generic };
+    //       },
+    //   }
+
+    return layer;
 }
 
 pub const IPv6Layer = struct {

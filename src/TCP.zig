@@ -4,6 +4,10 @@ const Allocator = std.mem.Allocator;
 
 const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
 const LayerError = @import("ProtocolHelpers.zig").LayerError;
+const Packet = @import("Packet.zig");
+
+const TCPHeaderMinSize = 20;
+const TCPHeaderMaxSize = 40;
 
 pub const TCPHeader = packed struct {
     src_port: u16,
@@ -16,8 +20,8 @@ pub const TCPHeader = packed struct {
     urgent_ptr: u16,
 };
 
-pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
-    if (buffer.len < 20) {
+pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
+    if (buffer.len < TCPHeaderMinSize) {
         return LayerError.BufferTooSmall;
     }
 
@@ -28,10 +32,16 @@ pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
         return LayerError.MisalignedBuffer;
     }
 
-    const hdr: *TCPHeader = @ptrCast(@alignCast(buffer[0..20]));
+    //const hdr: *TCPHeader = @ptrCast(@alignCast(buffer[0..20]));
 
-    _ = hdr;
-    return LayerProtocols{ .Application = .Generic };
+    var layer = Packet.Layer{ .protocol = undefined, .offset = 0, .length = 0, .next_layer = null };
+
+    layer.length = buffer.len - TCPHeaderMinSize;
+
+    layer.protocol = LayerProtocols{ .Application = .Generic };
+
+    return layer;
+    //    return LayerProtocols{ .Application = .Generic };
 }
 
 /// TCPLayer wraps mutable pointer to TCPHeader and functions to work on the header.

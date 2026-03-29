@@ -7,6 +7,8 @@ const DNS = @import("DNS.zig");
 const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
 const LayerError = @import("ProtocolHelpers.zig").LayerError;
 
+const Packet = @import("Packet.zig");
+
 pub const UDPHeaderSize = 8;
 
 // UDP Header structure (extern struct for exact layout)
@@ -152,7 +154,7 @@ pub const UDPHeader = extern struct {
     }
 };
 
-pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
+pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
     if (buffer.len < @sizeOf(UDPHeader)) return LayerError.BufferTooSmall;
 
     // Verify alignment (optional)
@@ -164,8 +166,22 @@ pub fn get_next_layer_type(buffer: []u8) !LayerProtocols {
 
     const aligned_ptr: [*]align(@alignOf(UDPHeader)) u8 = @alignCast(buffer.ptr);
     const hdr: *UDPHeader = @ptrCast(aligned_ptr);
-    _ = hdr;
-    return LayerProtocols{ .Application = .Generic };
+
+    var layer = Packet.Layer{ .protocol = undefined, .offset = 0, .length = 0, .next_layer = null };
+
+    print("udp buf: {x}\n", .{buffer});
+
+    print("total length length: {}\n", .{hdr.get_length()});
+
+    layer.length = buffer.len - UDPHeaderSize;
+
+    print("application start: {x}\n", .{buffer[layer.length..]});
+
+    layer.protocol = LayerProtocols{ .Application = .Generic };
+
+    return layer;
+
+    //return LayerProtocols{ .Application = .Generic };
 }
 
 pub const UDPLayer = struct {
