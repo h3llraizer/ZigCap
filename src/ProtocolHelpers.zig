@@ -22,6 +22,12 @@ pub const TransportProtocols = enum(u8) {
     Generic = 0,
 };
 
+pub const IPProtocol = enum(u8) {
+    ICMP = 1,
+    TCP = 6,
+    UDP = 17,
+};
+
 pub const NetworkProtocols = enum(u4) {
     ICMP = 1,
     IPv4 = 4,
@@ -148,7 +154,7 @@ pub fn get_next_layer_type(
     }
 }
 
-pub const LayerError = error{ OutOfMemory, BufferTooSmall, MisalignedBuffer, EmptyPayload };
+pub const LayerError = error{ OutOfMemory, BufferTooSmall, MisalignedBuffer, EmptyPayload, InvalidOperation };
 
 pub fn get_layer_type_enum(value: type) !LayerProtocols {
     switch (value) {
@@ -238,7 +244,7 @@ pub fn get_layer_alignment(protocol: LayerProtocols) usize {
             },
         },
 
-        else => return 1,
+        else => return 1, // not sure why I'm using 1 here
     };
 }
 

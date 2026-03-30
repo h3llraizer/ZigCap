@@ -36,6 +36,11 @@ pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
             layer.length = UDP.UDPHeaderSize;
         },
 
+        .ICMP => {
+            layer.protocol = LayerProtocols{ .Network = .ICMP };
+            layer.length = buffer.len - IPv6HeaderSize;
+        },
+
         else => {
             layer.protocol = LayerProtocols{ .Transport = .Generic };
             //layer.length = (buffer.len - IPv6HeaderSize);

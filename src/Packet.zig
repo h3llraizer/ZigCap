@@ -102,6 +102,8 @@ pub const Packet = struct {
 
         //TODO: Ideally add more validation - the layer data might contain preceeding layers data  - renaming to merge layer chain might be preferred
 
+        // also get the layer size and make sure to only add the bytes which are required
+
         const last_layer = try self.get_last_layer();
 
         const layer = try self.allocator.create(Layer);
@@ -434,6 +436,7 @@ pub fn calculate_padding(current_offset: usize, comptime HdrType: type) usize {
     return padding;
 }
 
+/// doesn't return the inserted slice
 fn insert_padding_in_place(buf: *[]u8, offset: usize, len: usize, allocator: std.mem.Allocator) !void {
     std.debug.assert(offset <= buf.len);
 

@@ -2,6 +2,8 @@ const std = @import("std");
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
+const IPProtocol = @import("ProtocolHelpers.zig").IPProtocol;
+
 const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
 const TransportProtocol = @import("ProtocolHelpers.zig").TransportProtocols;
 
@@ -35,46 +37,24 @@ pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
 
     next_layer.offset = hdr_len;
 
-    const transport_type = std.meta.intToEnum(TransportProtocol, hdr.protocol) catch {
+    const ip_protocol = std.meta.intToEnum(IPProtocol, hdr.protocol) catch {
         next_layer.protocol = LayerProtocols{ .Transport = .Generic };
         next_layer.length = buffer[hdr_len..].len; // Remaining bytes
-
-        const network_type = std.meta.intToEnum(NetworkProtocols, hdr.protocol) catch {
-            print("ipv4 protocol: {any}\n", .{hdr.protocol});
-            next_layer.protocol = LayerProtocols{ .Transport = .Generic };
-            next_layer.length = buffer[hdr_len..].len; // Remaining bytes
-            return next_layer;
-        };
-
-        switch (network_type) {
-            NetworkProtocols.ICMP => {
-                next_layer.protocol = LayerProtocols{ .Network = .ICMP };
-                next_layer.length = buffer[hdr_len..].len;
-            },
-
-            else => next_layer.protocol = LayerProtocols{ .Transport = .Generic },
-        }
-
         return next_layer;
     };
 
-    print("transport type: {any}\n", .{transport_type});
+    switch (ip_protocol) {
+        IPProtocol.ICMP => {
+            next_layer.protocol = LayerProtocols{ .Network = .ICMP };
+            next_layer.length = buffer[hdr_len..].len; // this is fine because it includes the payload
+        },
 
-    switch (transport_type) {
-        TransportProtocol.TCP => {
+        IPProtocol.TCP => {
             next_layer.protocol = LayerProtocols{ .Transport = .TCP };
         },
-        TransportProtocol.UDP => {
+        IPProtocol.UDP => {
             next_layer.protocol = LayerProtocols{ .Transport = .UDP };
-            const aligned_udp_ptr: [*]align(@alignOf(UDP.UDPHeader)) u8 = @alignCast(buffer[hdr_len..].ptr);
-            const udp_hdr: *const UDP.UDPHeader = @ptrCast(aligned_udp_ptr);
-
-            _ = udp_hdr; //TODO: check for malformed packets
-
             next_layer.length = UDP.UDPHeaderSize;
-        },
-        else => {
-            next_layer.protocol = LayerProtocols{ .Transport = .Generic };
         },
     }
 
@@ -506,30 +486,3 @@ pub const IPv4Address = struct {
         );
     }
 };
-
-pub fn parseIPv4Header(packet: []const u8) !void {
-    if (packet.len < 20) {
-        return error.InvalidPacket;
-    }
-
-    const version_ihl = packet[0];
-    const version = version_ihl >> 4;
-    const ihl = version_ihl & 0x0F; // header length in 32-bit words
-    const header_length = ihl * 4;
-
-    if (packet.len < header_length) {
-        return error.InvalidPacket;
-    }
-
-    const total_length = std.mem.readInt(u16, packet[2..4], .big);
-    const protocol = packet[9]; // 1 = ICMP, 6 = TCP, 17 = UDP
-    const src_ip = packet[12..16];
-    const dst_ip = packet[16..20];
-
-    std.debug.print("IPv4 Header:\n", .{});
-    std.debug.print("Version: {d}, Header Length: {d} bytes\n", .{ version, header_length });
-    std.debug.print("Total Length: {d}\n", .{total_length});
-    std.debug.print("Protocol: {d}\n", .{protocol});
-    std.debug.print("Source IP: {d}.{d}.{d}.{d}\n", .{ src_ip[0], src_ip[1], src_ip[2], src_ip[3] });
-    std.debug.print("Destination IP: {d}.{d}.{d}.{d}\n", .{ dst_ip[0], dst_ip[1], dst_ip[2], dst_ip[3] });
-}

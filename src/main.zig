@@ -37,6 +37,8 @@ const ARP = @import("ARP.zig");
 
 const IPv6 = @import("IPv6.zig");
 
+const ICMP = @import("ICMP.zig");
+
 pub fn alignment_check(buffer: []u8, protocol_hdr: anytype) usize {
     const alignment = @alignOf(protocol_hdr);
     const addr = @intFromPtr(buffer.ptr);
@@ -165,7 +167,12 @@ pub fn test_icmp(allocator: Allocator) !void {
 
     try packet.from_wire_packet(&wire_packet);
 
-    packet.print_layers_meta();
+    var icmp_layer = try packet.get_layer_of_type(ICMP.ICMPLayer) orelse {
+        return;
+    };
+
+    print("{s}\n", .{try icmp_layer.to_string(std.heap.page_allocator)});
+    //packet.print_layers();
 }
 
 pub fn main() !void {
