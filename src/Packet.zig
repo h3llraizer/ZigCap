@@ -5,6 +5,7 @@ const Allocator = std.mem.Allocator;
 
 const WirePacket = @import("WirePacket.zig").WirePacket;
 const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
+const LayerError = @import("ProtocolHelpers.zig").LayerError;
 
 const LinkLayerProtocols = @import("ProtocolHelpers.zig").LinkLayerProtocols;
 const NetworkProtocols = @import("ProtocolHelpers.zig").NetworkProtocols;
@@ -42,6 +43,10 @@ pub const Layer = struct {
     pub fn init(protocol: LayerProtocols, offset: usize, length: usize) Layer {
         //print("layer init called: {any} offset={} length={}\n", .{ protocol, offset, length });
         return Layer{ .protocol = protocol, .offset = offset, .length = length, .next_layer = null, .prev_layer = null };
+    }
+
+    pub fn to_string(self: *Layer) void {
+        print("{any}, offset={}, length={}\n", .{ self.protocol, self.offset, self.length });
     }
 };
 
@@ -286,15 +291,25 @@ pub const Packet = struct {
         }
     }
 
+    pub fn print_layers_meta(self: *Packet) void {
+        var cur = self.first_layer;
+        while (cur) |layer| {
+            print("{any}, {}, {}, buf-pos={}\n", .{ layer.protocol, layer.offset, layer.length, layer.offset + layer.length });
+            cur = layer.next_layer;
+        }
+    }
+
     fn accum_layers(self: *Packet, layer: *Layer) !void {
-        print("current layer: {any} offset={} length={}\n", .{ layer.protocol, layer.offset, layer.length });
-        print("current buf: {x}\n", .{self.aligned_buffer[layer.offset..]});
         var next_layer: Layer = undefined;
+
+        const current_slice = self.aligned_buffer[layer.offset..];
+
+        print("current slice: {x}\n", .{current_slice});
 
         switch (layer.protocol) {
             .LinkLayer => |protocol| switch (protocol) {
                 .ETHERNET => {
-                    next_layer = try Eth.get_next_layer_type(self.aligned_buffer[layer.offset..]);
+                    next_layer = try Eth.get_next_layer_type(current_slice[0..]);
                 },
                 else => {
                     //next_layer = LayerProtocols{ .Network = .Generic };
@@ -303,28 +318,34 @@ pub const Packet = struct {
             },
             .Network => |protocol| switch (protocol) {
                 .ICMP => {
+                    // the icmp layer has already been created at this point and it cannot "normally" contain any preceeding layers so just return
                     return;
                 },
                 .IPv4 => {
-                    next_layer = try IPv4.get_next_layer_type(self.aligned_buffer[layer.offset..]);
+                    next_layer = try IPv4.get_next_layer_type(current_slice[0..]);
                 },
                 .IPv6 => {
-                    next_layer = try IPv6Layer.get_next_layer_type(self.aligned_buffer[layer.offset..]);
+                    next_layer = try IPv6Layer.get_next_layer_type(current_slice[0..]);
                 },
                 .ARP => {
+                    // the arp layer has already been created at this point and it cannot "normally" contain any preceeding layers so just return
                     return;
                 },
                 .Generic => {
-                    //next_layer = LayerProtocols{ .Transport = .Generic };
+                    // we cannot parse a generic network layer. magic might be implemented in the future
                     return;
                 },
             },
             .Transport => |protocol| switch (protocol) {
                 .TCP => {
-                    next_layer = try TCP.get_next_layer_type(self.aligned_buffer[layer.offset..]);
+                    next_layer = try TCP.get_next_layer_type(current_slice[0..]);
                 },
                 .UDP => {
-                    next_layer = try UDP.get_next_layer_type(self.aligned_buffer[layer.offset..]);
+                    next_layer = UDP.get_next_layer_type(current_slice[0..]) catch |err| {
+                        print("{x}\n", .{current_slice[0..]});
+                        print("{s}\n", .{@errorName(err)});
+                        return;
+                    };
                 },
                 .Generic => {
                     //next_layer = LayerProtocols{ .Transport = .Generic };
@@ -341,37 +362,45 @@ pub const Packet = struct {
                     return;
                 },
                 .Generic => {
-                    //next_layer = LayerProtocols{ .Application = .Generic };
                     return;
                 },
             },
         }
 
-        const alignment_size: usize = get_layer_alignment(next_layer.protocol); // get the alignment size of the next layers hdr type
+        if (next_layer.length == 0) {
+            return;
+        }
 
-        const current_end = layer.offset + layer.length;
+        next_layer.offset += layer.offset;
 
-        const next_offset = get_next_relative_offset(current_end, alignment_size);
+        layer.to_string();
 
-        const padding = next_offset - current_end;
+        next_layer.to_string();
+
+        const alignment = get_layer_alignment(next_layer.protocol); // next layers alignment requirement
+        const padding = alignment_check(current_slice[layer.length..], alignment);
+
+        //        print("padding: {}\n", .{padding});
 
         if (padding > 0) {
-            try insert_padding_in_place(&self.aligned_buffer, current_end, padding, self.allocator);
+            try insert_padding_in_place(&self.aligned_buffer, layer.length, padding, self.allocator);
+            next_layer.offset += padding;
         }
+
+        //        print("next_layer offset: {}\n", .{next_layer.offset});
 
         const next_layer_ = try self.allocator.create(Layer);
 
         next_layer_.* = next_layer;
 
-        next_layer_.prev_layer = layer;
-
-        next_layer_.offset = next_offset;
-
-        //next_layer_.length += padding;
-
         layer.next_layer = next_layer_;
 
         try self.accum_layers(next_layer_);
+    }
+
+    /// returns true if the packet buffer can be sent over the network. Useful if you just want to send an already wire capable buffer without calling get_wire_format
+    pub fn wire_ready(self: *Packet) bool {
+        _ = self;
     }
 
     /// This method will return the actual size of packet buffer as it would be on the wire, not including the padding bytes
@@ -416,9 +445,16 @@ pub const Packet = struct {
         return wire_buf;
     }
 
-    /// destroys interface layers from last to first
+    /// destroys interface layers from first to last. It DOES NOT free the buffer - you need to free the buffer
     pub fn deinit(self: *Packet) void {
-        _ = self;
+        var cur = self.first_layer;
+
+        while (cur) |layer| {
+            const next = layer.next_layer;
+            print("destroying: {any}\n", .{layer.protocol});
+            self.allocator.destroy(layer);
+            cur = next;
+        }
     }
 };
 

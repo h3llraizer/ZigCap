@@ -3,21 +3,93 @@ const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
 const Packet = @import("Packet.zig");
-
 const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
-
 const LayerError = @import("ProtocolHelpers.zig").LayerError;
-
 const NetworkProtocols = @import("ProtocolHelpers.zig").NetworkProtocols;
-
 const IPv4Layer = @import("IPv4.zig").IPv4Layer;
 const IPv4Header = @import("IPv4.zig").IPv4Header;
 const IPv4 = @import("IPv4.zig");
-
 const IPv6Layer = @import("IPv6.zig").IPv6Layer;
 const IPv6HeaderSize = @import("IPv6.zig").IPv6HeaderSize;
-
 const ArpHeaderSize = @import("Arp.zig").ArpHeaderSize;
+
+/// return the next layer and its size
+pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
+    if (buffer.len < @sizeOf(EthHeader)) return LayerError.BufferTooSmall;
+    // Verify alignment
+    const alignment = @alignOf(EthHeader);
+    const addr = @intFromPtr(buffer.ptr);
+
+    if (addr % alignment != 0) {
+        return LayerError.MisalignedBuffer;
+    }
+
+    const aligned_ptr: [*]align(@alignOf(EthHeader)) u8 = @alignCast(buffer.ptr);
+    const hdr: *EthHeader = @ptrCast(aligned_ptr);
+    const eth_type = hdr.get_eth_type();
+
+    var layer = Packet.Layer{ .protocol = undefined, .offset = 0, .length = 0 };
+
+    layer.offset = EthHeaderSize;
+
+    // ethtype for IPv4 and IPv6 will always either be 0x800 or 0x8dd respectively TODO: combine logic where appropriate and validate ip version accordingly
+    switch (eth_type) {
+        EthType.IP => {
+            if (buffer.len <= EthHeaderSize) {
+                print("buf len too small.\n", .{});
+                layer.protocol = LayerProtocols{ .Network = .Generic };
+                layer.length = buffer.len - EthHeaderSize; // should be buffer.len - sizeOf(ethhdr)
+                return layer;
+            }
+
+            const ihl_byte = buffer[EthHeaderSize];
+            const ip_version = ihl_byte >> 4;
+            const hdr_len = (ihl_byte & 0x0F) * 4;
+
+            print("ip version: {}\n", .{ip_version});
+            print("ip hdr_len: {}\n", .{hdr_len});
+
+            if (ip_version == @intFromEnum(NetworkProtocols.IPv4)) {
+                if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) {
+                    print("hdr size invalid.\n", .{});
+                    layer.protocol = LayerProtocols{ .Network = .Generic };
+                    layer.length = buffer.len - EthHeaderSize;
+                    return layer;
+                }
+                layer.protocol = LayerProtocols{ .Network = .IPv4 };
+                layer.length = hdr_len;
+                return layer;
+            }
+
+            if (ip_version == @intFromEnum(NetworkProtocols.IPv6)) {
+                layer.protocol = LayerProtocols{ .Network = .IPv6 };
+                layer.length = hdr_len;
+                return layer;
+            } else {
+                print("ip version not known.\n", .{});
+                layer.protocol = LayerProtocols{ .Network = .Generic };
+                layer.length = buffer.len;
+                return layer;
+            }
+        },
+        EthType.IPV6 => {
+            layer.protocol = LayerProtocols{ .Network = .IPv6 };
+            layer.length = IPv6HeaderSize;
+            return layer;
+        },
+        EthType.ARP => {
+            layer.protocol = LayerProtocols{ .Network = .ARP };
+            layer.length = buffer.len - EthHeaderSize;
+            return layer;
+        },
+        else => {
+            print("eth type unknown.\n", .{});
+            layer.protocol = LayerProtocols{ .Network = .Generic };
+            layer.length = buffer.len;
+            return layer;
+        },
+    }
+}
 
 pub const EthType = enum(u16) {
     IP = 0x0800,
@@ -25,7 +97,7 @@ pub const EthType = enum(u16) {
     ETHBRIDGE = 0x6558,
     REVARP = 0x8035,
     AT = 0x809B,
-    AARP = 0x80F3,
+    AARP = 0x80F3, // not currently implemented - will be resolved as generic network layer
     VLAN = 0x8100,
     IPX = 0x8137,
     IPV6 = 0x86DD,
@@ -85,84 +157,6 @@ pub const EthHeader = extern struct {
         return @enumFromInt(@byteSwap(self.eth_type));
     }
 };
-
-/// return the next layer and its size
-pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
-    if (buffer.len < @sizeOf(EthHeader)) return LayerError.BufferTooSmall;
-    // Verify alignment
-    const alignment = @alignOf(EthHeader);
-    const addr = @intFromPtr(buffer.ptr);
-
-    if (addr % alignment != 0) {
-        return LayerError.MisalignedBuffer;
-    }
-
-    print("eth buf: {x}\n", .{buffer});
-
-    const aligned_ptr: [*]align(@alignOf(EthHeader)) u8 = @alignCast(buffer.ptr);
-    const hdr: *EthHeader = @ptrCast(aligned_ptr);
-    const eth_type = hdr.get_eth_type();
-
-    var layer = Packet.Layer{ .protocol = undefined, .offset = 0, .length = 0, .next_layer = null };
-
-    // ethtype for IPv4 and IPv6 will always either be 0x800 or 0x8dd respectively TODO: combine logic where appropriate and validate ip version accordingly
-    switch (eth_type) {
-        EthType.IP => {
-            if (buffer.len <= EthHeaderSize) {
-                print("buf len too small.\n", .{});
-                layer.protocol = LayerProtocols{ .Network = .Generic };
-                layer.length = buffer.len; // should be buffer.len - sizeOf(ethhdr)
-                return layer;
-            }
-
-            const ihl_byte = buffer[EthHeaderSize];
-            const ip_version = ihl_byte >> 4;
-            const hdr_len = (ihl_byte & 0x0F) * 4;
-
-            print("ip version: {}\n", .{ip_version});
-            print("ip hdr_len: {}\n", .{hdr_len});
-
-            if (ip_version == @intFromEnum(NetworkProtocols.IPv4)) {
-                if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) {
-                    print("hdr size invalid.\n", .{});
-                    layer.protocol = LayerProtocols{ .Network = .Generic };
-                    layer.length = buffer.len;
-                    return layer;
-                }
-                layer.protocol = LayerProtocols{ .Network = .IPv4 };
-                layer.length = hdr_len;
-                return layer;
-            }
-
-            if (ip_version == @intFromEnum(NetworkProtocols.IPv6)) {
-                layer.protocol = LayerProtocols{ .Network = .IPv6 };
-                layer.length = hdr_len;
-                return layer;
-            } else {
-                print("ip version not known.\n", .{});
-                layer.protocol = LayerProtocols{ .Network = .Generic };
-                layer.length = buffer.len;
-                return layer;
-            }
-        },
-        EthType.IPV6 => {
-            layer.protocol = LayerProtocols{ .Network = .IPv6 };
-            layer.length = IPv6HeaderSize;
-            return layer;
-        },
-        EthType.ARP => {
-            layer.protocol = LayerProtocols{ .Network = .ARP };
-            layer.length = buffer.len - EthHeaderSize;
-            return layer;
-        },
-        else => {
-            print("eth type unknown.\n", .{});
-            layer.protocol = LayerProtocols{ .Network = .Generic };
-            layer.length = buffer.len;
-            return layer;
-        },
-    }
-}
 
 pub const EthLayer = struct {
     data: []u8, // ethhdr + payload

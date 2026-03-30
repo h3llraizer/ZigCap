@@ -34,11 +34,137 @@ const GenericLayer = @import("GenericLayer.zig").GenericLayer;
 
 const ARP = @import("ARP.zig");
 
+const IPv6 = @import("IPv6.zig");
+
 pub fn alignment_check(buffer: []u8, protocol_hdr: anytype) usize {
     const alignment = @alignOf(protocol_hdr);
     const addr = @intFromPtr(buffer.ptr);
 
     return addr % alignment;
+}
+
+pub fn test_ipv4_ext(allocator: Allocator) !void {
+    print("Testing IPv6.\n", .{});
+    var packet = try Packet.Packet.create(allocator, LinkLayerProtocols.ETHERNET);
+    defer packet.deinit();
+
+    const pkt_data: []u8 = try allocator.alloc(u8, ipv4_ext_raw.len);
+    defer allocator.free(pkt_data);
+
+    std.mem.copyForwards(u8, pkt_data, ipv4_ext_raw[0..]);
+
+    print("Original: ({}) {x}\n", .{ pkt_data.len, pkt_data });
+
+    var wire_packet = WirePacket.init(0, 0, pkt_data, LinkLayerProtocols.ETHERNET);
+
+    try packet.from_wire_packet(&wire_packet);
+
+    //packet.print_layers();
+}
+
+pub fn test_ipv4(allocator: Allocator) !void {
+    print("Testing IPv6.\n", .{});
+    var packet = try Packet.Packet.create(allocator, LinkLayerProtocols.ETHERNET);
+    defer packet.deinit();
+
+    const pkt_data: []u8 = try allocator.alloc(u8, raw.len);
+    defer allocator.free(pkt_data);
+
+    std.mem.copyForwards(u8, pkt_data, raw[0..]);
+
+    print("Original: ({}) {x}\n", .{ pkt_data.len, pkt_data });
+
+    var wire_packet = WirePacket.init(0, 0, pkt_data, LinkLayerProtocols.ETHERNET);
+
+    try packet.from_wire_packet(&wire_packet);
+
+    packet.print_layers();
+}
+
+pub fn test_ipv6(allocator: Allocator) !void {
+    print("Testing IPv6.\n", .{});
+    var packet = try Packet.Packet.create(allocator, LinkLayerProtocols.ETHERNET);
+    defer packet.deinit();
+
+    const pkt_data: []u8 = try allocator.alloc(u8, ipv6_dns_request_raw.len);
+    defer allocator.free(pkt_data);
+
+    std.mem.copyForwards(u8, pkt_data, ipv6_dns_request_raw[0..ipv6_dns_request_raw.len]);
+
+    print("align: {}\n", .{alignment_check(pkt_data[14..], IPv6.IPv6Header)});
+
+    print("Original: ({}) {x}\n", .{ pkt_data.len, pkt_data });
+
+    var wire_packet = WirePacket.init(0, 0, pkt_data, LinkLayerProtocols.ETHERNET);
+
+    try packet.from_wire_packet(&wire_packet);
+
+    var ipv6_layer: IPv6.IPv6Layer = try packet.get_layer_of_type(IPv6.IPv6Layer) orelse {
+        print("could not get IPv6 layer.\n", .{});
+        return;
+    };
+
+    _ = &ipv6_layer;
+
+    //print("{s}\n", .{ipv6_layer.to_string(std.heap.page_allocator)});
+
+    print("aligned_buffer: ({}) {x}\n\n", .{ packet.aligned_buffer.len, packet.aligned_buffer });
+
+    packet.print_layers();
+}
+
+pub fn test_udp(allocator: Allocator) !void {
+    var packet = try Packet.Packet.create(allocator, LinkLayerProtocols.ETHERNET);
+    //    defer packet.deinit();
+
+    const pkt_data: []u8 = try allocator.alloc(u8, raw_udp.len);
+    defer allocator.free(pkt_data);
+
+    std.mem.copyForwards(u8, pkt_data, raw_udp[0..]);
+
+    print("Original: ({}) {x}\n", .{ pkt_data.len, pkt_data });
+
+    var wire_packet = WirePacket.init(0, 0, pkt_data, LinkLayerProtocols.ETHERNET);
+
+    try packet.from_wire_packet(&wire_packet);
+
+    packet.print_layers_meta();
+}
+
+pub fn test_arp(allocator: Allocator) !void {
+    var packet = try Packet.Packet.create(allocator, LinkLayerProtocols.ETHERNET);
+    //    defer packet.deinit();
+
+    const pkt_data: []u8 = try allocator.alloc(u8, arp_request_raw.len);
+    defer allocator.free(pkt_data);
+
+    std.mem.copyForwards(u8, pkt_data, arp_request_raw[0..]);
+
+    print("Original: ({}) {x}\n", .{ pkt_data.len, pkt_data });
+
+    var wire_packet = WirePacket.init(0, 0, pkt_data, LinkLayerProtocols.ETHERNET);
+
+    try packet.from_wire_packet(&wire_packet);
+
+    packet.print_layers_meta();
+}
+
+pub fn test_icmp(allocator: Allocator) !void {
+    var packet = try Packet.Packet.create(allocator, LinkLayerProtocols.ETHERNET);
+    //    defer packet.deinit();
+
+    const pkt_data: []u8 = try allocator.alloc(u8, icmp_request_raw.len);
+    defer allocator.free(pkt_data);
+
+    std.mem.copyForwards(u8, pkt_data, icmp_request_raw[0..]);
+
+    print("Original: ({}) {x}\n", .{ pkt_data.len, pkt_data });
+
+    var wire_packet = WirePacket.init(0, 0, pkt_data, LinkLayerProtocols.ETHERNET);
+
+    try packet.from_wire_packet(&wire_packet);
+
+    packet.print_layers_meta();
 }
 
 pub fn main() !void {
@@ -51,43 +177,11 @@ pub fn main() !void {
 
     _ = &page_allocator;
 
-    var packet = try Packet.Packet.create(pkt_data_allocator, LinkLayerProtocols.ETHERNET);
-    defer packet.deinit();
-
-    const pkt_data: []u8 = try pkt_data_allocator.alloc(u8, arp_request_raw.len);
-
-    std.mem.copyForwards(u8, pkt_data, arp_request_raw[0..arp_request_raw.len]);
-
-    print("Original: ({}) {x}\n", .{ pkt_data.len, pkt_data });
-
-    var wire_packet = WirePacket.init(0, 0, pkt_data, LinkLayerProtocols.ETHERNET);
-
-    try packet.from_wire_packet(&wire_packet);
-
-    var arp_layer: ARP.ArpLayer = try packet.get_layer_of_type(ARP.ArpLayer) orelse {
-        print("failed to get arp layer.\n", .{});
-        return;
-    };
-
-    const original_sender = arp_layer.get_sender_mac();
-    const original_target = arp_layer.get_target_mac();
-
-    arp_layer.set_sender_mac(original_target);
-    arp_layer.set_target_mac(original_sender);
-
-    const original_sender_ip = arp_layer.get_sender_ip();
-    const original_target_ip = arp_layer.get_target_ip();
-
-    arp_layer.set_sender_ip(original_target_ip);
-    arp_layer.set_target_ip(original_sender_ip);
-
-    print("{s}\n", .{arp_layer.to_string(page_allocator)});
-
-    print("Arp data: {x} ({})\n", .{ arp_layer.data, arp_layer.data.len });
-
-    print("aligned_buffer: ({}) {x}\n\n", .{ packet.aligned_buffer.len, packet.aligned_buffer });
-
-    //packet.print_layers();
+    //try test_udp(pkt_data_allocator);
+    //try test_ipv4(pkt_data_allocator);
+    //try test_ipv6(pkt_data_allocator);
+    //try test_arp(pkt_data_allocator);
+    try test_icmp(pkt_data_allocator);
 }
 
 pub fn send_packet(buf: []u8) !void {
@@ -132,6 +226,10 @@ pub fn open_pcap() !?*PcapWrapper.Interface {
     }
 }
 
+const icmp_request_raw = [74]u8{ 0x38, 0x6, 0xe6, 0x92, 0x63, 0xac, 0x14, 0x4f, 0x8a, 0xa4, 0x15, 0x7d, 0x8, 0x0, 0x45, 0x0, 0x0, 0x3c, 0x71, 0xdc, 0x0, 0x0, 0x80, 0x1, 0xf5, 0xef, 0xc0, 0xa8, 0x1, 0xe1, 0x8e, 0xfa, 0x81, 0x71, 0x8, 0x0, 0x4d, 0x5a, 0x0, 0x1, 0x0, 0x1, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69 };
+
+const ipv6_dns_request_raw = [89]u8{ 0x38, 0x6, 0xe6, 0x92, 0x63, 0xac, 0x14, 0x4f, 0x8a, 0xa4, 0x15, 0x7d, 0x86, 0xdd, 0x60, 0x8, 0x5a, 0x43, 0x0, 0x23, 0x11, 0x40, 0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xa6, 0x61, 0x8f, 0x26, 0x87, 0xeb, 0xbe, 0x60, 0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x3a, 0x6, 0xe6, 0xff, 0xfe, 0x92, 0x63, 0xac, 0xdb, 0xe4, 0x0, 0x35, 0x0, 0x23, 0x26, 0x20, 0x4f, 0xa0, 0x1, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x4, 0x77, 0x70, 0x61, 0x64, 0x4, 0x68, 0x6f, 0x6d, 0x65, 0x0, 0x0, 0x1, 0x0, 0x1 };
+
 const arp_request_raw = [60]u8{ 0x14, 0x4f, 0x8a, 0xa4, 0x15, 0x7d, 0x38, 0x6, 0xe6, 0x92, 0x63, 0xac, 0x8, 0x6, 0x0, 0x1, 0x8, 0x0, 0x6, 0x4, 0x0, 0x1, 0x38, 0x6, 0xe6, 0x92, 0x63, 0xac, 0xc0, 0xa8, 0x1, 0xfe, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xc0, 0xa8, 0x1, 0xe1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
 
 const ipv4_ext_raw = [54]u8{
@@ -168,5 +266,7 @@ const ipv4_ext_raw = [54]u8{
     0x6f, 0x55,
     0x44, 0x50,
 };
+
+const raw_udp: [42]u8 = .{ 0x14, 0x4f, 0x8a, 0xa4, 0x15, 0x7d, 0x38, 0x6, 0xe6, 0x92, 0x63, 0xac, 0x8, 0x0, 0x45, 0x0, 0x0, 0x49, 0x5d, 0xf7, 0x40, 0x0, 0x40, 0x11, 0x57, 0x7d, 0xc0, 0xa8, 0x1, 0xfe, 0xc0, 0xa8, 0x1, 0xe1, 0x0, 0x35, 0xfd, 0xdf, 0x0, 0x35, 0x9d, 0xff };
 
 const raw: [87]u8 = .{ 0x14, 0x4f, 0x8a, 0xa4, 0x15, 0x7d, 0x38, 0x6, 0xe6, 0x92, 0x63, 0xac, 0x8, 0x0, 0x45, 0x0, 0x0, 0x49, 0x5d, 0xf7, 0x40, 0x0, 0x40, 0x11, 0x57, 0x7d, 0xc0, 0xa8, 0x1, 0xfe, 0xc0, 0xa8, 0x1, 0xe1, 0x0, 0x35, 0xfd, 0xdf, 0x0, 0x35, 0x9d, 0xff, 0x3a, 0xd0, 0x81, 0x80, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x7, 0x7a, 0x69, 0x67, 0x6c, 0x61, 0x6e, 0x67, 0x3, 0x6f, 0x72, 0x67, 0x0, 0x0, 0x1, 0x0, 0x1, 0xc0, 0xc, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x1, 0x2c, 0x0, 0x4, 0x41, 0x6d, 0x69, 0xb2 };

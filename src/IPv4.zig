@@ -16,6 +16,52 @@ const TCP = @import("TCP.zig");
 pub const MaxHeaderLength = 60;
 pub const MinHeaderLength = 20;
 
+pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
+    if (buffer.len < @sizeOf(IPv4Header)) return error.BufferTooSmall;
+
+    const alignment = @alignOf(IPv4Header);
+    const addr = @intFromPtr(buffer.ptr);
+
+    if (addr % alignment != 0) {
+        return error.MisalignedBuffer;
+    }
+    const aligned_ptr: [*]align(@alignOf(IPv4Header)) u8 = @alignCast(buffer.ptr);
+    const hdr: *const IPv4Header = @ptrCast(aligned_ptr);
+
+    var next_layer = Packet.Layer{ .protocol = undefined, .offset = 0, .length = 0, .next_layer = null };
+
+    const ihl_byte = buffer[0];
+    const hdr_len = (ihl_byte & 0x0F) * 4;
+
+    next_layer.offset = hdr_len;
+
+    const transport_type = std.meta.intToEnum(TransportProtocol, hdr.protocol) catch {
+        next_layer.protocol = LayerProtocols{ .Transport = .Generic };
+        next_layer.length = buffer[hdr_len..].len; // Remaining bytes
+        return next_layer;
+    };
+
+    switch (transport_type) {
+        TransportProtocol.TCP => {
+            next_layer.protocol = LayerProtocols{ .Transport = .TCP };
+        },
+        TransportProtocol.UDP => {
+            next_layer.protocol = LayerProtocols{ .Transport = .UDP };
+            const aligned_udp_ptr: [*]align(@alignOf(UDP.UDPHeader)) u8 = @alignCast(buffer[hdr_len..].ptr);
+            const udp_hdr: *const UDP.UDPHeader = @ptrCast(aligned_udp_ptr);
+
+            _ = udp_hdr; //TODO: check for malformed packets
+
+            next_layer.length = UDP.UDPHeaderSize;
+        },
+        else => {
+            next_layer.protocol = LayerProtocols{ .Transport = .Generic };
+        },
+    }
+
+    return next_layer;
+}
+
 // Use extern struct for exact 20-byte layout (standard IPv4 header)
 pub const IPv4Header = extern struct {
     version_ihl: u8 = 0x45, // Default to version 4, IHL 5
@@ -144,58 +190,6 @@ pub const IPOption = struct {
         return bytes.toOwnedSlice() catch &[_]u8{};
     }
 };
-
-pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
-    if (buffer.len < @sizeOf(IPv4Header)) return error.BufferTooSmall;
-
-    print("getting transport layer.\n", .{});
-
-    const alignment = @alignOf(IPv4Header);
-    const addr = @intFromPtr(buffer.ptr);
-
-    if (addr % alignment != 0) {
-        return error.MisalignedBuffer;
-    }
-    const aligned_ptr: [*]align(@alignOf(IPv4Header)) u8 = @alignCast(buffer.ptr);
-    const hdr: *IPv4Header = @ptrCast(aligned_ptr);
-
-    print("ipv4 buf: {x}\n", .{buffer});
-
-    var next_layer = Packet.Layer{ .protocol = undefined, .offset = 0, .length = 0, .next_layer = null };
-
-    const ihl_byte = buffer[0];
-    const hdr_len = (ihl_byte & 0x0F) * 4;
-
-    print("hdr_len: {}\n", .{hdr_len});
-
-    next_layer.length = buffer[hdr_len..].len;
-
-    print("buffer length: {}\n", .{buffer.len});
-    print("next layer length: {}\n", .{next_layer.length});
-
-    print("transport start: {x}\n", .{buffer[hdr_len..]});
-
-    const transport_type = std.meta.intToEnum(TransportProtocol, hdr.protocol) catch {
-        next_layer.protocol = LayerProtocols{ .Transport = .Generic };
-        return next_layer;
-    };
-
-    switch (transport_type) {
-        TransportProtocol.TCP => {
-            next_layer.protocol = LayerProtocols{ .Transport = .TCP };
-            next_layer.length -= 20; // temp magic number (min tcp header len)
-        },
-        TransportProtocol.UDP => {
-            next_layer.protocol = LayerProtocols{ .Transport = .UDP };
-            next_layer.length -= UDP.UDPHeaderSize;
-        },
-        else => {
-            next_layer.protocol = LayerProtocols{ .Transport = .Generic };
-        },
-    }
-
-    return next_layer;
-}
 
 pub const IPv4Layer = struct {
     data: []u8,

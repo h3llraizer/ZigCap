@@ -6,8 +6,8 @@ const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
 const LayerError = @import("ProtocolHelpers.zig").LayerError;
 const Packet = @import("Packet.zig");
 
-const TCPHeaderMinSize = 20;
-const TCPHeaderMaxSize = 40;
+pub const TCPHeaderMinSize = 20;
+pub const TCPHeaderMaxSize = 40;
 
 pub const TCPHeader = packed struct {
     src_port: u16,

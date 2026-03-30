@@ -3,13 +3,48 @@ const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
 const DNS = @import("DNS.zig");
-
 const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
 const LayerError = @import("ProtocolHelpers.zig").LayerError;
-
 const Packet = @import("Packet.zig");
 
 pub const UDPHeaderSize = 8;
+
+pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
+    if (buffer.len < @sizeOf(UDPHeader)) return LayerError.BufferTooSmall;
+
+    const alignment = @alignOf(UDPHeader);
+    const addr = @intFromPtr(buffer.ptr);
+    if (addr % alignment != 0) {
+        return LayerError.MisalignedBuffer;
+    }
+
+    const aligned_ptr: [*]align(@alignOf(UDPHeader)) u8 = @alignCast(buffer.ptr);
+    const hdr: *const UDPHeader = @ptrCast(aligned_ptr);
+
+    var layer = Packet.Layer{ .protocol = undefined, .offset = 0, .length = 0, .next_layer = null };
+
+    const total_udp_length = hdr.get_length();
+
+    // Validate UDP length
+    if (total_udp_length < UDPHeaderSize) {
+        return LayerError.BufferTooSmall;
+    }
+
+    // Check if we have enough data
+    if (buffer.len < total_udp_length) {
+        return LayerError.EmptyPayload;
+    }
+
+    // set offset to where payload starts (right after UDP header)
+    layer.offset = UDPHeaderSize;
+
+    // set length to UDP payload length (total length - header size)
+    layer.length = total_udp_length - UDPHeaderSize;
+
+    layer.protocol = LayerProtocols{ .Application = .Generic };
+
+    return layer;
+}
 
 // UDP Header structure (extern struct for exact layout)
 pub const UDPHeader = extern struct {
@@ -153,30 +188,6 @@ pub const UDPHeader = extern struct {
         return @as(u16, @intCast(sum)) == 0xFFFF;
     }
 };
-
-pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
-    if (buffer.len < @sizeOf(UDPHeader)) return LayerError.BufferTooSmall;
-
-    // Verify alignment (optional)
-    const alignment = @alignOf(UDPHeader);
-    const addr = @intFromPtr(buffer.ptr);
-    if (addr % alignment != 0) {
-        return LayerError.MisalignedBuffer;
-    }
-
-    const aligned_ptr: [*]align(@alignOf(UDPHeader)) u8 = @alignCast(buffer.ptr);
-    const hdr: *UDPHeader = @ptrCast(aligned_ptr);
-
-    var layer = Packet.Layer{ .protocol = undefined, .offset = 0, .length = 0, .next_layer = null };
-
-    print("total length length: {}\n", .{hdr.get_length()});
-
-    layer.length = buffer.len - UDPHeaderSize;
-
-    layer.protocol = LayerProtocols{ .Application = .Generic };
-
-    return layer;
-}
 
 pub const UDPLayer = struct {
     data: []u8, // UDP header + payload

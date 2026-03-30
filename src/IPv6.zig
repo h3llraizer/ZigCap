@@ -4,15 +4,46 @@ const Allocator = std.mem.Allocator;
 
 const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
 const LayerError = @import("ProtocolHelpers.zig").LayerError;
-
 const TransportProtocol = @import("ProtocolHelpers.zig").TransportProtocols;
-
 const TCP = @import("TCP.zig");
 const UDP = @import("UDPLayer.zig");
-
 const Packet = @import("Packet.zig");
 
 pub const IPv6HeaderSize = 40;
+
+pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
+    if (buffer.len < IPv6HeaderSize) return LayerError.BufferTooSmall;
+
+    // Verify alignment (optional)
+    const alignment = @alignOf(IPv6Header);
+    const addr = @intFromPtr(buffer.ptr);
+    if (addr % alignment != 0) {
+        return LayerError.MisalignedBuffer;
+    }
+
+    const hdr: *IPv6Header = @ptrCast(@alignCast(buffer));
+
+    var layer = Packet.Layer{ .protocol = undefined, .offset = 0, .length = 0, .next_layer = null };
+
+    layer.offset = IPv6HeaderSize;
+
+    switch (hdr.get_next_header()) {
+        .TCP => {
+            layer.protocol = LayerProtocols{ .Transport = .TCP };
+        },
+        .UDP => {
+            layer.protocol = LayerProtocols{ .Transport = .UDP };
+            layer.length = UDP.UDPHeaderSize;
+        },
+
+        else => {
+            layer.protocol = LayerProtocols{ .Transport = .Generic };
+            //layer.length = (buffer.len - IPv6HeaderSize);
+        },
+    }
+
+    return layer;
+}
 
 // IPv6 Next Header Types
 pub const NextHeader = enum(u8) {
@@ -288,53 +319,6 @@ pub const IPv6Header = extern struct {
     }
 };
 
-pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
-    if (buffer.len < IPv6HeaderSize) return LayerError.BufferTooSmall;
-
-    // Verify alignment (optional)
-    const alignment = @alignOf(IPv6Header);
-    const addr = @intFromPtr(buffer.ptr);
-    if (addr % alignment != 0) {
-        return LayerError.MisalignedBuffer;
-    }
-
-    //const hdr: *IPv6Header = @ptrCast(@alignCast(buffer[0..40]));
-
-    var layer = Packet.Layer{ .protocol = undefined, .offset = 0, .length = 0, .next_layer = null };
-
-    layer.protocol = LayerProtocols{ .Transport = .Generic };
-
-    layer.length = buffer.len - IPv6HeaderSize;
-
-    //   const transport_type = std.meta.intToEnum(TransportProtocol, hdr.protocol) catch {
-    //       print("transport invalid.\n", .{});
-    //       layer.protocol = LayerProtocols{ .Transport = .Generic };
-    //       //layer.length = buffer.len;
-    //       return layer;
-    //       //return LayerProtocols{ .Transport = .Generic };
-    //   };
-    //
-    //   switch (transport_type) {
-    //       TransportProtocol.TCP => {
-    //           layer.protocol = LayerProtocols{ .Transport = .TCP };
-    //           //layer.length = next_layer_len;
-    //           //return LayerProtocols{ .Transport = .TCP };
-    //       },
-    //       TransportProtocol.UDP => {
-    //           layer.protocol = LayerProtocols{ .Transport = .UDP };
-    //           //layer.length = ;
-    //           //return LayerProtocols{ .Transport = .UDP };
-    //       },
-    //       else => {
-    //           layer.protocol = LayerProtocols{ .Transport = .Generic };
-    //           //layer.length = buffer.len;
-    //           //return LayerProtocols{ .Transport = .Generic };
-    //       },
-    //   }
-
-    return layer;
-}
-
 pub const IPv6Layer = struct {
     data: []u8,
     const Protocol = LayerProtocols{ .Network = .IPv6 };
@@ -355,18 +339,14 @@ pub const IPv6Layer = struct {
     pub fn to_string(self: *IPv6Layer, allocator: Allocator) []const u8 {
         const hdr = self.get_header();
 
-        const src_ip_str = self.ip_to_string(hdr.src_ip, allocator) catch return "";
+        const src_ip = IPv6Address.init_from_array(hdr.src_ip);
+        const dst_ip = IPv6Address.init_from_array(hdr.dst_ip);
+
+        const src_ip_str = src_ip.to_string(allocator) catch return "";
         defer allocator.free(src_ip_str);
 
-        const dst_ip_str = self.ip_to_string(hdr.dst_ip, allocator) catch return "";
+        const dst_ip_str = dst_ip.to_string(allocator) catch return "";
         defer allocator.free(dst_ip_str);
-
-        var ext_str = std.ArrayList(u8).init(allocator);
-        defer ext_str.deinit();
-
-        for (self.extensions.items, 0..) |ext, i| {
-            ext_str.appendSlice(std.fmt.allocPrint(allocator, "\n    {}: {s}", .{ i, @tagName(ext.next_header) }) catch "") catch {};
-        }
 
         return std.fmt.allocPrint(allocator,
             \\IPv6 Layer:
@@ -378,7 +358,6 @@ pub const IPv6Layer = struct {
             \\  hop_limit: {}
             \\  src_ip: {s}
             \\  dst_ip: {s}
-            \\  extensions: {s}
             \\
         , .{
             hdr.get_version(),
@@ -389,8 +368,38 @@ pub const IPv6Layer = struct {
             hdr.hop_limit,
             src_ip_str,
             dst_ip_str,
-            ext_str.items,
         }) catch return "";
+
+        //       var ext_str = std.ArrayList(u8).empty;
+        //       defer ext_str.deinit();
+        //
+        //       for (self.extensions.items, 0..) |ext, i| {
+        //           ext_str.appendSlice(std.fmt.allocPrint(allocator, "\n    {}: {s}", .{ i, @tagName(ext.next_header) }) catch "") catch {};
+        //       }
+        //
+        //       return std.fmt.allocPrint(allocator,
+        //           \\IPv6 Layer:
+        //           \\  version: {}
+        //           \\  traffic_class: {}
+        //           \\  flow_label: {}
+        //           \\  payload_length: {}
+        //           \\  next_header: {s}
+        //           \\  hop_limit: {}
+        //           \\  src_ip: {s}
+        //           \\  dst_ip: {s}
+        //           \\  extensions: {s}
+        //           \\
+        //       , .{
+        //           hdr.get_version(),
+        //           hdr.get_traffic_class(),
+        //           hdr.get_flow_label(),
+        //           hdr.get_payload_length(),
+        //           @tagName(hdr.get_next_header()),
+        //           hdr.hop_limit,
+        //           src_ip_str,
+        //           dst_ip_str,
+        //           ext_str.items,
+        //       }) catch return "";
     }
 
     /// get slice of data (hdr+payload)
@@ -527,7 +536,8 @@ pub const IPv6Layer = struct {
     }
 
     pub fn get_header(self: *IPv6Layer) *IPv6Header {
-        return @ptrCast(@alignCast(self.data[0..40]));
+        const aligned_ptr: [*]align(@alignOf(IPv6Header)) u8 = @alignCast(self.data.ptr);
+        return @ptrCast(aligned_ptr);
     }
 
     pub fn deinit(self: *IPv6Layer, allocator: std.mem.Allocator) void {

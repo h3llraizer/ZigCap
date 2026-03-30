@@ -1,7 +1,9 @@
 const activeTag = @import("std").meta.activeTag;
+const print = @import("std").debug.print;
 
 const Eth = @import("Eth.zig");
 const IPv4 = @import("IPv4.zig");
+const IPv6 = @import("IPv6.zig");
 const UDP = @import("UDPLayer.zig");
 const ARP = @import("ARP.zig");
 
@@ -21,11 +23,31 @@ pub const NetworkProtocols = enum(u4) {
     ICMP = 1,
     IPv4 = 4,
     IPv6 = 6,
-    ARP = 7,
+    ARP = 7, // Arp should be moved into LinkLayerProtocols
     Generic = 0,
 };
 
-pub const LinkLayerProtocols = enum(u16) {
+pub const EthType = enum(u16) {
+    IP = 0x0800,
+    ARP = 0x0806,
+    ETHBRIDGE = 0x6558,
+    REVARP = 0x8035,
+    AT = 0x809B,
+    AARP = 0x80F3,
+    VLAN = 0x8100,
+    IPX = 0x8137,
+    IPV6 = 0x86DD,
+    LOOPBACK = 0x9000,
+    PPPOED = 0x8863,
+    PPPOES = 0x8864,
+    MPLS = 0x8847,
+    PPP = 0x880B,
+    ROCEV1 = 0x8915,
+    IEEE_802_1AD = 0x88A8,
+    WAKE_ON_LAN = 0x0842,
+};
+
+pub const LinkLayerProtocols = enum(u16) { // these should be renamed to LinkLayerTypes
     NULL = 0, // Loopback (BSD/macOS)
     ETHERNET = 1, // Ethernet (most common)
     RAW = 101, // Raw IP (no link header)
@@ -65,12 +87,13 @@ pub fn comparePayloads(a: LayerProtocols, b: LayerProtocols) bool {
     };
 }
 
-pub const LayerError = error{ OutOfMemory, BufferTooSmall, MisalignedBuffer };
+pub const LayerError = error{ OutOfMemory, BufferTooSmall, MisalignedBuffer, EmptyPayload };
 
 pub fn get_layer_type_enum(value: type) !LayerProtocols {
     switch (value) {
         Eth.EthLayer => return LayerProtocols{ .LinkLayer = .ETHERNET },
         IPv4.IPv4Layer => return LayerProtocols{ .Network = .IPv4 },
+        IPv6.IPv6Layer => return LayerProtocols{ .Network = .IPv6 },
         UDP.UDPLayer => return LayerProtocols{ .Transport = .UDP },
         ARP.ArpLayer => return LayerProtocols{ .Network = .ARP },
         else => return error.LayerInvalid,
@@ -96,6 +119,7 @@ pub fn get_layer_init(choice: type) !*const fn ([]u8) LayerError!choice {
     switch (choice) {
         Eth.EthLayer => return Eth.EthLayer.init,
         IPv4.IPv4Layer => return IPv4.IPv4Layer.init,
+        IPv6.IPv6Layer => return IPv6.IPv6Layer.init,
         UDP.UDPLayer => return UDP.UDPLayer.init,
         ARP.ArpLayer => return ARP.ArpLayer.init,
         else => return error.LayerInvalid,
@@ -103,6 +127,7 @@ pub fn get_layer_init(choice: type) !*const fn ([]u8) LayerError!choice {
 }
 
 pub fn get_layer_size(protocol: LayerProtocols) usize {
+    print("get layer size called for {any}\n", .{protocol});
     return switch (protocol) {
         .LinkLayer => |link_proto| switch (link_proto) {
             .ETHERNET => return @sizeOf(Eth.EthHeader),
@@ -112,6 +137,7 @@ pub fn get_layer_size(protocol: LayerProtocols) usize {
 
         .Network => |net_proto| switch (net_proto) {
             .IPv4 => return @sizeOf(IPv4.IPv4Header),
+            .IPv6 => return @sizeOf(IPv6.IPv6Header),
             .ARP => return @sizeOf(ARP.ArpHeader),
             else => return 0,
         },
@@ -126,6 +152,7 @@ pub fn get_layer_size(protocol: LayerProtocols) usize {
 }
 
 pub fn get_layer_alignment(protocol: LayerProtocols) usize {
+    print("get layer alignment called for: {any}\n", .{protocol});
     return switch (protocol) {
         .LinkLayer => |link_proto| switch (link_proto) {
             .ETHERNET => return @alignOf(Eth.EthHeader),
@@ -134,6 +161,7 @@ pub fn get_layer_alignment(protocol: LayerProtocols) usize {
 
         .Network => |net_proto| switch (net_proto) {
             .IPv4 => return @alignOf(IPv4.IPv4Header),
+            .IPv6 => return @alignOf(IPv6.IPv6Header),
             .ARP => return @alignOf(ARP.ArpHeader),
             else => return 2,
         },
@@ -145,7 +173,7 @@ pub fn get_layer_alignment(protocol: LayerProtocols) usize {
             },
         },
 
-        else => return 2,
+        else => return 1,
     };
 }
 
