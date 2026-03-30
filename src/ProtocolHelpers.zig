@@ -8,6 +8,7 @@ const IPv6 = @import("IPv6.zig");
 const UDP = @import("UDPLayer.zig");
 const TCP = @import("TCP.zig");
 const ARP = @import("ARP.zig");
+const ICMP = @import("ICMP.zig");
 
 pub const ApplicationProtocols = enum(u16) {
     HTTP = 80,
@@ -53,16 +54,12 @@ pub const LinkLayerProtocols = enum(u16) { // these should be renamed to LinkLay
     NULL = 0, // Loopback (BSD/macOS)
     ETHERNET = 1, // Ethernet (most common)
     RAW = 101, // Raw IP (no link header)
-    // Point-to-point / tunnels
     PPP = 9,
     PPP_ETHER = 51, // PPPoE
-    // Wireless
     IEEE802_11 = 105, // WiFi
     IEEE802_11_RADIOTAP = 127, // WiFi + metadata (monitor mode)
-    // Linux-specific captures
     LINUX_SLL = 113, // "cooked" capture (tcpdump on Linux)
     LINUX_SLL2 = 276, // newer version
-    // Less common but still seen
     LOOP = 108, // Loopback (OpenBSD)
     SLIP = 8, // legacy serial IP
     INVALID = 0xFFFF,
@@ -104,6 +101,7 @@ pub fn get_next_layer_type(
         },
         .Network => |protocol| switch (protocol) {
             .ICMP => {
+                print("icmp skip.\n", .{});
                 // the icmp layer has already been created at this point and it cannot "normally" contain any preceeding layers so just return
                 return null;
             },
@@ -159,6 +157,7 @@ pub fn get_layer_type_enum(value: type) !LayerProtocols {
         IPv6.IPv6Layer => return LayerProtocols{ .Network = .IPv6 },
         UDP.UDPLayer => return LayerProtocols{ .Transport = .UDP },
         ARP.ArpLayer => return LayerProtocols{ .Network = .ARP },
+        ICMP.ICMPLayer => return LayerProtocols{ .Network = .ICMP },
         else => return error.LayerInvalid,
     }
 }
@@ -185,6 +184,7 @@ pub fn get_layer_init(choice: type) !*const fn ([]u8) LayerError!choice {
         IPv6.IPv6Layer => return IPv6.IPv6Layer.init,
         UDP.UDPLayer => return UDP.UDPLayer.init,
         ARP.ArpLayer => return ARP.ArpLayer.init,
+        ICMP.ICMPLayer => return ICMP.ICMPLayer.init,
         else => return error.LayerInvalid,
     }
 }
@@ -202,6 +202,7 @@ pub fn get_layer_size(protocol: LayerProtocols) usize {
             .IPv4 => return @sizeOf(IPv4.IPv4Header),
             .IPv6 => return @sizeOf(IPv6.IPv6Header),
             .ARP => return @sizeOf(ARP.ArpHeader),
+            .ICMP => return @sizeOf(ICMP.ICMPHeader),
             else => return 0,
         },
 
@@ -226,6 +227,7 @@ pub fn get_layer_alignment(protocol: LayerProtocols) usize {
             .IPv4 => return @alignOf(IPv4.IPv4Header),
             .IPv6 => return @alignOf(IPv6.IPv6Header),
             .ARP => return @alignOf(ARP.ArpHeader),
+            .ICMP => return @alignOf(ICMP.ICMPHeader),
             else => return 2,
         },
 

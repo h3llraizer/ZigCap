@@ -309,6 +309,7 @@ pub const Packet = struct {
         print("current slice: {x}\n", .{current_slice});
 
         const get_next = ProtocolHelpers.get_next_layer_type(layer.protocol) orelse {
+            print("no init method.\n", .{});
             return;
         };
 

@@ -38,8 +38,27 @@ pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
     const transport_type = std.meta.intToEnum(TransportProtocol, hdr.protocol) catch {
         next_layer.protocol = LayerProtocols{ .Transport = .Generic };
         next_layer.length = buffer[hdr_len..].len; // Remaining bytes
+
+        const network_type = std.meta.intToEnum(NetworkProtocols, hdr.protocol) catch {
+            print("ipv4 protocol: {any}\n", .{hdr.protocol});
+            next_layer.protocol = LayerProtocols{ .Transport = .Generic };
+            next_layer.length = buffer[hdr_len..].len; // Remaining bytes
+            return next_layer;
+        };
+
+        switch (network_type) {
+            NetworkProtocols.ICMP => {
+                next_layer.protocol = LayerProtocols{ .Network = .ICMP };
+                next_layer.length = buffer[hdr_len..].len;
+            },
+
+            else => next_layer.protocol = LayerProtocols{ .Transport = .Generic },
+        }
+
         return next_layer;
     };
+
+    print("transport type: {any}\n", .{transport_type});
 
     switch (transport_type) {
         TransportProtocol.TCP => {

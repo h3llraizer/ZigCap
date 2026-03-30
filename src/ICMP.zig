@@ -2,7 +2,9 @@ const std = @import("std");
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
-const TransportProtocols = @import("ProtocolHelpers.zig").TransportProtocols;
+const ProtocolHelpers = @import("ProtocolHelpers.zig");
+
+const LayerError = ProtocolHelpers.LayerError;
 
 pub const ICMPHeaderSize = 8; // Base ICMP header (without payload)
 
@@ -216,25 +218,18 @@ pub const ICMPHeader = extern struct {
 
 pub const ICMPLayer = struct {
     data: []u8, // ICMP header + payload
-    const Protocol = TransportProtocols.ICMP;
 
-    pub fn preallocated_buffer(buffer: []u8) !ICMPLayer {
-        if (buffer.len < @sizeOf(ICMPHeader)) return error.BufferTooSmall;
+    pub fn init(buffer: []u8) LayerError!ICMPLayer {
+        if (buffer.len < @sizeOf(ICMPHeader)) return LayerError.BufferTooSmall;
 
         // Verify alignment
         const alignment = @alignOf(ICMPHeader);
         const addr = @intFromPtr(buffer.ptr);
         if (addr % alignment != 0) {
-            return error.MisalignedBuffer;
+            return LayerError.MisalignedBuffer;
         }
 
         return ICMPLayer{ .data = buffer };
-    }
-
-    pub fn create(allocator: std.mem.Allocator) !*ICMPLayer {
-        const self = try allocator.create(ICMPLayer);
-        self.data = try allocator.alloc(u8, ICMPHeaderSize);
-        return self;
     }
 
     pub fn get_header(self: *ICMPLayer) *ICMPHeader {
@@ -327,11 +322,6 @@ pub const ICMPLayer = struct {
             identifier,
             sequence,
         }) catch return "";
-    }
-
-    pub fn get_protocol(self: *ICMPLayer) TransportProtocols {
-        _ = self;
-        return ICMPLayer.Protocol;
     }
 
     pub fn deinit(self: *ICMPLayer, allocator: std.mem.Allocator) void {
