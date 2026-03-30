@@ -1,10 +1,12 @@
 const activeTag = @import("std").meta.activeTag;
 const print = @import("std").debug.print;
 
+const Packet = @import("Packet.zig");
 const Eth = @import("Eth.zig");
 const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
 const UDP = @import("UDPLayer.zig");
+const TCP = @import("TCP.zig");
 const ARP = @import("ARP.zig");
 
 pub const ApplicationProtocols = enum(u16) {
@@ -23,7 +25,7 @@ pub const NetworkProtocols = enum(u4) {
     ICMP = 1,
     IPv4 = 4,
     IPv6 = 6,
-    ARP = 7, // Arp should be moved into LinkLayerProtocols
+    ARP = 7,
     Generic = 0,
 };
 
@@ -85,6 +87,67 @@ pub fn comparePayloads(a: LayerProtocols, b: LayerProtocols) bool {
         .Transport => a.Transport == b.Transport,
         .Application => a.Application == b.Application,
     };
+}
+
+pub fn get_next_layer_type(
+    layer_protocol: LayerProtocols,
+) ?(*const fn ([]u8) LayerError!Packet.Layer) {
+    switch (layer_protocol) {
+        .LinkLayer => |protocol| switch (protocol) {
+            .ETHERNET => {
+                return Eth.get_next_layer_type;
+            },
+            else => {
+                //next_layer = LayerProtocols{ .Network = .Generic };
+                return null;
+            },
+        },
+        .Network => |protocol| switch (protocol) {
+            .ICMP => {
+                // the icmp layer has already been created at this point and it cannot "normally" contain any preceeding layers so just return
+                return null;
+            },
+            .IPv4 => {
+                return IPv4.get_next_layer_type;
+            },
+            .IPv6 => {
+                return IPv6.get_next_layer_type;
+            },
+            .ARP => {
+                // the arp layer has already been created at this point and it cannot "normally" contain any preceeding layers so just return
+                return null;
+            },
+            .Generic => {
+                // we cannot parse a generic network layer. magic might be implemented in the future
+                return null;
+            },
+        },
+        .Transport => |protocol| switch (protocol) {
+            .TCP => {
+                return TCP.get_next_layer_type;
+            },
+            .UDP => {
+                return UDP.get_next_layer_type;
+            },
+            .Generic => {
+                //next_layer = LayerProtocols{ .Transport = .Generic };
+                return null;
+            },
+        },
+        .Application => |protocol| switch (protocol) {
+            .DNS => {
+                //next_layer = LayerProtocols{ .Application = .Generic };
+                return null;
+            },
+            .HTTP => {
+                //next_layer = LayerProtocols{ .Application = .Generic };
+                return null;
+            },
+            .Generic => {
+                return null;
+            },
+        },
+    }
 }
 
 pub const LayerError = error{ OutOfMemory, BufferTooSmall, MisalignedBuffer, EmptyPayload };

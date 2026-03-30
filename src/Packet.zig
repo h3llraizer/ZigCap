@@ -4,7 +4,9 @@ const activeTag = std.meta.activeTag;
 const Allocator = std.mem.Allocator;
 
 const WirePacket = @import("WirePacket.zig").WirePacket;
-const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
+const ProtocolHelpers = @import("ProtocolHelpers.zig");
+
+const LayerProtocols = ProtocolHelpers.LayerProtocols;
 const LayerError = @import("ProtocolHelpers.zig").LayerError;
 
 const LinkLayerProtocols = @import("ProtocolHelpers.zig").LinkLayerProtocols;
@@ -306,66 +308,14 @@ pub const Packet = struct {
 
         print("current slice: {x}\n", .{current_slice});
 
-        switch (layer.protocol) {
-            .LinkLayer => |protocol| switch (protocol) {
-                .ETHERNET => {
-                    next_layer = try Eth.get_next_layer_type(current_slice[0..]);
-                },
-                else => {
-                    //next_layer = LayerProtocols{ .Network = .Generic };
-                    return;
-                },
-            },
-            .Network => |protocol| switch (protocol) {
-                .ICMP => {
-                    // the icmp layer has already been created at this point and it cannot "normally" contain any preceeding layers so just return
-                    return;
-                },
-                .IPv4 => {
-                    next_layer = try IPv4.get_next_layer_type(current_slice[0..]);
-                },
-                .IPv6 => {
-                    next_layer = try IPv6Layer.get_next_layer_type(current_slice[0..]);
-                },
-                .ARP => {
-                    // the arp layer has already been created at this point and it cannot "normally" contain any preceeding layers so just return
-                    return;
-                },
-                .Generic => {
-                    // we cannot parse a generic network layer. magic might be implemented in the future
-                    return;
-                },
-            },
-            .Transport => |protocol| switch (protocol) {
-                .TCP => {
-                    next_layer = try TCP.get_next_layer_type(current_slice[0..]);
-                },
-                .UDP => {
-                    next_layer = UDP.get_next_layer_type(current_slice[0..]) catch |err| {
-                        print("{x}\n", .{current_slice[0..]});
-                        print("{s}\n", .{@errorName(err)});
-                        return;
-                    };
-                },
-                .Generic => {
-                    //next_layer = LayerProtocols{ .Transport = .Generic };
-                    return;
-                },
-            },
-            .Application => |protocol| switch (protocol) {
-                .DNS => {
-                    //next_layer = LayerProtocols{ .Application = .Generic };
-                    return;
-                },
-                .HTTP => {
-                    //next_layer = LayerProtocols{ .Application = .Generic };
-                    return;
-                },
-                .Generic => {
-                    return;
-                },
-            },
-        }
+        const get_next = ProtocolHelpers.get_next_layer_type(layer.protocol) orelse {
+            return;
+        };
+
+        next_layer = get_next(current_slice[0..]) catch |err| {
+            print("{s}\n", .{@errorName(err)});
+            return;
+        };
 
         if (next_layer.length == 0) {
             return;

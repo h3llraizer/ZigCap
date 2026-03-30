@@ -8,6 +8,7 @@ const PcapWrapper = @import("PcapWrapper.zig");
 const Packet = @import("Packet.zig");
 
 const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
+const get_next_layer_type = @import("ProtocolHelpers.zig").get_next_layer_type;
 
 const LinkLayerProtocols = @import("ProtocolHelpers.zig").LinkLayerProtocols;
 const NetworkProtocols = @import("ProtocolHelpers.zig").NetworkProtocols;
@@ -178,6 +179,7 @@ pub fn main() !void {
     _ = &page_allocator;
 
     //try test_udp(pkt_data_allocator);
+
     //try test_ipv4(pkt_data_allocator);
     //try test_ipv6(pkt_data_allocator);
     //try test_arp(pkt_data_allocator);
