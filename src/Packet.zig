@@ -37,8 +37,8 @@ pub fn alignment_check(buffer: []u8, alignment: usize) usize {
 
 pub const Layer = struct {
     protocol: LayerProtocols,
-    offset: usize,
-    length: usize,
+    offset: usize, // hdr start
+    length: usize, // hdr end
     next_layer: ?*Layer = null,
     prev_layer: ?*Layer = null,
 
@@ -57,6 +57,7 @@ pub const Packet = struct {
     aligned_buffer: []u8, // this buffer is aligned - NOT wire format. don't send it over the network
     link_layer: LinkLayerProtocols,
     first_layer: ?*Layer,
+    free_buffer: bool = false,
 
     /// Creates an empty Packet - alloc's zero bytes to aligned buffer initially
     pub fn create(allocator: Allocator, link_layer: LinkLayerProtocols) !Packet {
@@ -100,7 +101,7 @@ pub const Packet = struct {
 
         _ = try layer_init(layer_data); // confirms the data provided is valid
 
-        //TODO: Ideally add more validation - the layer data might contain preceeding layers data  - renaming to merge layer chain might be preferred
+        //TODO: Ideally add more validation - the layer data might contain preceeding layers data  - creating merge layer method chain might be useful for when preceeding layers need to be added too
 
         // also get the layer size and make sure to only add the bytes which are required
 
@@ -112,8 +113,9 @@ pub const Packet = struct {
         if (last_layer) |last| {
             last.next_layer = layer;
             layer.offset = (last.offset + last.length);
+            last.length = last.length + layer.length;
         } else {
-            self.first_layer.? = layer;
+            self.first_layer = layer;
         }
 
         const current_buf_len = self.aligned_buffer.len;
@@ -126,8 +128,7 @@ pub const Packet = struct {
 
         self.aligned_buffer = new_buf[0..];
 
-        _ = try layer_init(dest[0..20]); // confirms the data provided is valid
-        //print("{s}\n", .{n.to_string(std.heap.page_allocator)});
+        //print("{s}\n", .{n.to_string(std.heap.page_allocator)}); // this works?
 
         return true;
     }
@@ -200,9 +201,15 @@ pub const Packet = struct {
             print("prev layer len: {}\n", .{prev.length});
             delete_start = prev.length;
             prev.next_layer = layer.next_layer;
+        } else {
+            print("no prev layer.\n", .{});
         }
 
-        const padding = layer.offset % delete_start;
+        var padding: usize = 0;
+
+        if (delete_start > 0) {
+            padding = layer.offset % delete_start;
+        }
 
         print("padding: {}\n", .{padding});
 
@@ -272,7 +279,9 @@ pub const Packet = struct {
     fn find_layer(self: *Packet, protocol_layer: LayerProtocols) !?[]u8 {
         const layer: ?*Layer = try self.search_layers(protocol_layer);
         if (layer) |l| {
-            return self.aligned_buffer[l.offset .. l.offset + l.length];
+            return self.aligned_buffer[l.offset..];
+
+            //return self.aligned_buffer[l.offset .. l.offset + l.length];
         }
         return null;
     }
@@ -289,7 +298,9 @@ pub const Packet = struct {
     pub fn print_layers(self: *Packet) void {
         var cur = self.first_layer;
         while (cur) |layer| {
-            const slice = self.aligned_buffer[layer.offset..(layer.offset + layer.length)];
+            //const slice = self.aligned_buffer[layer.offset..(layer.offset + layer.length)];
+            const slice = self.aligned_buffer[layer.offset..];
+
             print("{any}, {}, {}: {x} ({})\n", .{ layer.protocol, layer.offset, layer.length, slice, slice.len });
             cur = layer.next_layer;
         }
@@ -330,23 +341,13 @@ pub const Packet = struct {
 
         next_layer.to_string();
 
-        const alignment = get_layer_alignment(next_layer.protocol); // next layers alignment requirement
-        const padding = alignment_check(current_slice[layer.length..], alignment);
-
-        //        print("padding: {}\n", .{padding});
-
-        if (padding > 0) {
-            try insert_padding_in_place(&self.aligned_buffer, layer.length, padding, self.allocator);
-            next_layer.offset += padding;
-        }
-
-        //        print("next_layer offset: {}\n", .{next_layer.offset});
-
         const next_layer_ = try self.allocator.create(Layer);
 
         next_layer_.* = next_layer;
 
         layer.next_layer = next_layer_;
+
+        next_layer_.prev_layer = layer;
 
         try self.accum_layers(next_layer_);
     }
@@ -356,49 +357,7 @@ pub const Packet = struct {
         _ = self;
     }
 
-    /// This method will return the actual size of packet buffer as it would be on the wire, not including the padding bytes
-    pub fn get_wire_size(self: *Packet) usize { // use this to determine "actual size"
-        var cur = self.first_layer;
-
-        var wire_size: usize = self.aligned_buffer.len;
-
-        while (cur) |l| {
-            const layer_protocol = l.get_protocol();
-            const cur_hdr_size = get_layer_size(layer_protocol);
-
-            if (l.get_next_layer()) |next| {
-                const padding = calc_padding(cur_hdr_size, get_layer_alignment(next.get_protocol()));
-                wire_size -= padding;
-            }
-
-            cur = l.next_layer;
-        }
-
-        return wire_size;
-    }
-
-    /// This takes takes the packet buffer and iterates through the layers, removing the padding bytes and returning the mutable contiguous packet buffer
-    pub fn get_wire_format(self: *Packet) []u8 {
-        var cur = self.first_layer;
-
-        var wire_buf = self.aligned_buffer;
-
-        while (cur) |l| {
-            const layer_protocol = l.get_protocol();
-            const cur_hdr_size = get_layer_size(layer_protocol);
-
-            if (l.get_next_layer()) |next| {
-                const padding = calc_padding(cur_hdr_size, get_layer_alignment(next.get_protocol()));
-                wire_buf = removeRangeInPlace(wire_buf, cur_hdr_size, padding);
-            }
-
-            cur = l.next_layer;
-        }
-
-        return wire_buf;
-    }
-
-    /// destroys interface layers from first to last. It DOES NOT free the buffer - you need to free the buffer
+    /// destroys protocol layers linkedlist. The buffer is not freed.
     pub fn deinit(self: *Packet) void {
         var cur = self.first_layer;
 

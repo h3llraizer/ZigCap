@@ -257,7 +257,7 @@ pub const IPv6Option = struct {
 
 // IPv6 Header
 pub const IPv6Header = extern struct {
-    version_traffic_flow: u32 = 0x60000000, // Version 6, Traffic Class 0, Flow Label 0
+    version_traffic_flow: [4]u8, // Version 6, Traffic Class 0, Flow Label 0
     payload_length: u16 = 0, // Payload length (excluding IPv6 header)
     next_header: u8 = 0, // Next header type
     hop_limit: u8 = 64, // Hop limit (similar to TTL)

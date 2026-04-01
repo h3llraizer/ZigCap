@@ -162,6 +162,7 @@ pub fn get_layer_type_enum(value: type) !LayerProtocols {
         IPv4.IPv4Layer => return LayerProtocols{ .Network = .IPv4 },
         IPv6.IPv6Layer => return LayerProtocols{ .Network = .IPv6 },
         UDP.UDPLayer => return LayerProtocols{ .Transport = .UDP },
+        TCP.TCPLayer => return LayerProtocols{ .Transport = .TCP },
         ARP.ArpLayer => return LayerProtocols{ .Network = .ARP },
         ICMP.ICMPLayer => return LayerProtocols{ .Network = .ICMP },
         else => return error.LayerInvalid,
@@ -189,6 +190,7 @@ pub fn get_layer_init(choice: type) !*const fn ([]u8) LayerError!choice {
         IPv4.IPv4Layer => return IPv4.IPv4Layer.init,
         IPv6.IPv6Layer => return IPv6.IPv6Layer.init,
         UDP.UDPLayer => return UDP.UDPLayer.init,
+        TCP.TCPLayer => return TCP.TCPLayer.init,
         ARP.ArpLayer => return ARP.ArpLayer.init,
         ICMP.ICMPLayer => return ICMP.ICMPLayer.init,
         else => return error.LayerInvalid,
@@ -214,6 +216,7 @@ pub fn get_layer_size(protocol: LayerProtocols) usize {
 
         .Transport => |trans_proto| switch (trans_proto) {
             .UDP => return @sizeOf(UDP.UDPHeader),
+            .TCP => return @sizeOf(TCP.TCPHeader),
             else => return 0,
         },
 
@@ -239,6 +242,7 @@ pub fn get_layer_alignment(protocol: LayerProtocols) usize {
 
         .Transport => |trans_proto| switch (trans_proto) {
             .UDP => return @alignOf(UDP.UDPHeader),
+            .TCP => return @alignOf(TCP.TCPHeader),
             else => {
                 return 2;
             },
@@ -247,7 +251,7 @@ pub fn get_layer_alignment(protocol: LayerProtocols) usize {
         else => return 1, // not sure why I'm using 1 here
     };
 }
-
+// not in use
 pub fn get_header(protocol: LayerProtocols) type {
     return switch (protocol) {
         .LinkLayer => |link_proto| switch (link_proto) {

@@ -7,9 +7,11 @@ const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
 const LayerError = @import("ProtocolHelpers.zig").LayerError;
 const Packet = @import("Packet.zig");
 
+const nativeToBig = std.mem.nativeToBig;
+
 pub const UDPHeaderSize = 8;
 
-pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
+pub fn get_next_layer_type(buffer: []u8) !Packet.Layer { // could return optional instead to handle empty payloads instead
     if (buffer.len < @sizeOf(UDPHeader)) return LayerError.BufferTooSmall;
 
     const alignment = @alignOf(UDPHeader);
@@ -24,6 +26,8 @@ pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
     var layer = Packet.Layer{ .protocol = undefined, .offset = 0, .length = 0, .next_layer = null };
 
     const total_udp_length = hdr.get_length();
+
+    print("total length udp: {}\n", .{total_udp_length});
 
     // Validate UDP length
     if (total_udp_length < UDPHeaderSize) {
@@ -63,7 +67,7 @@ pub const UDPHeader = extern struct {
         return .{
             .src_port = 0,
             .dst_port = 0,
-            .length = UDPHeaderSize,
+            .length = std.mem.nativeToBig(u16, 8),
             .checksum = 0,
         };
     }
@@ -80,6 +84,7 @@ pub const UDPHeader = extern struct {
         self.dst_port = @byteSwap(port);
     }
 
+    /// returns little endian
     pub fn get_dst_port(self: *const UDPHeader) u16 {
         return @byteSwap(self.dst_port);
     }
@@ -97,57 +102,114 @@ pub const UDPHeader = extern struct {
     /// Calculate UDP checksum (requires pseudo-header and payload)
     /// For IPv4, the pseudo-header includes: source IP, dest IP, protocol, UDP length
     pub fn calculate_checksum(self: *UDPHeader, src_ip: u32, dst_ip: u32, payload: []const u8) void {
-        self.checksum = 0; // Reset checksum before calculation
+        self.checksum = 0;
 
         var sum: u32 = 0;
 
-        // Add pseudo-header (IPv4)
-        // Source IP (16 bits at a time)
-        sum += (src_ip >> 16) & 0xFFFF;
-        sum += src_ip & 0xFFFF;
+        std.debug.print("\n=== UDP CHECKSUM DEBUG ===\n", .{});
 
-        // Destination IP
-        sum += (dst_ip >> 16) & 0xFFFF;
-        sum += dst_ip & 0xFFFF;
+        print("src ip {x}\n", .{src_ip});
 
-        // Protocol (UDP = 17) and zero padding
-        sum += 0x0011; // Protocol = 17, zero pad
+        // ---- Source IP ----
+        const src = std.mem.nativeToBig(u32, src_ip);
+        const src_bytes = std.mem.asBytes(&src);
 
-        // UDP length
-        sum += self.get_length();
+        const src_w1 = (@as(u16, src_bytes[0]) << 8) | src_bytes[1];
+        const src_w2 = (@as(u16, src_bytes[2]) << 8) | src_bytes[3];
 
-        // Add UDP header (including checksum field which is currently 0)
-        const words = @as([*]const u16, @ptrCast(self));
-        for (0..UDPHeaderSize / 2) |i| {
-            sum += words[i];
+        std.debug.print("SRC IP raw: 0x{x}\n", .{src_ip});
+        std.debug.print("SRC bytes: {x} {x} {x} {x}\n", .{
+            src_bytes[0], src_bytes[1], src_bytes[2], src_bytes[3],
+        });
+        std.debug.print("SRC words: 0x{x}, 0x{x}\n", .{ src_w1, src_w2 });
+
+        sum += src_w1;
+        sum += src_w2;
+
+        // ---- Destination IP ----
+        const dst = std.mem.nativeToBig(u32, dst_ip);
+        const dst_bytes = std.mem.asBytes(&dst);
+
+        const dst_w1 = (@as(u16, dst_bytes[0]) << 8) | dst_bytes[1];
+        const dst_w2 = (@as(u16, dst_bytes[2]) << 8) | dst_bytes[3];
+
+        std.debug.print("DST IP raw: 0x{x}\n", .{dst_ip});
+        std.debug.print("DST bytes: {x} {x} {x} {x}\n", .{
+            dst_bytes[0], dst_bytes[1], dst_bytes[2], dst_bytes[3],
+        });
+        std.debug.print("DST words: 0x{x}, 0x{x}\n", .{ dst_w1, dst_w2 });
+
+        sum += dst_w1;
+        sum += dst_w2;
+
+        // ---- Protocol ----
+        std.debug.print("Protocol: 0x0011\n", .{});
+        sum += 0x0011;
+
+        // ---- UDP length (raw field) ----
+        std.debug.print("UDP length field (raw): 0x{x}\n", .{self.length});
+        sum += @byteSwap(self.length);
+
+        // ---- UDP header ----
+        const udp_bytes = @as([*]const u8, @ptrCast(self));
+
+        std.debug.print("UDP header bytes: ", .{});
+        for (0..8) |j| {
+            std.debug.print("{x} ", .{udp_bytes[j]});
         }
+        std.debug.print("\n", .{});
 
-        // Add payload
+        const h_src = (@as(u16, udp_bytes[0]) << 8) | udp_bytes[1];
+        const h_dst = (@as(u16, udp_bytes[2]) << 8) | udp_bytes[3];
+        const h_len = (@as(u16, udp_bytes[4]) << 8) | udp_bytes[5];
+        const h_chk = (@as(u16, udp_bytes[6]) << 8) | udp_bytes[7];
+
+        std.debug.print("HDR src_port: 0x{x}\n", .{h_src});
+        std.debug.print("HDR dst_port: 0x{x}\n", .{h_dst});
+        std.debug.print("HDR length:   0x{x}\n", .{h_len});
+        std.debug.print("HDR checksum: 0x{x}\n", .{h_chk});
+
+        sum += h_src;
+        sum += h_dst;
+        sum += h_len;
+        sum += h_chk;
+
+        // ---- Payload ----
         var i: usize = 0;
         while (i + 1 < payload.len) {
             const word = (@as(u16, payload[i]) << 8) | payload[i + 1];
+            std.debug.print("Payload word @{}: 0x{x}\n", .{ i, word });
             sum += word;
             i += 2;
         }
 
-        // If payload length is odd, pad with 0
         if (i < payload.len) {
-            sum += @as(u16, payload[i]) << 8;
+            const last = @as(u16, payload[i]) << 8;
+            std.debug.print("Payload last byte @{}: 0x{x}\n", .{ i, last });
+            sum += last;
         }
 
-        // Fold 32-bit sum to 16 bits
+        std.debug.print("Sum before fold: 0x{x}\n", .{sum});
+
+        // ---- Fold ----
         while (sum > 0xFFFF) {
             sum = (sum & 0xFFFF) + (sum >> 16);
+            std.debug.print("Folding... sum = 0x{x}\n", .{sum});
         }
 
-        // Take one's complement
+        std.debug.print("Sum after fold: 0x{x}\n", .{sum});
+
+        // ---- Final checksum ----
         self.checksum = ~@as(u16, @intCast(sum));
 
-        // UDP checksum of 0 is special (means not used), but we set it anyway
-        // RFC 768 allows checksum of 0 to indicate no checksum
+        std.debug.print("Final checksum (before zero fix): 0x{x}\n", .{self.checksum});
+
         if (self.checksum == 0) {
             self.checksum = 0xFFFF;
         }
+
+        std.debug.print("Stored checksum: 0x{x}\n", .{self.checksum});
+        std.debug.print("=== END DEBUG ===\n\n", .{});
     }
 
     /// Validate UDP checksum
@@ -206,10 +268,9 @@ pub const UDPLayer = struct {
         return UDPLayer{ .data = buffer };
     }
 
-    pub fn create(allocator: std.mem.Allocator) !*UDPLayer {
-        const self = try allocator.create(UDPLayer);
-        self.data = try allocator.alloc(u8, UDPHeaderSize);
-        return self;
+    pub fn zero_hdr(self: *UDPLayer) void {
+        var header = UDPHeader.init_default();
+        @memcpy(self.data[0..@sizeOf(UDPHeader)], std.mem.asBytes(&header));
     }
 
     pub fn get_header(self: *UDPLayer) *UDPHeader {
@@ -279,9 +340,9 @@ pub const UDPLayer = struct {
         return hdr.get_length();
     }
 
-    pub fn set_length(self: *UDPLayer, len: u16) void {
+    pub fn set_length(self: *UDPLayer, len: u16) !void {
         var hdr = self.get_header();
-        hdr.set_length(len);
+        try hdr.set_length(len);
     }
 
     pub fn get_checksum(self: *UDPLayer) u16 {
