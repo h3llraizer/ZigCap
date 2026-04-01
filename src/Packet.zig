@@ -22,6 +22,8 @@ const GenericLayer = @import("GenericLayer.zig").GenericLayer;
 
 const EthLayer = Eth.EthLayer;
 
+const LayerOwner = @import("Layer.zig").LayerOwner;
+
 const get_layer_size = @import("ProtocolHelpers.zig").get_layer_size;
 const get_layer_type_enum = @import("ProtocolHelpers.zig").get_layer_type_enum;
 const get_layer_alignment = @import("ProtocolHelpers.zig").get_layer_alignment;
@@ -38,13 +40,14 @@ pub fn alignment_check(buffer: []u8, alignment: usize) usize {
 pub const Layer = struct {
     protocol: LayerProtocols,
     offset: usize, // hdr start
-    length: usize, // hdr end
+    length: usize,
+    packet: *Packet,
     next_layer: ?*Layer = null,
     prev_layer: ?*Layer = null,
 
-    pub fn init(protocol: LayerProtocols, offset: usize, length: usize) Layer {
+    pub fn init(protocol: LayerProtocols, offset: usize, length: usize, packet: *Packet) Layer {
         //print("layer init called: {any} offset={} length={}\n", .{ protocol, offset, length });
-        return Layer{ .protocol = protocol, .offset = offset, .length = length, .next_layer = null, .prev_layer = null };
+        return Layer{ .protocol = protocol, .offset = offset, .length = length, .packet = packet, .next_layer = null, .prev_layer = null };
     }
 
     pub fn to_string(self: *Layer) void {
@@ -52,6 +55,7 @@ pub const Layer = struct {
     }
 };
 
+/// if data is owned by Packet it has to be mutable. if it is owned by WirePacket, it can be mutable or immutable
 pub const Packet = struct {
     allocator: Allocator,
     aligned_buffer: []u8, // this buffer is aligned - NOT wire format. don't send it over the network
@@ -99,16 +103,13 @@ pub const Packet = struct {
 
         const layer_init = try get_layer_init(layer_type);
 
-        _ = try layer_init(layer_data); // confirms the data provided is valid
+        const layer = try self.allocator.create(Layer);
+        layer.* = Layer.init(layer_type_enum, 0, layer_data.len, self);
+        layer.packet = self;
 
-        //TODO: Ideally add more validation - the layer data might contain preceeding layers data  - creating merge layer method chain might be useful for when preceeding layers need to be added too
-
-        // also get the layer size and make sure to only add the bytes which are required
+        _ = try layer_init(LayerOwner{ .packet_layer = layer }); // confirms the data provided is valid
 
         const last_layer = try self.get_last_layer();
-
-        const layer = try self.allocator.create(Layer);
-        layer.* = Layer.init(layer_type_enum, 0, layer_data.len);
 
         if (last_layer) |last| {
             last.next_layer = layer;
@@ -132,6 +133,10 @@ pub const Packet = struct {
 
         return true;
     }
+
+    //   pub fn replace_layer(self: *Packet, layer_type: anytype) !bool {
+    //       self.delete_layer();
+    //   }
 
     pub fn delete_layer(self: *Packet, layer_type: anytype) !bool {
         const layer_type_enum = get_layer_type_enum(layer_type) catch |err| {
@@ -262,26 +267,72 @@ pub const Packet = struct {
         return null;
     }
 
-    pub fn get_layer_of_type(self: *Packet, layer_type: anytype) !?layer_type {
-        const layer_type_enum = try get_layer_type_enum(layer_type);
+    pub fn get_layer_of_type(self: *Packet, layer_type: anytype) ?layer_type {
+        const layer_type_enum = get_layer_type_enum(layer_type) catch {
+            return null;
+        };
 
-        const layer_init = try get_layer_init(layer_type);
+        const layer_init = get_layer_init(layer_type) catch {
+            return null;
+        };
 
-        const buf = try self.find_layer(layer_type_enum);
+        const buf = self.search_layers(layer_type_enum) catch {
+            return null;
+        };
 
         if (buf) |b| {
-            return try layer_init(b);
+            var layer = layer_init(LayerOwner{ .packet_layer = b }) catch {
+                return null;
+            };
+            layer.set_data(self.aligned_buffer[b.offset..]) catch {
+                return null;
+            };
+            return layer;
         }
 
         return null;
     }
 
-    fn find_layer(self: *Packet, protocol_layer: LayerProtocols) !?[]u8 {
-        const layer: ?*Layer = try self.search_layers(protocol_layer);
+    pub fn extend_layer(self: *Packet, layer: *Layer, len: usize) !void {
+        print("extending layer by: {}\n", .{usize});
+        var cur = self.first_layer;
+        while (cur) |l| {
+            if (l == layer) {
+                l.length += len;
+                var next = l.next_layer;
+                while (next) |n| {
+                    n.offset += len;
+                    n.length += len;
+                    next = n.next_layer;
+                }
+            }
+            cur = l.next_layer;
+        }
+    }
+
+    pub fn shorten_layer(self: *Packet, layer: *Layer, len: usize) !void {
+        print("shortening layer by: {}\n", .{len});
+        var cur = self.first_layer;
+        while (cur) |l| {
+            if (l == layer) {
+                l.length -= len;
+                var next = l.next_layer;
+                while (next) |n| {
+                    n.offset -= len;
+                    n.length -= len;
+                    next = n.next_layer;
+                }
+            }
+            cur = l.next_layer;
+        }
+    }
+
+    pub fn find_layer(self: *Packet, protocol_layer: LayerProtocols) ?[]u8 {
+        const layer: ?*Layer = self.search_layers(protocol_layer) catch {
+            return null;
+        };
         if (layer) |l| {
             return self.aligned_buffer[l.offset..];
-
-            //return self.aligned_buffer[l.offset .. l.offset + l.length];
         }
         return null;
     }

@@ -42,6 +42,66 @@ const ICMP = @import("ICMP.zig");
 
 const TCP = @import("TCP.zig");
 
+const LayerOwner = @import("Layer.zig").LayerOwner;
+const AllocatorOwned = @import("Layer.zig").AllocatorOwned;
+
+pub fn main() !void {
+    var backing_buffer: [2048]u8 = undefined;
+
+    var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
+    const allocator = fba.allocator();
+
+    const page_allocator = std.heap.page_allocator;
+
+    const layer_owner = LayerOwner{
+        .allocator_owned = .{ .allocator = page_allocator, .data = undefined },
+    };
+
+    var packet = try Packet.Packet.create(allocator, LinkLayerProtocols.ETHERNET);
+
+    _ = &packet;
+
+    var ipv4_layer: IPv4Layer = try IPv4Layer.init(layer_owner);
+
+    ipv4_layer.set_src_ip(try IPv4Address.init_from_string("192.168.1.225"));
+    ipv4_layer.set_dst_ip(try IPv4Address.init_from_string("192.168.1.254"));
+
+    _ = try packet.add_layer(IPv4Layer, ipv4_layer.get_data());
+
+    ipv4_layer = packet.get_layer_of_type(IPv4Layer) orelse {
+        return;
+    };
+
+    print("{s}\n", .{ipv4_layer.to_string(std.heap.page_allocator)});
+
+    var udp_layer: UDPLayer = try UDPLayer.init(layer_owner);
+    defer udp_layer.deinit();
+
+    print("udp layer: {x}\n", .{udp_layer.get_data()});
+
+    udp_layer.set_dst_port(5005);
+    udp_layer.set_src_port(1024);
+
+    _ = try packet.add_layer(UDPLayer, udp_layer.get_data());
+
+    udp_layer = packet.get_layer_of_type(UDPLayer) orelse {
+        print("no udp layer.\n", .{});
+        return;
+    };
+    //
+    //  udp_layer.set_dst_port(5005);
+    //  udp_layer.set_src_port(1024);
+    //
+    print("{s}\n", .{ipv4_layer.to_string(std.heap.page_allocator)});
+    print("{s}\n", .{udp_layer.to_string(std.heap.page_allocator)});
+    //
+    //  packet.print_layers_meta();
+    //
+    //  print("{x}\n", .{ipv4_layer.data});
+
+    print("end index: {}\n", .{fba.end_index});
+}
+
 pub fn alignment_check(buffer: []u8, protocol_hdr: anytype) usize {
     const alignment = @alignOf(protocol_hdr);
     const addr = @intFromPtr(buffer.ptr);
@@ -127,7 +187,7 @@ pub fn test_ipv4_ext(allocator: Allocator) !void {
     //packet.print_layers();
 }
 
-pub fn main() !void {
+pub fn create_basic_udp_packet() !void {
     var backing_buffer: [2048]u8 = undefined;
 
     var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);

@@ -15,6 +15,8 @@ const Packet = @import("Packet.zig");
 const UDP = @import("UDPLayer.zig");
 const TCP = @import("TCP.zig");
 
+const LayerOwner = @import("Layer.zig").LayerOwner;
+
 pub const MaxHeaderLength = 60;
 pub const MinHeaderLength = 20;
 
@@ -202,10 +204,30 @@ pub const IPOption = struct {
 };
 
 pub const IPv4Layer = struct {
-    data: []u8,
+    owner: LayerOwner,
     const Protocol = LayerProtocols{ .Network = .IPv4 };
 
-    pub fn init(buffer: []u8) LayerError!IPv4Layer {
+    pub fn init(owner: LayerOwner) LayerError!IPv4Layer {
+        switch (owner) {
+            .packet_layer => {
+                return IPv4Layer{
+                    .owner = owner,
+                };
+            },
+            .allocator_owned => {
+                var self = IPv4Layer{ .owner = owner };
+                // Allocate directly into the struct's data field
+                self.owner.allocator_owned.data = try self.owner.allocator_owned.allocator.alloc(u8, MinHeaderLength);
+
+                var header = IPv4Header.init_default();
+                @memcpy(self.owner.allocator_owned.data[0..MinHeaderLength], std.mem.asBytes(&header));
+
+                return self;
+            },
+        }
+    }
+
+    pub fn set_data(self: *IPv4Layer, buffer: []u8) LayerError!void {
         if (buffer.len < @sizeOf(IPv4Header)) return error.BufferTooSmall;
 
         // Verify alignment
@@ -216,12 +238,16 @@ pub const IPv4Layer = struct {
             return error.MisalignedBuffer;
         }
 
-        return IPv4Layer{ .data = buffer };
+        _ = self;
+
+        //self.data = buffer;
     }
 
-    pub fn zero_hdr(self: *IPv4Layer) void {
+    pub fn zero_hdr() []u8 {
         var header = IPv4Header.init_default();
-        @memcpy(self.data[0..@sizeOf(IPv4Header)], std.mem.asBytes(&header));
+        var data: []u8 = undefined;
+        @memcpy(data[0..MinHeaderLength], std.mem.asBytes(&header));
+        return data;
     }
 
     // In your IPv4Layer, update set_src_ip and set_dst_ip:
@@ -252,19 +278,31 @@ pub const IPv4Layer = struct {
 
     /// get slice of data (hdr+payload)
     pub fn get_data(self: *IPv4Layer) []u8 {
-        return self.data;
+        switch (self.owner) {
+            .packet_layer => {
+                print("getting data from packet\n", .{});
+                const IPv4_layer = self.owner.packet_layer.packet.find_layer(IPv4Layer.Protocol) orelse {
+                    return IPv4Layer.zero_hdr();
+                };
+                return IPv4_layer;
+            },
+            else => {
+                print("getting data from allocator\n", .{});
+                return self.owner.allocator_owned.data;
+            },
+        }
     }
 
     /// return mutable slice of the payload
     pub fn get_payload(self: *IPv4Layer) []u8 {
         const header_len = (self.get_header().version_ihl & 0x0F) * 4;
-        return self.data[header_len..];
+        return self.get_data()[header_len..];
     }
 
     pub fn get_options(self: *IPv4Layer) []u8 {
         const hdr = self.get_header();
         const ihl = hdr.get_ihl();
-        return self.data[MinHeaderLength..ihl];
+        return self.get_data()[MinHeaderLength..ihl];
     }
 
     pub fn add_option(self: *IPv4Layer, option: IPOption, allocator: Allocator) !void {
@@ -327,7 +365,7 @@ pub const IPv4Layer = struct {
 
     pub fn get_header(self: *IPv4Layer) *IPv4Header {
         // Use alignCast to ensure proper alignment
-        const aligned_ptr: [*]align(@alignOf(IPv4Header)) u8 = @alignCast(self.data.ptr);
+        const aligned_ptr: [*]align(@alignOf(IPv4Header)) u8 = @alignCast(self.get_data().ptr);
         return @ptrCast(aligned_ptr);
     }
 

@@ -9,6 +9,9 @@ const UDP = @import("UDPLayer.zig");
 const TCP = @import("TCP.zig");
 const ARP = @import("ARP.zig");
 const ICMP = @import("ICMP.zig");
+const GenericLayer = @import("GenericLayer.zig");
+
+const LayerOwner = @import("Layer.zig").LayerOwner;
 
 pub const ApplicationProtocols = enum(u16) {
     HTTP = 80,
@@ -184,7 +187,7 @@ pub fn get_layer_to_string(protocol: LayerProtocols) !fn (*anyopaque) []const u8
     }
 }
 
-pub fn get_layer_init(choice: type) !*const fn ([]u8) LayerError!choice {
+pub fn get_layer_init(choice: type) !*const fn (LayerOwner) LayerError!choice {
     switch (choice) {
         Eth.EthLayer => return Eth.EthLayer.init,
         IPv4.IPv4Layer => return IPv4.IPv4Layer.init,
@@ -193,6 +196,7 @@ pub fn get_layer_init(choice: type) !*const fn ([]u8) LayerError!choice {
         TCP.TCPLayer => return TCP.TCPLayer.init,
         ARP.ArpLayer => return ARP.ArpLayer.init,
         ICMP.ICMPLayer => return ICMP.ICMPLayer.init,
+        GenericLayer.ApplicationLayer => return GenericLayer.ApplicationLayer.init,
         else => return error.LayerInvalid,
     }
 }

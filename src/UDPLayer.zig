@@ -3,11 +3,21 @@ const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
 const DNS = @import("DNS.zig");
+
+const IPv4 = @import("IPv4.zig");
+
 const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
 const LayerError = @import("ProtocolHelpers.zig").LayerError;
+const NetworkProtocols = @import("ProtocolHelpers.zig").NetworkProtocols;
+
 const Packet = @import("Packet.zig");
+const LayerOwner = @import("Layer.zig").LayerOwner;
+const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
+
+const comparePayloads = @import("ProtocolHelpers.zig").comparePayloads;
 
 const nativeToBig = std.mem.nativeToBig;
+const activeTag = std.meta.activeTag;
 
 pub const UDPHeaderSize = 8;
 
@@ -252,36 +262,74 @@ pub const UDPHeader = extern struct {
 };
 
 pub const UDPLayer = struct {
-    data: []u8, // UDP header + payload
+    owner: LayerOwner,
+
     const Protocol = LayerProtocols{ .Transport = .UDP };
 
-    pub fn init(buffer: []u8) LayerError!UDPLayer {
-        if (buffer.len < @sizeOf(UDPHeader)) return LayerError.BufferTooSmall;
+    pub fn init(owner: LayerOwner) LayerError!UDPLayer {
+        switch (owner) {
+            .packet_layer => {
+                return UDPLayer{
+                    .owner = owner,
+                };
+            },
+            .allocator_owned => {
+                var self = UDPLayer{ .owner = owner };
+                // Allocate directly into the struct's data field
+                self.owner.allocator_owned.data = try self.owner.allocator_owned.allocator.alloc(u8, UDPHeaderSize);
 
-        // Verify alignment (optional)
-        const alignment = @alignOf(UDPHeader);
-        const addr = @intFromPtr(buffer.ptr);
-        if (addr % alignment != 0) {
-            return LayerError.MisalignedBuffer;
+                var header = UDPHeader.init_default();
+                @memcpy(self.owner.allocator_owned.data[0..@sizeOf(UDPHeader)], std.mem.asBytes(&header));
+
+                return self;
+            },
         }
-
-        return UDPLayer{ .data = buffer };
     }
 
-    pub fn zero_hdr(self: *UDPLayer) void {
+    pub fn zero_hdr() []u8 {
         var header = UDPHeader.init_default();
-        @memcpy(self.data[0..@sizeOf(UDPHeader)], std.mem.asBytes(&header));
+        var data: []u8 = undefined;
+        @memcpy(data[0..@sizeOf(UDPHeader)], std.mem.asBytes(&header));
+        return data;
     }
 
     pub fn get_header(self: *UDPLayer) *UDPHeader {
-        // Use alignCast to ensure proper alignment
-        const aligned_ptr: [*]align(@alignOf(UDPHeader)) u8 = @alignCast(self.data.ptr);
+        const data = self.get_data();
+        const aligned_ptr: [*]align(@alignOf(UDPHeader)) u8 = @alignCast(data.ptr);
         return @ptrCast(aligned_ptr);
     }
 
     /// Get slice of data (header + payload)
+    pub fn set_data(self: *UDPLayer, data: []u8) LayerError!void {
+        if (data.len < @sizeOf(UDPHeader)) return LayerError.BufferTooSmall;
+
+        _ = self;
+
+        // Verify alignment (optional)
+        const alignment = @alignOf(UDPHeader);
+        const addr = @intFromPtr(data.ptr);
+        if (addr % alignment != 0) {
+            return LayerError.MisalignedBuffer;
+        }
+
+        //self.data = data;
+    }
+
+    /// Get slice of data (header + payload)
     pub fn get_data(self: *UDPLayer) []u8 {
-        return self.data;
+        switch (self.owner) {
+            .packet_layer => {
+                print("getting data from packet\n", .{});
+                const udp_layer = self.owner.packet_layer.packet.find_layer(UDPLayer.Protocol) orelse {
+                    return UDPLayer.zero_hdr();
+                };
+                return udp_layer;
+            },
+            else => {
+                print("getting data from allocator\n", .{});
+                return self.owner.allocator_owned.data;
+            },
+        }
     }
 
     /// Get the payload (data after UDP header)
@@ -297,23 +345,50 @@ pub const UDPLayer = struct {
         return self.data[payload_start..payload_end];
     }
 
-    /// Set the payload. must be called after setting header length)
-    pub fn set_payload(self: *UDPLayer, payload: []const u8, allocator: Allocator) !void {
-        const total_len = UDPHeaderSize + payload.len;
-        print("UDP new total len: {}\n", .{total_len});
-        if (self.data.len < total_len) {
-            self.data = try allocator.realloc(self.data, (total_len));
+    pub fn owns(self: *UDPLayer) void {
+        switch (self.owner) {
+            .packet_layer => { //call packet extended layer
+                print("packet.\n", .{});
+            },
+            .allocator => {
+                print("allocator.\n", .{});
+            },
         }
-
-        // Copy payload
-        @memcpy(self.data[UDPHeaderSize..][0..payload.len], payload);
-
-        //        print("UDP Data added: {x}\n", .{self.data});
-
-        // Update header length
-        var hdr = self.get_header();
-        hdr.set_length(@intCast(total_len));
     }
+
+    // pub fn set_payload(self: *UDPLayer, payload: []const u8) !void {
+    //     const total_len = UDPHeaderSize + payload.len;
+
+    //     switch (self.owner) {
+    //         .packet_layer => { //call packet extended layer
+
+    //             if (self.owner.packet_layer.packet) |owning_packet| {
+    //                 if (self.owner.packet_layer.length < payload.len) {
+    //                     try owning_packet.extend_layer(self.owner.packet_layer, payload.len % self.get_payload().len);
+    //                 } else if (self.owner.packet_layer.length > payload.len) {
+    //                     try owning_packet.shorten_layer(self.owner.packet_layer, self.get_payload().len % payload.len);
+    //                 }
+
+    //                 _ = try owning_packet.add_layer(ApplicationLayer, payload);
+    //             }
+
+    //             return;
+    //         },
+    //         .allocator => {
+    //             print("calling allocator.\n", .{});
+    //             if (self.data.len < total_len) {
+    //                 self.data = try self.owner.allocator.realloc(self.data, (total_len));
+    //             }
+
+    //             // Copy payload
+    //             @memcpy(self.data[UDPHeaderSize..][0..payload.len], payload);
+    //         },
+    //     }
+
+    //     // Update header length
+    //     var hdr = self.get_header();
+    //     try hdr.set_length(@intCast(total_len));
+    // }
 
     pub fn get_src_port(self: *UDPLayer) u16 {
         const hdr = self.get_header();
@@ -350,10 +425,26 @@ pub const UDPLayer = struct {
         return hdr.checksum;
     }
 
-    pub fn calculate_checksum(self: *UDPLayer, src_ip: u32, dst_ip: u32) void {
+    pub fn calculate_checksum(self: *UDPLayer) void {
         const hdr = self.get_header();
-        const payload = self.get_payload();
-        hdr.calculate_checksum(src_ip, dst_ip, payload);
+
+        switch (self.owner) {
+            .packet => {
+                if (self.owner.packet_layer.prev_layer) |prev_layer| {
+                    if (comparePayloads(prev_layer.protocol, LayerProtocols{ .Network = .IPv4 })) {
+                        var ipv4_layer: IPv4.IPv4Layer = self.owner.packet_layer.packet.get_layer_of_type(IPv4.IPv4Layer);
+                        hdr.calculate_checksum(ipv4_layer.get_src_ip().to_u32(), ipv4_layer.get_dst_ip().to_u32(), self.data[UDPHeaderSize..]);
+                    } else if (comparePayloads(prev_layer.protocol, LayerProtocols{ .Network = .IPv6 })) {
+                        return;
+                        //prev_protocol = NetworkProtocols.IPv6;
+                    }
+                }
+            },
+            else => return,
+        }
+
+        //const hdr = self.get_header();
+        //hdr.calculate_checksum(src_ip, dst_ip, payload);
     }
 
     pub fn to_string(self: *UDPLayer, allocator: Allocator) []const u8 {
@@ -389,8 +480,11 @@ pub const UDPLayer = struct {
         return UDPLayer.Protocol;
     }
 
-    pub fn deinit(self: *UDPLayer, allocator: std.mem.Allocator) void {
-        allocator.destroy(self);
+    pub fn deinit(self: *UDPLayer) void {
+        switch (self.owner) {
+            .allocator_owned => self.owner.allocator_owned.deinit(),
+            else => return,
+        }
     }
 };
 
