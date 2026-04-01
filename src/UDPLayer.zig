@@ -305,6 +305,8 @@ pub const UDPLayer = struct {
 
         _ = self;
 
+        print("set data called.\n", .{});
+
         // Verify alignment (optional)
         const alignment = @alignOf(UDPHeader);
         const addr = @intFromPtr(data.ptr);
@@ -425,19 +427,42 @@ pub const UDPLayer = struct {
         return hdr.checksum;
     }
 
+    pub fn get_prev_layer(self: *UDPLayer) void {
+        switch (self.owner) {
+            .packet_layer => {
+                const prev_layer = self.owner.packet_layer.prev_layer;
+                if (prev_layer) |prev| {
+                    prev.to_string();
+                } else {
+                    print("no prev layer.\n", .{});
+                }
+            },
+
+            else => {
+                return;
+            },
+        }
+    }
+
     pub fn calculate_checksum(self: *UDPLayer) void {
         const hdr = self.get_header();
 
         switch (self.owner) {
-            .packet => {
+            .packet_layer => {
                 if (self.owner.packet_layer.prev_layer) |prev_layer| {
                     if (comparePayloads(prev_layer.protocol, LayerProtocols{ .Network = .IPv4 })) {
-                        var ipv4_layer: IPv4.IPv4Layer = self.owner.packet_layer.packet.get_layer_of_type(IPv4.IPv4Layer);
-                        hdr.calculate_checksum(ipv4_layer.get_src_ip().to_u32(), ipv4_layer.get_dst_ip().to_u32(), self.data[UDPHeaderSize..]);
+                        var ipv4_layer: IPv4.IPv4Layer = self.owner.packet_layer.packet.get_layer_of_type(IPv4.IPv4Layer) orelse {
+                            print("failed to get IPv4 layer.\n", .{});
+                            return;
+                        };
+
+                        hdr.calculate_checksum(ipv4_layer.get_src_ip().to_u32(), ipv4_layer.get_dst_ip().to_u32(), self.get_data()[UDPHeaderSize..]);
                     } else if (comparePayloads(prev_layer.protocol, LayerProtocols{ .Network = .IPv6 })) {
                         return;
                         //prev_protocol = NetworkProtocols.IPv6;
                     }
+                } else {
+                    print("no prev layer.\n", .{});
                 }
             },
             else => return,

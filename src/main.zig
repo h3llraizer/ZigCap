@@ -59,7 +59,19 @@ pub fn main() !void {
 
     var packet = try Packet.Packet.create(allocator);
 
-    _ = &packet;
+    var eth_layer: EthLayer = try EthLayer.init(layer_owner);
+
+    eth_layer.set_dst_mac(try MacAddress.init_from_string("38:06:e6:92:63:ac"));
+    eth_layer.set_src_mac(try MacAddress.init_from_string("14:4f:8a:a4:15:7d"));
+    try eth_layer.set_eth_type(EthType.IP);
+
+    _ = try packet.add_layer(EthLayer, eth_layer.get_data());
+
+    eth_layer = packet.get_layer_of_type(EthLayer) orelse {
+        return;
+    };
+
+    print("{s}\n", .{eth_layer.to_string(page_allocator)});
 
     var ipv4_layer: IPv4Layer = try IPv4Layer.init(layer_owner);
 
@@ -89,12 +101,23 @@ pub fn main() !void {
         return;
     };
 
+    print("getting prev layer.\n", .{});
+    udp_layer.get_prev_layer();
+
+    udp_layer.calculate_checksum();
+
+    ipv4_layer.calculate_checksum();
+
     print("{s}\n", .{ipv4_layer.to_string(std.heap.page_allocator)});
     print("{s}\n", .{udp_layer.to_string(std.heap.page_allocator)});
     //
-    //  packet.print_layers_meta();
+
+    packet.print_layers_meta();
+
     //
     //  print("{x}\n", .{ipv4_layer.data});
+
+    print("layer data: {x}\n", .{packet.aligned_buffer});
 
     print("end index: {}\n", .{fba.end_index});
 }

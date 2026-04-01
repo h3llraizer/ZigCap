@@ -13,6 +13,10 @@ const IPv6Layer = @import("IPv6.zig").IPv6Layer;
 const IPv6HeaderSize = @import("IPv6.zig").IPv6HeaderSize;
 const ArpHeaderSize = @import("Arp.zig").ArpHeaderSize;
 
+const Layer = @import("Layer.zig");
+const LayerOwner = Layer.LayerOwner;
+const AllocatorOwner = Layer.AllocatorOwned;
+
 /// return the next layer and its size
 pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
     if (buffer.len < @sizeOf(EthHeader)) return LayerError.BufferTooSmall;
@@ -159,28 +163,40 @@ pub const EthHeader = extern struct {
 };
 
 pub const EthLayer = struct {
-    data: []u8, // ethhdr + payload
+    owner: LayerOwner,
     const Protocol = LayerProtocols{ .LinkLayer = .ETHERNET };
 
-    pub fn init(buffer: []u8) LayerError!EthLayer {
-        if (buffer.len < @sizeOf(EthHeader)) return LayerError.BufferTooSmall;
-        const alignment = @alignOf(EthHeader);
-        const addr = @intFromPtr(buffer.ptr);
+    pub fn init(owner: LayerOwner) LayerError!EthLayer {
+        switch (owner) {
+            .packet_layer => {
+                return EthLayer{
+                    .owner = owner,
+                };
+            },
+            .allocator_owned => {
+                var self = EthLayer{ .owner = owner };
+                // Allocate directly into the struct's data field
+                self.owner.allocator_owned.data = try self.owner.allocator_owned.allocator.alloc(u8, EthHeaderSize);
 
-        if (addr % alignment != 0) {
-            return LayerError.MisalignedBuffer;
+                var header = EthHeader.init_default();
+                @memcpy(self.owner.allocator_owned.data[0..@sizeOf(EthHeader)], std.mem.asBytes(&header));
+
+                return self;
+            },
         }
-
-        return EthLayer{ .data = buffer };
     }
 
-    pub fn print_data(self: *EthLayer) !void {
-        print("{x}\n", .{self.data});
+    pub fn zero_hdr() []u8 {
+        var header = EthHeader.init_default();
+        var data: []u8 = undefined;
+        @memcpy(data[0..@sizeOf(EthHeader)], std.mem.asBytes(&header));
+        return data;
     }
 
     pub fn get_header(self: *EthLayer) *EthHeader {
         // Use alignCast to ensure proper alignment
-        const aligned_ptr: [*]align(@alignOf(EthHeader)) u8 = @alignCast(self.data.ptr);
+        const data = self.get_data();
+        const aligned_ptr: [*]align(@alignOf(EthHeader)) u8 = @alignCast(data.ptr);
         return @ptrCast(aligned_ptr);
     }
 
@@ -216,8 +232,19 @@ pub const EthLayer = struct {
 
     /// get slice of data (hdr+payload)
     pub fn get_data(self: *EthLayer) []u8 {
-        print("Eth get_data: self={*}, self.data.ptr={*}, self.data.len={}\n", .{ self, self.data.ptr, self.data.len });
-        return self.data;
+        switch (self.owner) {
+            .packet_layer => {
+                print("getting data from packet\n", .{});
+                const udp_layer = self.owner.packet_layer.packet.find_layer(EthLayer.Protocol) orelse {
+                    return EthLayer.zero_hdr();
+                };
+                return udp_layer;
+            },
+            else => {
+                print("getting data from allocator\n", .{});
+                return self.owner.allocator_owned.data;
+            },
+        }
     }
 
     /// return mutable slice of the payload

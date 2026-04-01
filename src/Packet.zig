@@ -111,8 +111,9 @@ pub const Packet = struct {
 
         if (last_layer) |last| {
             last.next_layer = layer;
+            layer.prev_layer = last;
             layer.offset = (last.offset + last.length);
-            last.length = last.length + layer.length;
+            //            last.length = last.length + layer.length;
         } else {
             self.first_layer = layer;
         }
@@ -279,12 +280,10 @@ pub const Packet = struct {
         };
 
         if (buf) |b| {
-            var layer = layer_init(LayerOwner{ .packet_layer = b }) catch {
+            const layer = layer_init(LayerOwner{ .packet_layer = b }) catch {
                 return null;
             };
-            layer.set_data(self.aligned_buffer[b.offset..]) catch {
-                return null;
-            };
+
             return layer;
         }
 
@@ -399,11 +398,6 @@ pub const Packet = struct {
         next_layer_.prev_layer = layer;
 
         try self.accum_layers(next_layer_);
-    }
-
-    /// returns true if the packet buffer can be sent over the network. Useful if you just want to send an already wire capable buffer without calling get_wire_format
-    pub fn wire_ready(self: *Packet) bool {
-        _ = self;
     }
 
     /// destroys protocol layers linkedlist. The buffer is not freed.
