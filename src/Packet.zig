@@ -59,16 +59,14 @@ pub const Layer = struct {
 pub const Packet = struct {
     allocator: Allocator,
     aligned_buffer: []u8, // this buffer is aligned - NOT wire format. don't send it over the network
-    link_layer: LinkLayerProtocols,
     first_layer: ?*Layer,
     free_buffer: bool = false,
 
     /// Creates an empty Packet - alloc's zero bytes to aligned buffer initially
-    pub fn create(allocator: Allocator, link_layer: LinkLayerProtocols) !Packet {
+    pub fn create(allocator: Allocator) !Packet {
         return Packet{
             .allocator = allocator,
             .aligned_buffer = try allocator.alloc(u8, 0),
-            .link_layer = link_layer,
             .first_layer = null,
         };
     }

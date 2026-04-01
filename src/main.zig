@@ -57,7 +57,7 @@ pub fn main() !void {
         .allocator_owned = .{ .allocator = page_allocator, .data = undefined },
     };
 
-    var packet = try Packet.Packet.create(allocator, LinkLayerProtocols.ETHERNET);
+    var packet = try Packet.Packet.create(allocator);
 
     _ = &packet;
 
@@ -88,10 +88,7 @@ pub fn main() !void {
         print("no udp layer.\n", .{});
         return;
     };
-    //
-    //  udp_layer.set_dst_port(5005);
-    //  udp_layer.set_src_port(1024);
-    //
+
     print("{s}\n", .{ipv4_layer.to_string(std.heap.page_allocator)});
     print("{s}\n", .{udp_layer.to_string(std.heap.page_allocator)});
     //
