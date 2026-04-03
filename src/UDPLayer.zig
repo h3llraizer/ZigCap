@@ -276,10 +276,12 @@ pub const UDPLayer = struct {
             .allocator_owned => {
                 var self = UDPLayer{ .owner = owner };
                 // Allocate directly into the struct's data field
+                //
+                // will cause data wipe
                 self.owner.allocator_owned.data = try self.owner.allocator_owned.allocator.alloc(u8, UDPHeaderSize);
 
                 var header = UDPHeader.init_default();
-                @memcpy(self.owner.allocator_owned.data[0..@sizeOf(UDPHeader)], std.mem.asBytes(&header));
+                @memcpy(self.owner.allocator_owned.data[0..UDPHeaderSize], std.mem.asBytes(&header));
 
                 return self;
             },
@@ -318,17 +320,17 @@ pub const UDPLayer = struct {
     }
 
     /// Get slice of data (header + payload)
-    pub fn get_data(self: *UDPLayer) []u8 {
+    pub fn get_data(self: *const UDPLayer) []u8 {
         switch (self.owner) {
             .packet_layer => {
-                print("getting data from packet\n", .{});
-                const udp_layer = self.owner.packet_layer.packet.find_layer(UDPLayer.Protocol) orelse {
-                    return UDPLayer.zero_hdr();
+                print("getting self ({*}) data from packet\n", .{self});
+                const udp_data = self.owner.packet_layer.packet.find_layer_ptr(@ptrCast(@constCast(self))) orelse {
+                    std.debug.panic("udp layer ptr ({*}) not found in packet\n", .{self});
                 };
-                return udp_layer;
+                return udp_data;
             },
             else => {
-                print("getting data from allocator\n", .{});
+                print("getting self ({*}) data from allocator\n", .{self});
                 return self.owner.allocator_owned.data;
             },
         }

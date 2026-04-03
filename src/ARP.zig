@@ -163,7 +163,7 @@ pub const ArpHeader = extern struct {
 };
 
 pub const ArpLayer = struct {
-    data: []u8, // ethhdr + arphdr + padding (if any)
+    data: []u8,
     const Protocol = LayerProtocols{ .LinkLayer = .ARP };
 
     pub fn init(buffer: []u8) LayerProtocols.LayerError!ArpLayer {

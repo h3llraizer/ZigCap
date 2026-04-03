@@ -5,6 +5,9 @@ const Allocator = std.mem.Allocator;
 const Packet = @import("Packet.zig");
 const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
 const LayerError = @import("ProtocolHelpers.zig").LayerError;
+
+const LayerImpl = @import("ProtocolHelpers.zig").LayerImpl;
+
 const NetworkProtocols = @import("ProtocolHelpers.zig").NetworkProtocols;
 const IPv4Layer = @import("IPv4.zig").IPv4Layer;
 const IPv4Header = @import("IPv4.zig").IPv4Header;
@@ -16,6 +19,8 @@ const ArpHeaderSize = @import("Arp.zig").ArpHeaderSize;
 const Layer = @import("Layer.zig");
 const LayerOwner = Layer.LayerOwner;
 const AllocatorOwner = Layer.AllocatorOwned;
+
+const GenericLayer = @import("GenericLayer.zig");
 
 /// return the next layer and its size
 pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
@@ -176,10 +181,12 @@ pub const EthLayer = struct {
             .allocator_owned => {
                 var self = EthLayer{ .owner = owner };
                 // Allocate directly into the struct's data field
-                self.owner.allocator_owned.data = try self.owner.allocator_owned.allocator.alloc(u8, EthHeaderSize);
+                if (owner.allocator_owned.data.len < EthHeaderSize) {
+                    self.owner.allocator_owned.data = try self.owner.allocator_owned.allocator.alloc(u8, EthHeaderSize);
+                }
 
-                var header = EthHeader.init_default();
-                @memcpy(self.owner.allocator_owned.data[0..@sizeOf(EthHeader)], std.mem.asBytes(&header));
+                //var header = EthHeader.init_default();
+                //@memcpy(self.owner.allocator_owned.data[0..@sizeOf(EthHeader)], std.mem.asBytes(&header));
 
                 return self;
             },
@@ -193,14 +200,14 @@ pub const EthLayer = struct {
         return data;
     }
 
-    pub fn get_header(self: *EthLayer) *EthHeader {
+    pub fn get_header(self: *const EthLayer) *EthHeader {
         // Use alignCast to ensure proper alignment
         const data = self.get_data();
         const aligned_ptr: [*]align(@alignOf(EthHeader)) u8 = @alignCast(data.ptr);
         return @ptrCast(aligned_ptr);
     }
 
-    pub fn to_string(self: *EthLayer, allocator: Allocator) []const u8 {
+    pub fn to_string(self: *const EthLayer, allocator: Allocator) []const u8 {
         const hdr = self.get_header();
 
         const src_mac = hdr.get_src_mac().to_string(allocator) catch |err| blk: {
@@ -230,62 +237,78 @@ pub const EthLayer = struct {
         return result;
     }
 
+    pub fn ptr(self: *EthLayer) *anyopaque {
+        return @ptrCast(self);
+    }
+
     /// get slice of data (hdr+payload)
-    pub fn get_data(self: *EthLayer) []u8 {
+    pub fn get_data(self: *const EthLayer) []u8 {
         switch (self.owner) {
             .packet_layer => {
-                print("getting data from packet\n", .{});
-                const udp_layer = self.owner.packet_layer.packet.find_layer(EthLayer.Protocol) orelse {
-                    return EthLayer.zero_hdr();
+                print("getting self ({*}) data from packet\n", .{self});
+                const eth_data = self.owner.packet_layer.packet.find_layer_ptr(@ptrCast(@constCast(self))) orelse {
+                    std.debug.panic("eth layer ptr ({*}) not found in packet\n", .{self});
                 };
-                return udp_layer;
+                return eth_data;
             },
             else => {
-                print("getting data from allocator\n", .{});
+                print("getting self ({*}) data from allocator\n", .{self});
                 return self.owner.allocator_owned.data;
             },
         }
     }
 
     /// return mutable slice of the payload
-    pub fn get_payload(self: *EthLayer) []u8 {
-        return self.data[EthHeaderSize..];
+    pub fn get_payload(self: *EthLayer) ?[]const u8 {
+        const data = self.get_data();
+        if (data.len > EthHeaderSize) {
+            return data[EthHeaderSize..];
+        } else {
+            return null;
+        }
     }
 
     /// return the next layer protocol type
-    pub fn get_next_layer_type(self: *EthLayer) LayerProtocols {
+    pub fn get_next_layer_type(self: *EthLayer) !?LayerImpl {
         const hdr = self.get_header();
         const eth_type = hdr.get_eth_type();
 
+        const data = self.get_data();
+
         switch (eth_type) {
             EthType.IP => {
-                if (self.data.len <= EthHeaderSize) {
-                    return LayerProtocols{ .Network = .Generic };
+                if (data.len <= EthHeaderSize) {
+                    return null;
+                    //                    return try LayerImpl.init(GenericLayer.ApplicationLayer, self.owner);
                 }
 
-                const ihl_byte = self.data[EthHeaderSize];
+                const ihl_byte = data[EthHeaderSize];
                 const ip_version = ihl_byte >> 4;
                 const hdr_len = (ihl_byte & 0x0F) * 4;
 
                 if (ip_version == @intFromEnum(NetworkProtocols.IPv4)) {
                     if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) {
-                        return LayerProtocols{ .Network = .Generic };
+                        return try LayerImpl.init(GenericLayer.ApplicationLayer, self.owner);
                     }
 
-                    return LayerProtocols{ .Network = .IPv4 };
+                    return try LayerImpl.init(IPv4.IPv4Layer, self.owner);
                 }
 
                 if (ip_version == @intFromEnum(NetworkProtocols.IPv6)) {
-                    return LayerProtocols{ .Network = .IPv6 };
+                    //return LayerProtocols{ .Network = .IPv6 };
+                    return null;
                 } else {
-                    return LayerProtocols{ .Network = .Generic };
+                    return null;
+                    //return LayerProtocols{ .Network = .Generic };
                 }
             },
             EthType.IPV6 => {
-                return LayerProtocols{ .Network = .IPv6 };
+                return null;
+                //return LayerProtocols{ .Network = .IPv6 };
             },
             else => {
-                return LayerProtocols{ .Network = .Generic };
+                return null;
+                //return LayerProtocols{ .Network = .Generic };
             },
         }
     }

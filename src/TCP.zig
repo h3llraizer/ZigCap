@@ -2,9 +2,15 @@ const std = @import("std");
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
-const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
-const LayerError = @import("ProtocolHelpers.zig").LayerError;
+const ProtocolHelpers = @import("ProtocolHelpers.zig");
+const LayerProtocols = ProtocolHelpers.LayerProtocols;
+const LayerError = ProtocolHelpers.LayerError;
+const LayerImpl = ProtocolHelpers.LayerImpl;
+const LayerOwner = @import("Layer.zig").LayerOwner;
+
 const Packet = @import("Packet.zig");
+
+const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
 
 pub const TCPHeaderMinSize = 20;
 pub const TCPHeaderMaxSize = 40;
@@ -49,23 +55,28 @@ pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
 }
 
 pub const TCPLayer = struct {
-    data: []u8,
+    owner: LayerOwner,
     const Protocol = LayerProtocols{ .Transport = .TCP };
 
     //// Creates layer from ptr to minimum 20 byte length buffer - ensure that the buffer outlives the TCPLayer or UB occurs
-    pub fn init(buffer: []u8) LayerError!TCPLayer {
-        if (buffer.len < 20) {
-            return LayerError.BufferTooSmall;
-        }
+    pub fn init(owner: LayerOwner) LayerError!TCPLayer {
+        switch (owner) {
+            .packet_layer => {
+                return TCPLayer{
+                    .owner = owner,
+                };
+            },
+            .allocator_owned => {
+                var self = TCPLayer{ .owner = owner };
+                // Allocate directly into the struct's data field
+                self.owner.allocator_owned.data = try self.owner.allocator_owned.allocator.alloc(u8, TCPHeaderMinSize);
 
-        // Verify alignment (optional)
-        const alignment = @alignOf(TCPHeader);
-        const addr = @intFromPtr(buffer.ptr);
-        if (addr % alignment != 0) {
-            return LayerError.MisalignedBuffer;
-        }
+                var header = TCPHeader.init_default();
+                @memcpy(self.owner.allocator_owned.data[0..TCPHeaderMinSize], std.mem.asBytes(&header));
 
-        return TCPLayer{ .data = buffer };
+                return self;
+            },
+        }
     }
 
     //// Get Source Port of the TCPHeader - converts u16 value from Big to Native and returns
@@ -111,6 +122,22 @@ pub const TCPLayer = struct {
     pub fn calculate_checksum(self: *TCPLayer) void {
         _ = self;
         return;
+    }
+
+    pub fn get_next_layer_type(self: *TCPLayer) !LayerImpl {
+        const data = self.get_data();
+
+        if (data.len < TCPHeaderMinSize) {
+            return LayerError.BufferTooSmall;
+        }
+
+        const alignment = @alignOf(TCPHeader);
+        const addr = @intFromPtr(data.ptr);
+        if (addr % alignment != 0) {
+            return LayerError.MisalignedBuffer;
+        }
+
+        return try LayerImpl.init(ApplicationLayer, self.owner);
     }
 
     //// Calculate the length of the TCPHeader
@@ -174,23 +201,31 @@ pub const TCPLayer = struct {
     }
 
     /// get slice of data (hdr+payload)
-    pub fn get_data(self: *TCPLayer) []u8 {
-        return self.data;
+    pub fn get_data(self: *const TCPLayer) []u8 {
+        switch (self.owner) {
+            .packet_layer => {
+                print("getting self ({*}) data from packet\n", .{self});
+                const tcp_data = self.owner.packet_layer.packet.find_layer_ptr(@ptrCast(@constCast(self))) orelse {
+                    std.debug.panic("ipv4 layer ptr ({*}) not found in packet\n", .{self});
+                };
+                return tcp_data;
+            },
+            else => {
+                print("getting self ({*}) data from allocator\n", .{self});
+                return self.owner.allocator_owned.data;
+            },
+        }
     }
 
     /// return mutable slice of the payload
     pub fn get_payload(self: *TCPLayer) []u8 {
         const hdr_len = self.calculate_length();
-        return self.data[hdr_len..];
-    }
-
-    pub fn get_next_layer_type(self: *TCPLayer) LayerProtocols {
-        _ = self;
-        return LayerProtocols{ .Application = .Generic };
+        return self.get_data()[hdr_len..];
     }
 
     pub fn get_header(self: *TCPLayer) *TCPHeader {
-        return @ptrCast(@alignCast(self.data[0..20]));
+        // return the full header if it exceeds 20 bytes
+        return @ptrCast(@alignCast(self.get_data()[0..20]));
     }
 
     pub fn get_protocol(self: *TCPLayer) LayerProtocols {

@@ -1,3 +1,4 @@
+const std = @import("std");
 const activeTag = @import("std").meta.activeTag;
 const print = @import("std").debug.print;
 
@@ -12,6 +13,8 @@ const ICMP = @import("ICMP.zig");
 const GenericLayer = @import("GenericLayer.zig");
 
 const LayerOwner = @import("Layer.zig").LayerOwner;
+
+const Allocator = @import("std").mem.Allocator;
 
 pub const ApplicationProtocols = enum(u16) {
     HTTP = 80,
@@ -276,3 +279,80 @@ pub fn get_header(protocol: LayerProtocols) type {
         else => return 0,
     };
 }
+
+fn compare_impl(a: *LayerImpl, b: *LayerImpl) bool {
+    return a.get_data() == b.get_data();
+}
+
+pub const LayerImpl = union(enum) {
+    ethLayer: Eth.EthLayer,
+    ipv4Layer: IPv4.IPv4Layer,
+    //   ipv6Layer: IPv6.IPv6Layer,
+    udpLayer: UDP.UDPLayer,
+    tcpLayer: TCP.TCPLayer,
+    //   arpLayer: ARP.ArpLayer,
+    //   icmpLayer: ICMP.ICMPLayer,
+    genericAppLayer: GenericLayer.ApplicationLayer,
+
+    pub fn init(choice: type, owner: LayerOwner) LayerError!LayerImpl {
+        switch (choice) {
+            Eth.EthLayer => return LayerImpl{ .ethLayer = try Eth.EthLayer.init(owner) },
+            IPv4.IPv4Layer => return LayerImpl{ .ipv4Layer = try IPv4.IPv4Layer.init(owner) },
+            //           IPv6.IPv6Layer => return IPv6.IPv6Layer.init(owner),
+            UDP.UDPLayer => return LayerImpl{ .udpLayer = try UDP.UDPLayer.init(owner) },
+            TCP.TCPLayer => return TCP.TCPLayer.init(owner),
+            //           ARP.ArpLayer => return ARP.ArpLayer.init(owner),
+            //           ICMP.ICMPLayer => return ICMP.ICMPLayer.init(owner),
+            GenericLayer.ApplicationLayer => return LayerImpl{ .genericAppLayer = try GenericLayer.ApplicationLayer.init(owner) },
+            else => return error.LayerInvalid,
+        }
+    }
+
+    pub fn reinit(self: *LayerImpl, owner: LayerOwner) LayerError!void {
+        const new_instance = switch (self.*) {
+            .ethLayer => LayerImpl{ .ethLayer = try Eth.EthLayer.init(owner) },
+            .ipv4Layer => LayerImpl{ .ipv4Layer = try IPv4.IPv4Layer.init(owner) },
+            // .ipv6Layer => |*layer| try LayerImpl{ .ipv6Layer = try IPv6.IPv6Layer.init(owner) },
+            .udpLayer => LayerImpl{ .udpLayer = try UDP.UDPLayer.init(owner) },
+            .tcpLayer => LayerImpl{ .tcpLayer = try TCP.TCPLayer.init(owner) },
+            // .arpLayer => |*layer| try LayerImpl{ .arpLayer = try ARP.ArpLayer.init(owner) },
+            // .icmpLayer => |*layer| try LayerImpl{ .icmpLayer = try ICMP.ICMPLayer.init(owner) },
+            .genericAppLayer => LayerImpl{ .genericAppLayer = try GenericLayer.ApplicationLayer.init(owner) },
+        };
+        self.* = new_instance;
+    }
+
+    pub fn get_protocol(self: *LayerImpl) !LayerProtocols {
+        switch (self.*) {
+            .ethLayer => return LayerProtocols{ .LinkLayer = .ETHERNET },
+            .ipv4Layer => return LayerProtocols{ .Network = .IPv4 },
+            .udpLayer => return LayerProtocols{ .Transport = .UDP },
+            .udpLayer => return LayerProtocols{ .Transport = .UDP },
+            .genericAppLayer => return LayerProtocols{ .Application = .Generic },
+        }
+    }
+
+    pub fn ptr(self: *LayerImpl) *anyopaque {
+        return switch (self.*) {
+            inline else => |*layer| @ptrCast(layer),
+        };
+    }
+
+    pub fn to_string(self: *LayerImpl, allocator: Allocator) []const u8 {
+        return switch (self.*) {
+            inline else => |*layer| layer.to_string(allocator),
+        };
+    }
+
+    pub fn get_data(self: *LayerImpl) []const u8 {
+        return switch (self.*) {
+            inline else => |*layer| layer.get_data(),
+        };
+    }
+
+    pub fn get_payload(self: *LayerImpl) ?[]const u8 {
+        return switch (self.*) {
+            inline else => |*layer| layer.get_payload(),
+        };
+    }
+};

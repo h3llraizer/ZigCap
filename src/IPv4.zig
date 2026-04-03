@@ -17,6 +17,10 @@ const TCP = @import("TCP.zig");
 
 const LayerOwner = @import("Layer.zig").LayerOwner;
 
+const LayerImpl = @import("ProtocolHelpers.zig").LayerImpl;
+
+const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
+
 pub const MaxHeaderLength = 60;
 pub const MinHeaderLength = 20;
 
@@ -273,16 +277,63 @@ pub const IPv4Layer = struct {
     }
 
     /// get slice of data (hdr+payload)
-    pub fn get_data(self: *IPv4Layer) []u8 {
+    pub fn get_data(self: *const IPv4Layer) []u8 {
         switch (self.owner) {
             .packet_layer => {
-                const IPv4_layer = self.owner.packet_layer.packet.find_layer(IPv4Layer.Protocol) orelse {
-                    return IPv4Layer.zero_hdr();
+                print("getting self ({*}) data from packet\n", .{self});
+                const ipv4_data = self.owner.packet_layer.packet.find_layer_ptr(@ptrCast(@constCast(self))) orelse {
+                    std.debug.panic("ipv4 layer ptr ({*}) not found in packet\n", .{self});
                 };
-                return IPv4_layer;
+                return ipv4_data;
             },
             else => {
+                print("getting self ({*}) data from allocator\n", .{self});
                 return self.owner.allocator_owned.data;
+            },
+        }
+    }
+
+    pub fn get_next_layer_type(self: *const IPv4Layer) !?LayerImpl {
+        const data = self.get_data();
+
+        if (data.len < @sizeOf(IPv4Header)) return error.BufferTooSmall;
+
+        const alignment = @alignOf(IPv4Header);
+        const addr = @intFromPtr(data.ptr);
+
+        if (addr % alignment != 0) {
+            return error.MisalignedBuffer;
+        }
+        const aligned_ptr: [*]align(@alignOf(IPv4Header)) u8 = @alignCast(data.ptr);
+        const hdr: *const IPv4Header = @ptrCast(aligned_ptr);
+
+        print("{any}\n", .{hdr.protocol});
+
+        const ip_protocol = std.meta.intToEnum(IPProtocol, hdr.protocol) catch {
+            return try LayerImpl.init(ApplicationLayer, self.owner);
+            //next_layer.length = data[hdr_len..].len; // Remaining bytes
+            //return next_layer;
+        };
+
+        switch (ip_protocol) {
+            IPProtocol.ICMP => {
+                //next_layer.protocol = LayerProtocols{ .Network = .ICMP };
+                //next_layer.length = data[hdr_len..].len; // this is fine because it includes the payload
+                return null;
+            },
+
+            IPProtocol.TCP => {
+                //               next_layer.protocol = LayerProtocols{ .Transport = .TCP };
+                //               var tcp_layer: TCP.TCPLayer = try TCP.TCPLayer.init(data[hdr_len..]);
+                //               const hdr_length = tcp_layer.calculate_length();
+                //               next_layer.length = hdr_length;
+                //print("hdr length: {}\n", .{hdr_length});
+                return null;
+            },
+            IPProtocol.UDP => {
+                //next_layer.protocol = LayerProtocols{ .Transport = .UDP };
+                //next_layer.length = UDP.UDPHeaderSize;
+                return try LayerImpl.init(UDP.UDPLayer, self.owner);
             },
         }
     }

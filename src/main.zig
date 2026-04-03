@@ -9,6 +9,7 @@ const Packet = @import("Packet.zig");
 
 const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
 const get_next_layer_type = @import("ProtocolHelpers.zig").get_next_layer_type;
+const LayerImpl = @import("ProtocolHelpers.zig").LayerImpl;
 
 const LinkLayerProtocols = @import("ProtocolHelpers.zig").LinkLayerProtocols;
 const NetworkProtocols = @import("ProtocolHelpers.zig").NetworkProtocols;
@@ -45,6 +46,43 @@ const TCP = @import("TCP.zig");
 const LayerOwner = @import("Layer.zig").LayerOwner;
 const AllocatorOwned = @import("Layer.zig").AllocatorOwned;
 
+pub fn get_eth(packet: *Packet.Packet) !void {
+    var eth_layer = packet.get_layer_of_type(EthLayer) orelse {
+        return;
+    };
+    print("got eth layer.\n", .{});
+    print("{s}\n", .{eth_layer.to_string(std.heap.page_allocator)});
+}
+
+pub fn get_layer(packet: *Packet.Packet) !void {
+    if (packet.first_layer) |layer| {
+        print("got first layer.\n", .{});
+        print("{s}\n", .{layer.layer_impl.to_string(std.heap.page_allocator)});
+    }
+}
+
+pub fn print_packet(packet: *Packet.Packet) !void {
+    print("getting packet.\n", .{});
+    try packet.to_string(std.heap.page_allocator);
+
+    packet.print_ptrs();
+
+    print("impl ptr: {*}\n", .{packet.first_layer.?.layer_impl.ptr()});
+
+    print("{x}\n", .{packet.first_layer.?.layer_impl.get_data()});
+
+    print("{s}\n", .{packet.first_layer.?.layer_impl.to_string(std.heap.page_allocator)});
+
+    var eth_layer: *EthLayer = packet.get_layer_of_type(EthLayer) orelse {
+        print("layer not found.\n", .{});
+        return;
+    };
+
+    print("{s}\n", .{eth_layer.to_string(std.heap.page_allocator)});
+
+    _ = &eth_layer;
+}
+
 pub fn main() !void {
     var backing_buffer: [2048]u8 = undefined;
 
@@ -59,427 +97,75 @@ pub fn main() !void {
 
     var packet = try Packet.Packet.create(allocator);
 
-    var eth_layer: EthLayer = try EthLayer.init(layer_owner);
+    _ = &packet;
 
-    eth_layer.set_dst_mac(try MacAddress.init_from_string("38:06:e6:92:63:ac"));
-    eth_layer.set_src_mac(try MacAddress.init_from_string("14:4f:8a:a4:15:7d"));
-    try eth_layer.set_eth_type(EthType.IP);
+    var layer = try LayerImpl.init(EthLayer, layer_owner);
+    layer.ethLayer.set_dst_mac(try MacAddress.init_from_string("38:06:e6:92:63:ac"));
+    layer.ethLayer.set_src_mac(try MacAddress.init_from_string("14:4f:8a:a4:15:7d"));
+    try layer.ethLayer.set_eth_type(EthType.IP);
 
-    _ = try packet.add_layer(EthLayer, eth_layer.get_data());
+    print("from enum: {any}\n", .{layer.ptr()});
+    print("from eth layer: {any}\n", .{layer.ethLayer.ptr()});
 
-    eth_layer = packet.get_layer_of_type(EthLayer) orelse {
+    _ = try packet.add_layer(&layer);
+
+    try print_packet(&packet);
+
+    const eth_layer: *EthLayer = packet.get_layer_of_type(EthLayer) orelse {
+        print("couldn't get ethlayer.\n", .{});
         return;
     };
 
-    print("{s}\n", .{eth_layer.to_string(page_allocator)});
+    layer = try LayerImpl.init(UDPLayer, layer_owner);
 
-    var ipv4_layer: IPv4Layer = try IPv4Layer.init(layer_owner);
+    print("udp layer: {}\n", .{layer.get_data().len});
 
-    ipv4_layer.set_src_ip(try IPv4Address.init_from_string("192.168.1.225"));
-    ipv4_layer.set_dst_ip(try IPv4Address.init_from_string("192.168.1.254"));
+    layer.udpLayer.set_dst_port(5005);
+    layer.udpLayer.set_src_port(1024);
 
-    _ = try packet.add_layer(IPv4Layer, ipv4_layer.get_data());
+    _ = try packet.add_layer(&layer);
 
-    ipv4_layer = packet.get_layer_of_type(IPv4Layer) orelse {
+    var udp_layer = packet.get_layer_of_type(UDPLayer) orelse {
+        print("udp layer not added.\n", .{});
         return;
     };
 
-    print("{s}\n", .{ipv4_layer.to_string(std.heap.page_allocator)});
+    print("udp layer: {}\n", .{udp_layer.get_data().len});
 
-    var udp_layer: UDPLayer = try UDPLayer.init(layer_owner);
-    defer udp_layer.deinit();
+    var ip_layer = try LayerImpl.init(IPv4Layer, layer_owner);
 
-    print("udp layer: {x}\n", .{udp_layer.get_data()});
+    ip_layer.ipv4Layer.set_src_ip(try IPv4Address.init_from_string("192.168.1.225"));
+    ip_layer.ipv4Layer.set_dst_ip(try IPv4Address.init_from_string("192.168.1.254"));
+    ip_layer.ipv4Layer.set_protocol(TransportProtocols.UDP);
 
-    udp_layer.set_dst_port(5005);
-    udp_layer.set_src_port(1024);
+    print("{s}\n", .{ip_layer.to_string(std.heap.page_allocator)});
 
-    _ = try packet.add_layer(UDPLayer, udp_layer.get_data());
+    _ = try packet.insert_layer(eth_layer, &ip_layer);
 
-    udp_layer = packet.get_layer_of_type(UDPLayer) orelse {
-        print("no udp layer.\n", .{});
-        return;
-    };
-
-    print("getting prev layer.\n", .{});
-    udp_layer.get_prev_layer();
-
-    udp_layer.calculate_checksum();
-
-    ipv4_layer.calculate_checksum();
-
-    print("{s}\n", .{ipv4_layer.to_string(std.heap.page_allocator)});
-    print("{s}\n", .{udp_layer.to_string(std.heap.page_allocator)});
-    //
+    try packet.to_string(std.heap.page_allocator);
 
     packet.print_layers_meta();
 
-    //
-    //  print("{x}\n", .{ipv4_layer.data});
+    print("Packet buf: {}\n", .{packet.aligned_buffer.len});
 
-    print("layer data: {x}\n", .{packet.aligned_buffer});
-
-    print("end index: {}\n", .{fba.end_index});
-}
-
-pub fn alignment_check(buffer: []u8, protocol_hdr: anytype) usize {
-    const alignment = @alignOf(protocol_hdr);
-    const addr = @intFromPtr(buffer.ptr);
-
-    return addr % alignment;
-}
-
-pub fn test_ipv4_ext(allocator: Allocator) !void {
-    const ipv4_ext_raw = [54]u8{
-        // Ethernet Header
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, // Dest MAC
-        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, // Src MAC
-        0x08, 0x00, // EtherType (IPv4)
-
-        // IPv4 Header (IHL = 6 → includes 4 bytes options)
-        0x46, // Version + IHL
-        0x00, // DSCP/ECN
-        0x00, 0x2c, // Total Length
-        0x12, 0x34, // Identification
-        0x40, 0x00, // Flags + Fragment Offset
-        0x40, // TTL
-        0x11, // Protocol (UDP)
-        0xa6, 0xec, // Header checksum (approx)
-        0xc0, 0xa8, 0x01, 0x01, // Src IP
-        0xc0, 0xa8, 0x01, 0x02, // Dst IP
-
-        // IPv4 Options (4 bytes to align to 24-byte header)
-        0x01, // NOP
-        0x02, 0x03, 0x04, // Arbitrary option data
-
-        // UDP Header
-        0x1f, 0x90, // Src port (8080)
-        0x00, 0x35, // Dst port (53)
-        0x00, 0x18, // Length
-        0x00, 0x00, // Checksum (0 = unused in IPv4)
-
-        // Payload ("HelloUDP")
-        0x48, 0x65,
-        0x6c, 0x6c,
-        0x6f, 0x55,
-        0x44, 0x50,
-    };
-
-    var packet = try Packet.Packet.create(allocator, LinkLayerProtocols.ETHERNET);
-    //defer packet.deinit();
-
-    const pkt_data: []u8 = try allocator.alloc(u8, ipv4_ext_raw.len);
-    defer allocator.free(pkt_data);
-
-    std.mem.copyForwards(u8, pkt_data, ipv4_ext_raw[0..]);
-
-    print("Original: ({}) {x}\n", .{ pkt_data.len, pkt_data });
-
-    var wire_packet = WirePacket.init(0, 0, pkt_data, LinkLayerProtocols.ETHERNET);
-
-    try packet.from_wire_packet(&wire_packet);
-
-    var ipv4_layer: IPv4Layer = try packet.get_layer_of_type(IPv4Layer) orelse {
+    var next_layer = try eth_layer.get_next_layer_type() orelse {
+        print("no next layer.\n", .{});
         return;
     };
 
-    print("{s}\n", .{ipv4_layer.to_string(std.heap.page_allocator)});
+    print("{any}\n", .{next_layer.get_protocol()});
 
-    print("IPv4 data: {x}\n", .{ipv4_layer.data});
-
-    var udp_layer: UDPLayer = try packet.get_layer_of_type(UDPLayer) orelse {
+    var ipv4Layer = packet.get_layer_of_type(IPv4Layer) orelse {
+        print("ipv4 layer not found.\n", .{});
         return;
     };
 
-    const src_ip = ipv4_layer.get_src_ip();
-    const dst_ip = ipv4_layer.get_dst_ip();
-
-    print("Array: {any} U32: {any}\n", .{ src_ip, src_ip.to_u32() });
-
-    udp_layer.calculate_checksum(src_ip.to_u32(), dst_ip.to_u32());
-
-    print("UDP payload: {x}\n", .{udp_layer.get_payload()});
-
-    print("{s}\n", .{udp_layer.to_string(std.heap.page_allocator)});
-
-    //0xFA2D - expected UDP checksum
-
-    //packet.print_layers();
-}
-
-pub fn create_basic_udp_packet() !void {
-    var backing_buffer: [2048]u8 = undefined;
-
-    var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
-    const allocator = fba.allocator();
-
-    const page_allocator = std.heap.page_allocator;
-
-    _ = &page_allocator;
-
-    var eth_data: [14]u8 = undefined;
-
-    var ip_data: [20]u8 = undefined;
-
-    var packet = try Packet.Packet.create(allocator, LinkLayerProtocols.ETHERNET);
-
-    _ = try packet.add_layer(EthLayer, eth_data[0..]);
-
-    var eth_layer: EthLayer = try packet.get_layer_of_type(EthLayer) orelse {
+    next_layer = try ipv4Layer.get_next_layer_type() orelse {
+        print("no next layer from ip\n", .{});
         return;
     };
 
-    eth_layer.set_dst_mac(try MacAddress.init_from_string("38:06:e6:92:63:ac"));
-    eth_layer.set_src_mac(try MacAddress.init_from_string("14:4f:8a:a4:15:7d"));
-    try eth_layer.set_eth_type(EthType.IP);
-
-    _ = try packet.add_layer(IPv4Layer, ip_data[0..]);
-
-    var ipv4_layer: IPv4Layer = try packet.get_layer_of_type(IPv4Layer) orelse {
-        return;
-    };
-
-    ipv4_layer.zero_hdr();
-
-    ipv4_layer.set_src_ip(try IPv4Address.init_from_string("192.168.1.225"));
-    ipv4_layer.set_dst_ip(try IPv4Address.init_from_string("192.168.1.254"));
-
-    var udp_data: [8]u8 = undefined;
-
-    _ = try packet.add_layer(UDPLayer, udp_data[0..]);
-
-    var udp_layer: UDPLayer = try packet.get_layer_of_type(UDPLayer) orelse {
-        return;
-    };
-
-    udp_layer.zero_hdr();
-
-    udp_layer.set_dst_port(5005);
-    udp_layer.set_src_port(1024);
-
-    print("src ip: {x}\n", .{ipv4_layer.get_src_ip().array});
-
-    ipv4_layer = try packet.get_layer_of_type(IPv4Layer) orelse {
-        return;
-    };
-
-    print("ipv4 data len: {}\n", .{ipv4_layer.data.len});
-
-    udp_layer.calculate_checksum(ipv4_layer.get_src_ip().to_u32(), ipv4_layer.get_dst_ip().to_u32());
-
-    ipv4_layer.set_protocol(TransportProtocols.UDP);
-
-    ipv4_layer.calculate_length();
-
-    ipv4_layer.calculate_checksum();
-
-    print("{s}\n", .{udp_layer.to_string(page_allocator)});
-
-    print("{s}\n", .{ipv4_layer.to_string(page_allocator)});
-
-    //    packet.print_layers_meta();
-
-    print("packet data: {x}\n", .{packet.aligned_buffer});
-
-    try send_packet(packet.aligned_buffer);
-
-    fba.reset();
-}
-
-pub fn send_packet(buf: []u8) !void {
-    var wifi_interface = try open_pcap() orelse {
-        return error.FailedToOpen;
-    };
-
-    try wifi_interface.send(buf);
-
-    print("No error during send.\n", .{});
-}
-
-pub fn open_pcap() !?*PcapWrapper.Interface {
-    print("starting...\n", .{});
-
-    const ip: []const u8 = "192.168.1.225";
-
-    const allocator = std.heap.page_allocator;
-
-    var interfaces = PcapWrapper.Interfaces.init() catch |err| {
-        print("Failed to init interfaces: {s}.\n", .{@errorName(err)});
-        return err;
-    };
-
-    const device_list = try interfaces.list_all(allocator);
-
-    if (device_list.items.len > 0) {
-        const main_iface = interfaces.find_by_ip(ip);
-        if (main_iface) |iface| {
-            try iface.open(allocator);
-
-            if (iface.isOpened()) {
-                return iface;
-            } else {
-                return null;
-            }
-        } else {
-            return null;
-        }
-    } else {
-        return null;
-    }
-}
-
-pub fn test_ipv4(allocator: Allocator) !void {
-    print("Testing IPv6.\n", .{});
-    var packet = try Packet.Packet.create(allocator, LinkLayerProtocols.ETHERNET);
-    defer packet.deinit();
-
-    const pkt_data: []u8 = try allocator.alloc(u8, raw.len);
-    defer allocator.free(pkt_data);
-
-    std.mem.copyForwards(u8, pkt_data, raw[0..]);
-
-    print("Original: ({}) {x}\n", .{ pkt_data.len, pkt_data });
-
-    var wire_packet = WirePacket.init(0, 0, pkt_data, LinkLayerProtocols.ETHERNET);
-
-    try packet.from_wire_packet(&wire_packet);
-
-    packet.print_layers();
-}
-
-pub fn test_ipv6(allocator: Allocator) !void {
-    print("Testing IPv6.\n", .{});
-    var packet = try Packet.Packet.create(allocator, LinkLayerProtocols.ETHERNET);
-    defer packet.deinit();
-
-    const pkt_data: []u8 = try allocator.alloc(u8, ipv6_dns_request_raw.len);
-    defer allocator.free(pkt_data);
-
-    std.mem.copyForwards(u8, pkt_data, ipv6_dns_request_raw[0..ipv6_dns_request_raw.len]);
-
-    print("align: {}\n", .{alignment_check(pkt_data[14..], IPv6.IPv6Header)});
-
-    print("Original: ({}) {x}\n", .{ pkt_data.len, pkt_data });
-
-    var wire_packet = WirePacket.init(0, 0, pkt_data, LinkLayerProtocols.ETHERNET);
-
-    try packet.from_wire_packet(&wire_packet);
-
-    var ipv6_layer: IPv6.IPv6Layer = try packet.get_layer_of_type(IPv6.IPv6Layer) orelse {
-        print("could not get IPv6 layer.\n", .{});
-        return;
-    };
-
-    _ = &ipv6_layer;
-
-    //print("{s}\n", .{ipv6_layer.to_string(std.heap.page_allocator)});
-
-    print("aligned_buffer: ({}) {x}\n\n", .{ packet.aligned_buffer.len, packet.aligned_buffer });
-
-    //packet.print_layers();
-}
-
-pub fn test_arp(allocator: Allocator) !void {
-    var packet = try Packet.Packet.create(allocator, LinkLayerProtocols.ETHERNET);
-    defer packet.deinit();
-
-    const pkt_data: []u8 = try allocator.alloc(u8, arp_request_raw.len);
-    defer allocator.free(pkt_data);
-
-    std.mem.copyForwards(u8, pkt_data, arp_request_raw[0..]);
-
-    print("Original: ({}) {x}\n", .{ pkt_data.len, pkt_data });
-
-    var wire_packet = WirePacket.init(0, 0, pkt_data, LinkLayerProtocols.ETHERNET);
-
-    try packet.from_wire_packet(&wire_packet);
-
-    packet.print_layers_meta();
-}
-
-pub fn test_icmp(allocator: Allocator) !void {
-    var packet = try Packet.Packet.create(allocator, LinkLayerProtocols.ETHERNET);
-    //    defer packet.deinit();
-
-    const pkt_data: []u8 = try allocator.alloc(u8, icmp_request_raw.len);
-    defer allocator.free(pkt_data);
-
-    std.mem.copyForwards(u8, pkt_data, icmp_request_raw[0..]);
-
-    print("Original: ({}) {x}\n", .{ pkt_data.len, pkt_data });
-
-    var wire_packet = WirePacket.init(0, 0, pkt_data, LinkLayerProtocols.ETHERNET);
-
-    try packet.from_wire_packet(&wire_packet);
-
-    var icmp_layer = try packet.get_layer_of_type(ICMP.ICMPLayer) orelse {
-        return;
-    };
-
-    print("{s}\n", .{try icmp_layer.to_string(std.heap.page_allocator)});
-    //packet.print_layers();
-}
-
-pub fn test_tcp(allocator: Allocator) !void {
-    var packet = try Packet.Packet.create(allocator, LinkLayerProtocols.ETHERNET);
-    //    defer packet.deinit();
-
-    const pkt_data: []u8 = try allocator.alloc(u8, tcp_syn_raw.len);
-    defer allocator.free(pkt_data);
-
-    std.mem.copyForwards(u8, pkt_data, tcp_syn_raw[0..]);
-
-    print("Original: ({}) {x}\n", .{ pkt_data.len, pkt_data });
-
-    var wire_packet = WirePacket.init(0, 0, pkt_data, LinkLayerProtocols.ETHERNET);
-
-    try packet.from_wire_packet(&wire_packet);
-
-    packet.print_layers_meta();
-}
-
-pub fn test_http(allocator: Allocator) !void {
-    var packet = try Packet.Packet.create(allocator, LinkLayerProtocols.ETHERNET);
-    defer packet.deinit();
-
-    const pkt_data: []u8 = try allocator.alloc(u8, http_raw.len);
-    //defer allocator.free(packet.aligned_buffer);
-
-    std.mem.copyForwards(u8, pkt_data, http_raw[0..]);
-
-    print("Original: ({}) {x}\n", .{ pkt_data.len, pkt_data });
-
-    var wire_packet = WirePacket.init(0, 0, pkt_data, LinkLayerProtocols.ETHERNET);
-
-    try packet.from_wire_packet(&wire_packet);
-
-    var tcp_layer: TCP.TCPLayer = try packet.extract_layer(TCP.TCPLayer, allocator) orelse {
-        return;
-    };
-
-    print("{s}\n", .{tcp_layer.to_string(std.heap.page_allocator)});
-
-    packet.print_layers_meta();
-
-    print("aligned buffer: {x} ({})\n", .{ packet.aligned_buffer[0..], packet.aligned_buffer[0..].len });
-}
-
-pub fn test_udp(allocator: Allocator) !void {
-    var packet = try Packet.Packet.create(allocator, LinkLayerProtocols.ETHERNET);
-    //    defer packet.deinit();
-
-    const pkt_data: []u8 = try allocator.alloc(u8, udp_raw.len);
-    defer allocator.free(pkt_data);
-
-    std.mem.copyForwards(u8, pkt_data, udp_raw[0..]);
-
-    print("Original: ({}) {x}\n", .{ pkt_data.len, pkt_data });
-
-    var wire_packet = WirePacket.init(0, 0, pkt_data, LinkLayerProtocols.ETHERNET);
-
-    try packet.from_wire_packet(&wire_packet);
-
-    packet.print_layers();
+    print("{any}\n", .{next_layer.get_protocol()});
 }
 
 const udp_raw = [47]u8{ 0x38, 0x6, 0xe6, 0x92, 0x63, 0xac, 0x14, 0x4f, 0x8a, 0xa4, 0x15, 0x7d, 0x8, 0x0, 0x45, 0x0, 0x0, 0x21, 0xb5, 0xba, 0x0, 0x0, 0x80, 0x11, 0xff, 0xe1, 0xc0, 0xa8, 0x1, 0xe1, 0xc0, 0xa8, 0x1, 0xfe, 0xe8, 0xd9, 0x13, 0x8d, 0x0, 0xd, 0x3a, 0x6b, 0x68, 0x65, 0x6c, 0x6c, 0x6f };
