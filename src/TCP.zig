@@ -26,34 +26,6 @@ pub const TCPHeader = extern struct {
     urgent_ptr: u16,
 };
 
-pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
-    if (buffer.len < TCPHeaderMinSize) {
-        return LayerError.BufferTooSmall;
-    }
-
-    const alignment = @alignOf(TCPHeader);
-    const addr = @intFromPtr(buffer.ptr);
-    if (addr % alignment != 0) {
-        return LayerError.MisalignedBuffer;
-    }
-
-    var tcp_layer = try TCPLayer.init(buffer[0..]);
-
-    const hdr_len = tcp_layer.calculate_length();
-
-    var layer = Packet.Layer{ .protocol = undefined, .offset = 0, .length = 0, .next_layer = null };
-
-    layer.offset = hdr_len;
-
-    if ((buffer.len - hdr_len) > 0) {
-        layer.length = (buffer.len - hdr_len);
-    }
-
-    layer.protocol = LayerProtocols{ .Application = .Generic };
-
-    return layer;
-}
-
 pub const TCPLayer = struct {
     owner: LayerOwner,
     const Protocol = LayerProtocols{ .Transport = .TCP };
@@ -69,10 +41,11 @@ pub const TCPLayer = struct {
             .allocator_owned => {
                 var self = TCPLayer{ .owner = owner };
                 // Allocate directly into the struct's data field
-                self.owner.allocator_owned.data = try self.owner.allocator_owned.allocator.alloc(u8, TCPHeaderMinSize);
-
-                //var header = TCPHeader.init_default();
-                //@memcpy(self.owner.allocator_owned.data[0..TCPHeaderMinSize], std.mem.asBytes(&header));
+                if (self.owner.allocator_owned.data.len < 20) {
+                    self.owner.allocator_owned.data = try self.owner.allocator_owned.allocator.alloc(u8, TCPHeaderMinSize);
+                    //var header = TCPHeader.init_default(); // need to implement this
+                    //@memcpy(self.owner.allocator_owned.data[0..TCPHeaderMinSize], std.mem.asBytes(&header));
+                }
 
                 return self;
             },
@@ -124,7 +97,7 @@ pub const TCPLayer = struct {
         return;
     }
 
-    pub fn get_next_layer_type(self: *TCPLayer, layer: *Packet.Layer) !LayerImpl {
+    pub fn get_next_layer_type(self: *TCPLayer, layer: *Packet.Layer) !?LayerImpl {
         const data = self.get_data();
 
         if (data.len < TCPHeaderMinSize) {
@@ -140,12 +113,47 @@ pub const TCPLayer = struct {
         return try LayerImpl.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
     }
 
+    /// return mutable slice of the payload
+    pub fn get_payload(self: *TCPLayer) ?[]u8 {
+        const hdr_len = self.calculate_length();
+
+        const data = self.get_data();
+
+        if (data.len > hdr_len) {
+            return data[hdr_len..];
+        } else {
+            print("udp data too small. data len={}\n", .{data.len});
+            return null;
+        }
+    }
+
+    pub fn get_header(self: *TCPLayer) *TCPHeader {
+        return @ptrCast(@alignCast(self.get_data())); // need to change this
+    }
+
     //// Calculate the length of the TCPHeader
     pub fn calculate_length(self: *TCPLayer) u16 {
         const hdr = self.get_header();
         const raw = std.mem.bigToNative(u16, hdr.data_offset_reserved_flags);
         const data_offset = (raw >> 12) & 0xF; // top 4 bits
         return data_offset * 4; // in bytes
+    }
+
+    /// get slice of data (hdr+payload)
+    pub fn get_data(self: *const TCPLayer) []u8 {
+        switch (self.owner) {
+            .packet_layer => {
+                //print("getting self ({*}) data from packet\n", .{self});
+                const tcp_data = self.owner.packet_layer.packet.find_layer_ptr(@ptrCast(@constCast(self))) orelse {
+                    std.debug.panic("ipv4 layer ptr ({*}) not found in packet\n", .{self});
+                };
+                return tcp_data;
+            },
+            else => {
+                //print("getting self ({*}) data from allocator\n", .{self});
+                return self.owner.allocator_owned.data;
+            },
+        }
     }
 
     pub fn to_string(self: *TCPLayer, allocator: Allocator) []const u8 {
@@ -198,41 +206,6 @@ pub const TCPLayer = struct {
         };
 
         return result;
-    }
-
-    /// get slice of data (hdr+payload)
-    pub fn get_data(self: *const TCPLayer) []u8 {
-        switch (self.owner) {
-            .packet_layer => {
-                print("getting self ({*}) data from packet\n", .{self});
-                const tcp_data = self.owner.packet_layer.packet.find_layer_ptr(@ptrCast(@constCast(self))) orelse {
-                    std.debug.panic("ipv4 layer ptr ({*}) not found in packet\n", .{self});
-                };
-                return tcp_data;
-            },
-            else => {
-                print("getting self ({*}) data from allocator\n", .{self});
-                return self.owner.allocator_owned.data;
-            },
-        }
-    }
-
-    /// return mutable slice of the payload
-    pub fn get_payload(self: *TCPLayer) ?[]u8 {
-        const hdr_len = self.calculate_length();
-
-        const data = self.get_data();
-
-        if (data.len > hdr_len) {
-            return data[hdr_len..];
-        } else {
-            return null;
-        }
-    }
-
-    pub fn get_header(self: *TCPLayer) *TCPHeader {
-        // return the full header if it exceeds 20 bytes
-        return @ptrCast(@alignCast(self.get_data()[0..20])); // need to change this
     }
 
     pub fn get_protocol(self: *TCPLayer) LayerProtocols {

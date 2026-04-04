@@ -280,10 +280,12 @@ pub const UDPLayer = struct {
                 // Allocate directly into the struct's data field
                 //
                 // will cause data wipe
-                self.owner.allocator_owned.data = try self.owner.allocator_owned.allocator.alloc(u8, UDPHeaderSize);
+                if (self.owner.allocator_owned.data.len < UDPHeaderSize) {
+                    self.owner.allocator_owned.data = try self.owner.allocator_owned.allocator.alloc(u8, UDPHeaderSize);
 
-                var header = UDPHeader.init_default();
-                @memcpy(self.owner.allocator_owned.data[0..UDPHeaderSize], std.mem.asBytes(&header));
+                    var header = UDPHeader.init_default();
+                    @memcpy(self.owner.allocator_owned.data[0..UDPHeaderSize], std.mem.asBytes(&header));
+                }
 
                 return self;
             },

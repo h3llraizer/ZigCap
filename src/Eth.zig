@@ -290,11 +290,7 @@ pub const EthLayer = struct {
                         return try LayerImpl.init(GenericLayer.ApplicationLayer, LayerOwner{ .packet_layer = layer });
                     }
 
-                    print("offset: {}\n", .{layer.offset});
-
-                    const new_layer = try LayerImpl.init(IPv4.IPv4Layer, LayerOwner{ .packet_layer = layer });
-
-                    return new_layer;
+                    return try LayerImpl.init(IPv4.IPv4Layer, LayerOwner{ .packet_layer = layer });
                 }
 
                 if (ip_version == @intFromEnum(NetworkProtocols.IPv6)) {

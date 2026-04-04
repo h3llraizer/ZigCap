@@ -308,30 +308,18 @@ pub const IPv4Layer = struct {
         const hdr: *const IPv4Header = @ptrCast(aligned_ptr);
 
         const ip_protocol = std.meta.intToEnum(IPProtocol, hdr.protocol) catch {
-            return try LayerImpl.init(ApplicationLayer, self.owner);
-            //next_layer.length = data[hdr_len..].len; // Remaining bytes
-            //return next_layer;
+            return try LayerImpl.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
         };
 
         switch (ip_protocol) {
             IPProtocol.ICMP => {
-                //next_layer.protocol = LayerProtocols{ .Network = .ICMP };
-                //next_layer.length = data[hdr_len..].len; // this is fine because it includes the payload
                 return null;
             },
 
             IPProtocol.TCP => {
-                //               next_layer.protocol = LayerProtocols{ .Transport = .TCP };
-                //               var tcp_layer: TCP.TCPLayer = try TCP.TCPLayer.init(data[hdr_len..]);
-                //               const hdr_length = tcp_layer.calculate_length();
-                //               next_layer.length = hdr_length;
-                //print("hdr length: {}\n", .{hdr_length});
-                return null;
+                return try LayerImpl.init(TCP.TCPLayer, LayerOwner{ .packet_layer = layer });
             },
             IPProtocol.UDP => {
-                //next_layer.protocol = LayerProtocols{ .Transport = .UDP };
-                //next_layer.length = UDP.UDPHeaderSize;
-                print("offset: {}\n", .{layer.offset});
                 return try LayerImpl.init(UDP.UDPLayer, LayerOwner{ .packet_layer = layer });
             },
         }

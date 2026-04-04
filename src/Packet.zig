@@ -26,11 +26,7 @@ const EthLayer = Eth.EthLayer;
 
 const LayerOwner = @import("Layer.zig").LayerOwner;
 
-const get_layer_size = @import("ProtocolHelpers.zig").get_layer_size;
 const get_layer_type_enum = @import("ProtocolHelpers.zig").get_layer_type_enum;
-const get_layer_alignment = @import("ProtocolHelpers.zig").get_layer_alignment;
-const get_layer_init = @import("ProtocolHelpers.zig").get_layer_init;
-const get_layer_to_string = @import("ProtocolHelpers.zig").get_layer_to_string;
 const comparePayloads = @import("ProtocolHelpers.zig").comparePayloads;
 
 const compare_impl = @import("ProtocolHelpers.zig").compare_impl;
@@ -87,19 +83,14 @@ pub const Packet = struct {
     fn accumulate_layers(self: *Packet) !void {
         var cur = self.first_layer;
         while (cur) |current_layer| {
-            const current_layer_payload = current_layer.layer_impl.get_payload() orelse return;
+            const current_layer_payload = current_layer.layer_impl.get_payload() orelse { // if the current layer only has a header
+                current_layer.length = current_layer.layer_impl.get_data().len; // set its length to the length of the header
+                return;
+            };
 
             const next_layer: *Layer = try self.allocator.create(Layer);
 
             next_layer.offset = current_layer.length;
-
-            //          const impl_layer: LayerImpl = try current_layer.layer_impl.get_next_layer(next_layer) orelse { // remember to destroy layer on excp
-            //              print("no next layer.\n", .{});
-            //              self.allocator.destroy(next_layer);
-            //              print("current_layer_payload len = {}\n", .{current_layer_payload.len});
-            //              current_layer.length = current_layer_payload.len;
-            //              return;
-            //          };
 
             const impl_layer = blk: {
                 const result = current_layer.layer_impl.get_next_layer(next_layer) catch |err| {
@@ -203,7 +194,6 @@ pub const Packet = struct {
 
         while (cur) |layer| {
             if (layer.layer_impl.ptr() == layer_ptr) {
-                //print("returning: {x}\n", .{self.aligned_buffer[layer.offset..]});
                 return self.aligned_buffer[layer.offset..];
             }
 
@@ -340,19 +330,11 @@ pub const Packet = struct {
 
         var delete_start: usize = 0;
         if (layer.prev_layer) |prev| {
-            print("prev layer len: {}\n", .{prev.length});
-            delete_start = prev.length;
+            delete_start = prev.length + prev.offset;
             prev.next_layer = layer.next_layer;
         }
 
-        var padding: usize = 0;
-        if (delete_start > 0) {
-            padding = layer.offset % delete_start;
-        }
-
-        print("padding: {}\n", .{padding});
-
-        const delete_buf = self.aligned_buffer[(layer.offset - padding) .. layer.offset + layer.length];
+        const delete_buf = self.aligned_buffer[layer.offset .. layer.offset + layer.length];
         print("deletion buffer: {x} ({})\n", .{ delete_buf, delete_buf.len });
 
         const remaining_buf = self.aligned_buffer[delete_start + delete_buf.len ..];
@@ -421,30 +403,21 @@ pub const Packet = struct {
             return null;
         };
 
-        //const init_buf: []u8 = try owner.allocator_owned.allocator.alloc(u8, layer.length);
-
         var delete_start: usize = 0;
         if (layer.prev_layer) |prev| {
-            print("prev layer len: {}\n", .{prev.length});
-            delete_start = prev.length;
+            delete_start = prev.length + prev.offset;
             prev.next_layer = layer.next_layer;
         } else {
             print("no prev layer.\n", .{});
         }
 
-        var padding: usize = 0;
-
-        if (delete_start > 0) {
-            padding = layer.offset % delete_start;
-        }
-
-        const delete_buf = self.aligned_buffer[(layer.offset - padding) .. layer.offset + layer.length];
+        const delete_buf = self.aligned_buffer[layer.offset .. layer.offset + layer.length];
 
         const remaining_buf = self.aligned_buffer[delete_start + delete_buf.len ..];
 
         const dest = self.aligned_buffer[delete_start .. delete_start + remaining_buf.len];
 
-        try owner.allocator_owned.copy_from(delete_buf[padding..]);
+        try owner.allocator_owned.copy_from(delete_buf[0..]);
 
         @memmove(dest, remaining_buf);
 
@@ -493,24 +466,6 @@ pub const Packet = struct {
     //       }
     //   }
     //
-    //   pub fn find_layer(self: *Packet, protocol_layer: LayerProtocols) ?[]u8 {
-    //       const layer: ?*Layer = self.search_layers(protocol_layer) catch {
-    //           return null;
-    //       };
-    //       if (layer) |l| {
-    //           return self.aligned_buffer[l.offset..];
-    //       }
-    //       return null;
-    //   }
-    //
-    //   pub fn to_string(self: *Packet) !void {
-    //       var cur = self.first_layer;
-    //       while (cur) |layer| {
-    //           const to_string_method = try get_layer_to_string(layer.protocol);
-    //           _ = to_string_method;
-    //           cur = layer.next_layer;
-    //       }
-    //   }
     //
     //   pub fn print_layers(self: *Packet) void {
     //       var cur = self.first_layer;
@@ -531,43 +486,6 @@ pub const Packet = struct {
         }
     }
 
-    //   fn accum_layers(self: *Packet, layer: *Layer) !void {
-    //       var next_layer: Layer = undefined;
-    //
-    //       const current_slice = self.aligned_buffer[layer.offset..];
-    //
-    //       print("current slice: {x}\n", .{current_slice});
-    //
-    //       const get_next = ProtocolHelpers.get_next_layer_type(layer.protocol) orelse {
-    //           print("no init method.\n", .{});
-    //           return;
-    //       };
-    //
-    //       next_layer = get_next(current_slice[0..]) catch |err| {
-    //           print("{s}\n", .{@errorName(err)});
-    //           return;
-    //       };
-    //
-    //       if (next_layer.length == 0) {
-    //           return;
-    //       }
-    //
-    //       next_layer.offset += layer.offset;
-    //
-    //       layer.to_string();
-    //
-    //       next_layer.to_string();
-    //
-    //       const next_layer_ = try self.allocator.create(Layer);
-    //
-    //       next_layer_.* = next_layer;
-    //
-    //       layer.next_layer = next_layer_;
-    //
-    //       next_layer_.prev_layer = layer;
-    //
-    //       try self.accum_layers(next_layer_);
-    //   }
     //
     //   /// destroys protocol layers linkedlist. The buffer is not freed.
     //   pub fn deinit(self: *Packet) void {
