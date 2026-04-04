@@ -3,10 +3,11 @@ const activeTag = @import("std").meta.activeTag;
 const print = @import("std").debug.print;
 
 const Packet = @import("Packet.zig");
+const Layer = @import("Packet.zig").Layer;
 const Eth = @import("Eth.zig");
 const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
-const UDP = @import("UDPLayer.zig");
+const UDP = @import("UDP.zig");
 const TCP = @import("TCP.zig");
 const ARP = @import("ARP.zig");
 const ICMP = @import("ICMP.zig");
@@ -300,7 +301,7 @@ pub const LayerImpl = union(enum) {
             IPv4.IPv4Layer => return LayerImpl{ .ipv4Layer = try IPv4.IPv4Layer.init(owner) },
             //           IPv6.IPv6Layer => return IPv6.IPv6Layer.init(owner),
             UDP.UDPLayer => return LayerImpl{ .udpLayer = try UDP.UDPLayer.init(owner) },
-            TCP.TCPLayer => return TCP.TCPLayer.init(owner),
+            TCP.TCPLayer => return LayerImpl{ .tcpLayer = try TCP.TCPLayer.init(owner) },
             //           ARP.ArpLayer => return ARP.ArpLayer.init(owner),
             //           ICMP.ICMPLayer => return ICMP.ICMPLayer.init(owner),
             GenericLayer.ApplicationLayer => return LayerImpl{ .genericAppLayer = try GenericLayer.ApplicationLayer.init(owner) },
@@ -322,12 +323,18 @@ pub const LayerImpl = union(enum) {
         self.* = new_instance;
     }
 
+    pub fn get_next_layer(self: *LayerImpl, next_layer: *Packet.Layer) !?LayerImpl {
+        return switch (self.*) {
+            inline else => |*layer| try layer.get_next_layer_type(next_layer),
+        };
+    }
+
     pub fn get_protocol(self: *LayerImpl) !LayerProtocols {
         switch (self.*) {
             .ethLayer => return LayerProtocols{ .LinkLayer = .ETHERNET },
             .ipv4Layer => return LayerProtocols{ .Network = .IPv4 },
             .udpLayer => return LayerProtocols{ .Transport = .UDP },
-            .udpLayer => return LayerProtocols{ .Transport = .UDP },
+            .tcpLayer => return LayerProtocols{ .Transport = .TCP },
             .genericAppLayer => return LayerProtocols{ .Application = .Generic },
         }
     }

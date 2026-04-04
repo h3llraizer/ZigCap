@@ -1,7 +1,9 @@
 const std = @import("std");
 const Packet = @import("Packet.zig").Packet;
+const Layer = @import("Packet.zig").Layer;
 const LayerOwner = @import("Layer.zig").LayerOwner;
 const LayerError = @import("ProtocolHelpers.zig").LayerError;
+const LayerImpl = @import("ProtocolHelpers.zig").LayerImpl;
 
 const print = std.debug.print;
 
@@ -30,21 +32,31 @@ pub const ApplicationLayer = struct {
         }
     }
 
+    pub fn get_next_layer_type(self: *const ApplicationLayer, layer: *Layer) !?LayerImpl {
+        _ = self;
+        _ = layer;
+        return null;
+    }
+
     /// Get slice of data (header + payload)
     pub fn get_data(self: *const ApplicationLayer) []u8 {
         switch (self.owner) {
             .packet_layer => {
-                print("getting self ({*}) data from packet\n", .{self});
+                //print("getting self ({*}) data from packet\n", .{self});
                 const app_data = self.owner.packet_layer.packet.find_layer_ptr(@ptrCast(@constCast(self))) orelse {
                     std.debug.panic("app layer ptr ({*}) not found in packet\n", .{self});
                 };
                 return app_data;
             },
             else => {
-                print("getting self ({*}) data from allocator\n", .{self});
+                //print("getting self ({*}) data from allocator\n", .{self});
                 return self.owner.allocator_owned.data;
             },
         }
+    }
+
+    pub fn get_payload(self: *ApplicationLayer) ?[]const u8 {
+        return self.get_data();
     }
 
     pub fn to_string(self: *const ApplicationLayer, allocator: Allocator) []const u8 {

@@ -14,6 +14,8 @@ const Packet = @import("Packet.zig");
 const LayerOwner = @import("Layer.zig").LayerOwner;
 const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
 
+const LayerImpl = @import("ProtocolHelpers.zig").LayerImpl;
+
 const comparePayloads = @import("ProtocolHelpers.zig").comparePayloads;
 
 const nativeToBig = std.mem.nativeToBig;
@@ -323,30 +325,38 @@ pub const UDPLayer = struct {
     pub fn get_data(self: *const UDPLayer) []u8 {
         switch (self.owner) {
             .packet_layer => {
-                print("getting self ({*}) data from packet\n", .{self});
+                //print("getting self ({*}) data from packet\n", .{self});
                 const udp_data = self.owner.packet_layer.packet.find_layer_ptr(@ptrCast(@constCast(self))) orelse {
                     std.debug.panic("udp layer ptr ({*}) not found in packet\n", .{self});
                 };
                 return udp_data;
             },
             else => {
-                print("getting self ({*}) data from allocator\n", .{self});
+                //print("getting self ({*}) data from allocator\n", .{self});
                 return self.owner.allocator_owned.data;
             },
         }
     }
 
     /// Get the payload (data after UDP header)
-    pub fn get_payload(self: *UDPLayer) []u8 {
-        const hdr = self.get_header();
-        const total_len = hdr.get_length();
-        const payload_start = UDPHeaderSize;
+    pub fn get_payload(self: *UDPLayer) ?[]u8 {
+        //const hdr = self.get_header();
+        //const total_len = hdr.get_length();
+        //const payload_start = UDPHeaderSize;
 
-        if (total_len < UDPHeaderSize) return self.data[UDPHeaderSize..];
+        const data = self.get_data();
+
+        //if (total_len < UDPHeaderSize) return data[UDPHeaderSize..];
+
+        if (data.len > UDPHeaderSize) {
+            return data[UDPHeaderSize..]; // return remaining bytes after the header
+        } else {
+            return null;
+        }
 
         // Ensure we don't exceed the buffer
-        const payload_end = @min(total_len, @as(u16, @intCast(self.data.len)));
-        return self.data[payload_start..payload_end];
+        //        const payload_end = @min(total_len, @as(u16, @intCast(data.len)));
+        //        return data[payload_start..payload_end];
     }
 
     pub fn owns(self: *UDPLayer) void {
@@ -497,9 +507,10 @@ pub const UDPLayer = struct {
         }) catch return "";
     }
 
-    pub fn get_next_layer_type(self: *UDPLayer) LayerProtocols {
+    pub fn get_next_layer_type(self: *UDPLayer, layer: *Packet.Layer) !?LayerImpl {
+        //        const data = self.get_data();
         _ = self;
-        return LayerProtocols{ .Application = .Generic };
+        return try LayerImpl.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
     }
 
     pub fn get_protocol(self: *UDPLayer) LayerProtocols {

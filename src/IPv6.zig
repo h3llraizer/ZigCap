@@ -6,7 +6,7 @@ const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
 const LayerError = @import("ProtocolHelpers.zig").LayerError;
 const TransportProtocol = @import("ProtocolHelpers.zig").TransportProtocols;
 const TCP = @import("TCP.zig");
-const UDP = @import("UDPLayer.zig");
+const UDP = @import("UDP.zig");
 const Packet = @import("Packet.zig");
 
 pub const IPv6HeaderSize = 40;

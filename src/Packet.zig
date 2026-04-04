@@ -17,7 +17,7 @@ const LayerImpl = @import("ProtocolHelpers.zig").LayerImpl;
 const Eth = @import("Eth.zig");
 const IPv4 = @import("IPv4.zig");
 const IPv6Layer = @import("IPv6.zig");
-const UDP = @import("UDPLayer.zig");
+const UDP = @import("UDP.zig");
 const TCP = @import("TCP.zig");
 
 const GenericLayer = @import("GenericLayer.zig").GenericLayer;
@@ -44,7 +44,7 @@ pub const Layer = struct {
     prev_layer: ?*Layer = null,
 
     pub fn init(layer_impl: LayerImpl, offset: usize, length: usize, packet: *Packet) Layer {
-        return Layer{ .layer_impl = layer_impl, .offset = offset, .length = length, .packet = packet, .next_layer = null, .prev_layer = null };
+        return Layer{ .layer_impl = layer_impl, .offset = offset, .length = length, .packet = packet };
     }
 
     pub fn to_string(self: *Layer, allocator: Allocator) void {
@@ -69,15 +69,84 @@ pub const Packet = struct {
         };
     }
 
-    /// Creates a Packet from an existing wire packet. Padding might be inserted and the alllocator used to allocate the buffer needs to be passed for potentail realloc.
-    pub fn from_wire_packet(self: *Packet, wire_packet: *WirePacket) !void { // may ditch the wire packet and just use slices
+    pub fn from_wire_packet(self: *Packet, wire_packet: *WirePacket) !void {
         self.aligned_buffer = wire_packet.raw_data;
-        self.first_layer = try self.allocator.create(Layer);
-        self.first_layer.?.* = Layer.init(LayerProtocols{ .LinkLayer = wire_packet.link_type }, 0, Eth.EthHeaderSize);
-        try self.accum_layers(self.first_layer.?);
+
+        const first_layer = try self.allocator.create(Layer); // create layer struct
+
+        const link_layer = try LayerImpl.init(EthLayer, LayerOwner{ .packet_layer = first_layer });
+
+        first_layer.* = Layer.init(link_layer, 0, Eth.EthHeaderSize, self); // harcoded for the moment for testing
+        first_layer.layer_impl = try LayerImpl.init(EthLayer, LayerOwner{ .packet_layer = first_layer });
+
+        self.first_layer = first_layer;
+
+        try self.accumulate_layers();
     }
 
-    fn get_last_layer(self: *Packet) !?*Layer {
+    fn accumulate_layers(self: *Packet) !void {
+        var cur = self.first_layer;
+        while (cur) |current_layer| {
+            const current_layer_payload = current_layer.layer_impl.get_payload() orelse return;
+
+            const next_layer: *Layer = try self.allocator.create(Layer);
+
+            next_layer.offset = current_layer.length;
+
+            //          const impl_layer: LayerImpl = try current_layer.layer_impl.get_next_layer(next_layer) orelse { // remember to destroy layer on excp
+            //              print("no next layer.\n", .{});
+            //              self.allocator.destroy(next_layer);
+            //              print("current_layer_payload len = {}\n", .{current_layer_payload.len});
+            //              current_layer.length = current_layer_payload.len;
+            //              return;
+            //          };
+
+            const impl_layer = blk: {
+                const result = current_layer.layer_impl.get_next_layer(next_layer) catch |err| {
+                    print("error getting next layer: {}\n", .{err});
+                    current_layer.length = current_layer_payload.len;
+                    self.allocator.destroy(next_layer);
+                    return;
+                };
+
+                if (result) |layer| {
+                    break :blk layer;
+                } else {
+                    print("no next layer.\n", .{});
+                    current_layer.length = current_layer_payload.len;
+                    self.allocator.destroy(next_layer);
+                    return;
+                }
+            };
+
+            const next_layer_data_len = current_layer_payload.len;
+
+            // Initialize the layer with its actual data length
+            next_layer.* = Layer.init(impl_layer, next_layer_data_len, 0, self);
+
+            // Set up the linked list pointers
+            next_layer.prev_layer = current_layer;
+            current_layer.next_layer = next_layer;
+
+            // Set the offset (based on current layer's offset + length)
+            next_layer.offset = current_layer.length;
+
+            const next_layer_payload = next_layer.layer_impl.get_payload() orelse {
+                return;
+            };
+
+            const next_layer_data = next_layer.layer_impl.get_data();
+
+            const next_layer_hdr_len = next_layer_data.len - next_layer_payload.len;
+
+            next_layer.length += next_layer_hdr_len;
+            next_layer.offset += current_layer.offset;
+
+            cur = next_layer;
+        }
+    }
+
+    fn get_last_layer(self: *Packet) ?*Layer {
         var cur = self.first_layer;
 
         while (cur) |layer| {
@@ -92,14 +161,18 @@ pub const Packet = struct {
     }
 
     pub fn add_layer(self: *Packet, layer_impl: *LayerImpl) !bool {
+        print("adding: {any}\n", .{layer_impl});
+
         const data = layer_impl.get_data();
+
+        print("data: {x}\n", .{data});
 
         const layer: *Layer = try self.allocator.create(Layer); // create the layer (part of the linked list)
         layer.* = Layer.init(layer_impl.*, 0, data.len, self); // deref and set the values
 
         try layer.layer_impl.reinit(LayerOwner{ .packet_layer = layer });
 
-        const last_layer: ?*Layer = try self.get_last_layer();
+        const last_layer: ?*Layer = self.get_last_layer();
 
         if (last_layer) |last| {
             last.next_layer = layer;
@@ -119,6 +192,8 @@ pub const Packet = struct {
 
         self.aligned_buffer = new_buf[0..];
 
+        print("added: {any}\n", .{layer});
+
         return true;
     }
 
@@ -128,6 +203,7 @@ pub const Packet = struct {
 
         while (cur) |layer| {
             if (layer.layer_impl.ptr() == layer_ptr) {
+                //print("returning: {x}\n", .{self.aligned_buffer[layer.offset..]});
                 return self.aligned_buffer[layer.offset..];
             }
 
@@ -307,6 +383,10 @@ pub const Packet = struct {
             return false;
         };
 
+        if (layer.prev_layer == null) {
+            self.first_layer = layer.next_layer;
+        }
+
         self.allocator.destroy(layer);
 
         return true;
@@ -317,13 +397,17 @@ pub const Packet = struct {
             return null;
         };
 
-        try layer.layer_impl.reinit(owner.*);
+        try layer.layer_impl.reinit(owner.*); // transfers ownership of the packets data
 
-        const return_layer = layer.layer_impl;
+        const return_layer = layer.layer_impl; // copy the layer_impl before Layer is destroyed
 
-        self.allocator.destroy(layer);
+        if (layer.prev_layer == null) { // if this was the first layer
+            self.first_layer = layer.next_layer; // set the first layer to the layers next layer (can be null)
+        }
 
-        return return_layer;
+        self.allocator.destroy(layer); // destroy the layer
+
+        return return_layer; // return the copied implementation layer
     }
 
     //

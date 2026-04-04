@@ -71,8 +71,8 @@ pub const TCPLayer = struct {
                 // Allocate directly into the struct's data field
                 self.owner.allocator_owned.data = try self.owner.allocator_owned.allocator.alloc(u8, TCPHeaderMinSize);
 
-                var header = TCPHeader.init_default();
-                @memcpy(self.owner.allocator_owned.data[0..TCPHeaderMinSize], std.mem.asBytes(&header));
+                //var header = TCPHeader.init_default();
+                //@memcpy(self.owner.allocator_owned.data[0..TCPHeaderMinSize], std.mem.asBytes(&header));
 
                 return self;
             },
@@ -124,7 +124,7 @@ pub const TCPLayer = struct {
         return;
     }
 
-    pub fn get_next_layer_type(self: *TCPLayer) !LayerImpl {
+    pub fn get_next_layer_type(self: *TCPLayer, layer: *Packet.Layer) !LayerImpl {
         const data = self.get_data();
 
         if (data.len < TCPHeaderMinSize) {
@@ -137,7 +137,7 @@ pub const TCPLayer = struct {
             return LayerError.MisalignedBuffer;
         }
 
-        return try LayerImpl.init(ApplicationLayer, self.owner);
+        return try LayerImpl.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
     }
 
     //// Calculate the length of the TCPHeader
@@ -218,14 +218,21 @@ pub const TCPLayer = struct {
     }
 
     /// return mutable slice of the payload
-    pub fn get_payload(self: *TCPLayer) []u8 {
+    pub fn get_payload(self: *TCPLayer) ?[]u8 {
         const hdr_len = self.calculate_length();
-        return self.get_data()[hdr_len..];
+
+        const data = self.get_data();
+
+        if (data.len > hdr_len) {
+            return data[hdr_len..];
+        } else {
+            return null;
+        }
     }
 
     pub fn get_header(self: *TCPLayer) *TCPHeader {
         // return the full header if it exceeds 20 bytes
-        return @ptrCast(@alignCast(self.get_data()[0..20]));
+        return @ptrCast(@alignCast(self.get_data()[0..20])); // need to change this
     }
 
     pub fn get_protocol(self: *TCPLayer) LayerProtocols {

@@ -12,7 +12,7 @@ const NetworkProtocols = @import("ProtocolHelpers.zig").NetworkProtocols;
 
 const Packet = @import("Packet.zig");
 
-const UDP = @import("UDPLayer.zig");
+const UDP = @import("UDP.zig");
 const TCP = @import("TCP.zig");
 
 const LayerOwner = @import("Layer.zig").LayerOwner;
@@ -280,20 +280,20 @@ pub const IPv4Layer = struct {
     pub fn get_data(self: *const IPv4Layer) []u8 {
         switch (self.owner) {
             .packet_layer => {
-                print("getting self ({*}) data from packet\n", .{self});
+                //print("getting self ({*}) data from packet\n", .{self});
                 const ipv4_data = self.owner.packet_layer.packet.find_layer_ptr(@ptrCast(@constCast(self))) orelse {
                     std.debug.panic("ipv4 layer ptr ({*}) not found in packet\n", .{self});
                 };
                 return ipv4_data;
             },
             else => {
-                print("getting self ({*}) data from allocator\n", .{self});
+                //print("getting self ({*}) data from allocator\n", .{self});
                 return self.owner.allocator_owned.data;
             },
         }
     }
 
-    pub fn get_next_layer_type(self: *const IPv4Layer) !?LayerImpl {
+    pub fn get_next_layer_type(self: *const IPv4Layer, layer: *Packet.Layer) !?LayerImpl {
         const data = self.get_data();
 
         if (data.len < @sizeOf(IPv4Header)) return error.BufferTooSmall;
@@ -306,8 +306,6 @@ pub const IPv4Layer = struct {
         }
         const aligned_ptr: [*]align(@alignOf(IPv4Header)) u8 = @alignCast(data.ptr);
         const hdr: *const IPv4Header = @ptrCast(aligned_ptr);
-
-        print("{any}\n", .{hdr.protocol});
 
         const ip_protocol = std.meta.intToEnum(IPProtocol, hdr.protocol) catch {
             return try LayerImpl.init(ApplicationLayer, self.owner);
@@ -333,15 +331,23 @@ pub const IPv4Layer = struct {
             IPProtocol.UDP => {
                 //next_layer.protocol = LayerProtocols{ .Transport = .UDP };
                 //next_layer.length = UDP.UDPHeaderSize;
-                return try LayerImpl.init(UDP.UDPLayer, self.owner);
+                print("offset: {}\n", .{layer.offset});
+                return try LayerImpl.init(UDP.UDPLayer, LayerOwner{ .packet_layer = layer });
             },
         }
     }
 
     /// return mutable slice of the payload
-    pub fn get_payload(self: *IPv4Layer) []u8 {
+    pub fn get_payload(self: *IPv4Layer) ?[]u8 {
         const header_len = (self.get_header().version_ihl & 0x0F) * 4;
-        return self.get_data()[header_len..];
+
+        const data = self.get_data();
+
+        if (data.len > header_len) {
+            return data[header_len..];
+        } else {
+            return null;
+        }
     }
 
     pub fn get_options(self: *IPv4Layer) []u8 {

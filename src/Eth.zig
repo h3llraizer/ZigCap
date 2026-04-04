@@ -245,21 +245,21 @@ pub const EthLayer = struct {
     pub fn get_data(self: *const EthLayer) []u8 {
         switch (self.owner) {
             .packet_layer => {
-                print("getting self ({*}) data from packet\n", .{self});
+                //print("getting self ({*}) data from packet\n", .{self});
                 const eth_data = self.owner.packet_layer.packet.find_layer_ptr(@ptrCast(@constCast(self))) orelse {
                     std.debug.panic("eth layer ptr ({*}) not found in packet\n", .{self});
                 };
                 return eth_data;
             },
             else => {
-                print("getting self ({*}) data from allocator\n", .{self});
+                //print("getting self ({*}) data from allocator\n", .{self});
                 return self.owner.allocator_owned.data;
             },
         }
     }
 
     /// return mutable slice of the payload
-    pub fn get_payload(self: *EthLayer) ?[]const u8 {
+    pub fn get_payload(self: *const EthLayer) ?[]const u8 {
         const data = self.get_data();
         if (data.len > EthHeaderSize) {
             return data[EthHeaderSize..];
@@ -269,7 +269,7 @@ pub const EthLayer = struct {
     }
 
     /// return the next layer protocol type
-    pub fn get_next_layer_type(self: *EthLayer) !?LayerImpl {
+    pub fn get_next_layer_type(self: *EthLayer, layer: *Packet.Layer) !?LayerImpl {
         const hdr = self.get_header();
         const eth_type = hdr.get_eth_type();
 
@@ -279,7 +279,6 @@ pub const EthLayer = struct {
             EthType.IP => {
                 if (data.len <= EthHeaderSize) {
                     return null;
-                    //                    return try LayerImpl.init(GenericLayer.ApplicationLayer, self.owner);
                 }
 
                 const ihl_byte = data[EthHeaderSize];
@@ -288,10 +287,14 @@ pub const EthLayer = struct {
 
                 if (ip_version == @intFromEnum(NetworkProtocols.IPv4)) {
                     if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) {
-                        return try LayerImpl.init(GenericLayer.ApplicationLayer, self.owner);
+                        return try LayerImpl.init(GenericLayer.ApplicationLayer, LayerOwner{ .packet_layer = layer });
                     }
 
-                    return try LayerImpl.init(IPv4.IPv4Layer, self.owner);
+                    print("offset: {}\n", .{layer.offset});
+
+                    const new_layer = try LayerImpl.init(IPv4.IPv4Layer, LayerOwner{ .packet_layer = layer });
+
+                    return new_layer;
                 }
 
                 if (ip_version == @intFromEnum(NetworkProtocols.IPv6)) {
