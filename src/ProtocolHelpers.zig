@@ -131,20 +131,6 @@ pub fn get_layer_to_string(protocol: LayerProtocols) !fn (*anyopaque) []const u8
     }
 }
 
-pub fn get_layer_init(choice: type) !*const fn (LayerOwner) LayerError!choice {
-    switch (choice) {
-        Eth.EthLayer => return Eth.EthLayer.init,
-        IPv4.IPv4Layer => return IPv4.IPv4Layer.init,
-        IPv6.IPv6Layer => return IPv6.IPv6Layer.init,
-        UDP.UDPLayer => return UDP.UDPLayer.init,
-        TCP.TCPLayer => return TCP.TCPLayer.init,
-        ARP.ArpLayer => return ARP.ArpLayer.init,
-        ICMP.ICMPLayer => return ICMP.ICMPLayer.init,
-        GenericLayer.ApplicationLayer => return GenericLayer.ApplicationLayer.init,
-        else => return error.LayerInvalid,
-    }
-}
-
 pub fn get_layer_size(protocol: LayerProtocols) usize {
     print("get layer size called for {any}\n", .{protocol});
     return switch (protocol) {
@@ -199,31 +185,6 @@ pub fn get_layer_alignment(protocol: LayerProtocols) usize {
         else => return 1, // not sure why I'm using 1 here
     };
 }
-// not in use
-pub fn get_header(protocol: LayerProtocols) type {
-    return switch (protocol) {
-        .LinkLayer => |link_proto| switch (link_proto) {
-            .ETHERNET => return Eth.EthHeader,
-            else => return 0,
-        },
-
-        .Network => |net_proto| switch (net_proto) {
-            .IPv4 => return IPv4.IPv4Header,
-            else => return 0,
-        },
-
-        .Transport => |trans_proto| switch (trans_proto) {
-            .UDP => return UDP.UDPHeader,
-            else => return 0,
-        },
-
-        else => return 0,
-    };
-}
-
-fn compare_impl(a: *LayerImpl, b: *LayerImpl) bool {
-    return a.get_data() == b.get_data();
-}
 
 pub const LayerImpl = union(enum) {
     ethLayer: Eth.EthLayer,
@@ -233,7 +194,7 @@ pub const LayerImpl = union(enum) {
     tcpLayer: TCP.TCPLayer,
     arpLayer: ARP.ARPLayer,
     icmpLayer: ICMP.ICMPLayer,
-    //    genericAppLayer: GenericLayer.ApplicationLayer,
+    genericAppLayer: GenericLayer.ApplicationLayer,
 
     pub fn init(choice: type, owner: LayerOwner) LayerError!LayerImpl {
         switch (choice) {
@@ -244,7 +205,7 @@ pub const LayerImpl = union(enum) {
             TCP.TCPLayer => return LayerImpl{ .tcpLayer = try TCP.TCPLayer.init(owner) },
             ARP.ARPLayer => return LayerImpl{ .arpLayer = try ARP.ARPLayer.init(owner) },
             ICMP.ICMPLayer => return LayerImpl{ .icmpLayer = try ICMP.ICMPLayer.init(owner) },
-            //         GenericLayer.ApplicationLayer => return LayerImpl{ .genericAppLayer = try GenericLayer.ApplicationLayer.init(owner) },
+            GenericLayer.ApplicationLayer => return LayerImpl{ .genericAppLayer = try GenericLayer.ApplicationLayer.init(owner) },
             else => return LayerError.LayerInvalid,
         }
     }
@@ -258,7 +219,7 @@ pub const LayerImpl = union(enum) {
             .tcpLayer => LayerImpl{ .tcpLayer = try TCP.TCPLayer.init(owner) },
             .arpLayer => LayerImpl{ .arpLayer = try ARP.ARPLayer.init(owner) },
             .icmpLayer => LayerImpl{ .icmpLayer = try ICMP.ICMPLayer.init(owner) },
-            //        .genericAppLayer => LayerImpl{ .genericAppLayer = try GenericLayer.ApplicationLayer.init(owner) },
+            .genericAppLayer => LayerImpl{ .genericAppLayer = try GenericLayer.ApplicationLayer.init(owner) },
         };
         self.* = new_instance;
     }

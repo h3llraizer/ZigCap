@@ -4,13 +4,17 @@ const Layer = @import("Packet.zig").Layer;
 const LayerOwner = @import("Layer.zig").LayerOwner;
 const LayerError = @import("ProtocolHelpers.zig").LayerError;
 const LayerImpl = @import("ProtocolHelpers.zig").LayerImpl;
+const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
 
 const print = std.debug.print;
 
 const Allocator = std.mem.Allocator;
 
+const RawData = @import("RawData.zig").RawData;
+
 pub const ApplicationLayer = struct {
     owner: LayerOwner,
+    const Protocol = LayerProtocols{ .Application = .Generic };
 
     pub fn init(owner: LayerOwner) LayerError!ApplicationLayer {
         switch (owner) {
@@ -29,6 +33,9 @@ pub const ApplicationLayer = struct {
 
                 return self;
             },
+            .immutable_layer => return {
+                return ApplicationLayer{ .owner = owner };
+            },
         }
     }
 
@@ -39,27 +46,33 @@ pub const ApplicationLayer = struct {
     }
 
     /// Get slice of data (header + payload)
-    pub fn get_data(self: *const ApplicationLayer) []u8 {
+    pub fn get_data(self: *const ApplicationLayer) RawData {
         switch (self.owner) {
             .packet_layer => {
-                //print("getting self ({*}) data from packet\n", .{self});
-                const app_data = self.owner.packet_layer.get_data();
-                return app_data;
+                return self.owner.packet_layer.get_data();
             },
-            else => {
+            .allocator_owned => {
                 //print("getting self ({*}) data from allocator\n", .{self});
-                return self.owner.allocator_owned.data;
+                return RawData{ .mutable = self.owner.allocator_owned.data };
+            },
+            .immutable_layer => {
+                return RawData{ .immutable = self.owner.immutable_layer.raw_data };
             },
         }
     }
 
     pub fn get_payload(self: *ApplicationLayer) ?[]const u8 {
-        return self.get_data();
+        return self.get_data().get_immutable();
     }
 
     pub fn to_string(self: *const ApplicationLayer, allocator: Allocator) []const u8 {
         _ = allocator;
-        return self.get_data();
+        return self.get_data().get_immutable();
+    }
+
+    pub fn get_protocol(self: *ApplicationLayer) LayerProtocols {
+        _ = self;
+        return ApplicationLayer.Protocol;
     }
 
     pub fn deinit(self: *ApplicationLayer, allocator: std.mem.Allocator) void {

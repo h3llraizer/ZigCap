@@ -332,20 +332,22 @@ pub const Packet = struct {
             prev.next_layer = layer.next_layer;
         }
 
-        const delete_buf = self.raw_data[layer.offset .. layer.offset + layer.length];
+        const raw_data = self.raw_data.get_mutable();
+
+        const delete_buf = raw_data[layer.offset .. layer.offset + layer.length];
         print("deletion buffer: {x} ({})\n", .{ delete_buf, delete_buf.len });
 
-        const remaining_buf = self.raw_data[delete_start + delete_buf.len ..];
+        const remaining_buf = raw_data[delete_start + delete_buf.len ..];
         print("remaining buf: {x} ({})\n", .{ remaining_buf, remaining_buf.len });
 
-        const dest = self.raw_data[delete_start .. delete_start + remaining_buf.len];
+        const dest = raw_data[delete_start .. delete_start + remaining_buf.len];
 
         print("dest: {x} ({})\n", .{ dest, dest.len });
 
         @memmove(dest, remaining_buf);
 
         const new_len = delete_start + remaining_buf.len;
-        self.raw_data = self.raw_data[0..new_len];
+        self.raw_data = RawData{ .mutable = raw_data[0..new_len] };
 
         var cur = layer.next_layer;
         while (cur) |next| {
@@ -409,18 +411,20 @@ pub const Packet = struct {
             print("no prev layer.\n", .{});
         }
 
-        const delete_buf = self.raw_data[layer.offset .. layer.offset + layer.length];
+        const raw_data = self.raw_data.get_mutable();
 
-        const remaining_buf = self.raw_data[delete_start + delete_buf.len ..];
+        const delete_buf = raw_data[layer.offset .. layer.offset + layer.length];
 
-        const dest = self.raw_data[delete_start .. delete_start + remaining_buf.len];
+        const remaining_buf = raw_data[delete_start + delete_buf.len ..];
+
+        const dest = raw_data[delete_start .. delete_start + remaining_buf.len];
 
         try owner.allocator_owned.copy_from(delete_buf[0..]);
 
         @memmove(dest, remaining_buf);
 
         const new_len = delete_start + remaining_buf.len;
-        self.raw_data = self.raw_data[0..new_len];
+        self.raw_data = RawData{ .mutable = raw_data[0..new_len] };
 
         var cur = layer.next_layer;
         while (cur) |next| {

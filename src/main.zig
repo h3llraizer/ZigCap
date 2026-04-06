@@ -103,12 +103,28 @@ pub fn main() !void {
 
     _ = &page_allocator;
 
-    const raw_data = RawData.RawData{ .immutable = icmp_request_raw[0..icmp_request_raw.len] };
+    const raw_data = RawData.RawData{ .mutable = try allocator.alloc(u8, udp_raw.len) };
+
+    std.mem.copyForwards(u8, raw_data.mutable, udp_raw[0..udp_raw.len]);
 
     var packet = try Packet.Packet.create(allocator);
 
     try packet.from_raw(raw_data, LinkLayerProtocols.ETHERNET);
     _ = &packet;
+
+    _ = packet.get_layer_of_type(EthLayer) orelse {
+        print("eth layer not found.\n", .{});
+        return;
+    };
+
+    var layer_owner = LayerOwner{ .allocator_owned = .{ .data = undefined, .allocator = page_allocator } };
+
+    var layer = try packet.extract_layer(EthLayer, &layer_owner) orelse {
+        print("eth layer not found during extraction.\n", .{});
+        return;
+    };
+
+    print("{s}\n", .{layer.ethLayer.to_string(page_allocator)});
 
     packet.print_layers_meta();
 }
