@@ -43,9 +43,7 @@ pub const ApplicationLayer = struct {
         switch (self.owner) {
             .packet_layer => {
                 //print("getting self ({*}) data from packet\n", .{self});
-                const app_data = self.owner.packet_layer.packet.find_layer_ptr(@ptrCast(@constCast(self))) orelse {
-                    std.debug.panic("app layer ptr ({*}) not found in packet\n", .{self});
-                };
+                const app_data = self.owner.packet_layer.get_data();
                 return app_data;
             },
             else => {

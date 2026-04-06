@@ -45,7 +45,11 @@ const TCP = @import("TCP.zig");
 const LayerOwner = @import("Layer.zig").LayerOwner;
 const AllocatorOwned = @import("Layer.zig").AllocatorOwned;
 
-pub fn main() !void {
+const RawData = @import("RawData.zig");
+
+const ImmutableLayer = @import("Layer.zig").ImmutableLayer;
+
+pub fn build_packet() !void {
     var backing_buffer: [2048]u8 = undefined;
 
     var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
@@ -87,87 +91,26 @@ pub fn main() !void {
     print("{s}\n", .{ip_layer.to_string(page_allocator)});
 }
 
-pub fn build_packet() !void {
+pub fn main() !void {
     var backing_buffer: [2048]u8 = undefined;
 
     var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
     const allocator = fba.allocator();
 
+    _ = &allocator;
+
     const page_allocator = std.heap.page_allocator;
 
-    const layer_owner = LayerOwner{
-        .allocator_owned = .{ .allocator = page_allocator, .data = undefined },
-    };
+    _ = &page_allocator;
+
+    const raw_data = RawData.RawData{ .immutable = icmp_request_raw[0..icmp_request_raw.len] };
 
     var packet = try Packet.Packet.create(allocator);
 
+    try packet.from_raw(raw_data, LinkLayerProtocols.ETHERNET);
     _ = &packet;
 
-    var layer = try LayerImpl.init(EthLayer, layer_owner);
-    layer.ethLayer.set_dst_mac(try MacAddress.init_from_string("38:06:e6:92:63:ac"));
-    layer.ethLayer.set_src_mac(try MacAddress.init_from_string("14:4f:8a:a4:15:7d"));
-    try layer.ethLayer.set_eth_type(EthType.IP);
-
-    print("from enum: {any}\n", .{layer.ptr()});
-    print("from eth layer: {any}\n", .{layer.ethLayer.ptr()});
-
-    _ = try packet.add_layer(&layer);
-
-    const eth_layer: *EthLayer = packet.get_layer_of_type(EthLayer) orelse {
-        print("couldn't get ethlayer.\n", .{});
-        return;
-    };
-
-    layer = try LayerImpl.init(UDPLayer, layer_owner);
-
-    print("udp layer: {}\n", .{layer.get_data().len});
-
-    layer.udpLayer.set_dst_port(5005);
-    layer.udpLayer.set_src_port(1024);
-
-    _ = try packet.add_layer(&layer);
-
-    var udp_layer = packet.get_layer_of_type(UDPLayer) orelse {
-        print("udp layer not added.\n", .{});
-        return;
-    };
-
-    print("udp layer: {}\n", .{udp_layer.get_data().len});
-
-    var ip_layer = try LayerImpl.init(IPv4Layer, layer_owner);
-
-    ip_layer.ipv4Layer.set_src_ip(try IPv4Address.init_from_string("192.168.1.225"));
-    ip_layer.ipv4Layer.set_dst_ip(try IPv4Address.init_from_string("192.168.1.254"));
-    ip_layer.ipv4Layer.set_protocol(TransportProtocols.UDP);
-
-    print("{s}\n", .{ip_layer.to_string(std.heap.page_allocator)});
-
-    _ = try packet.insert_layer(eth_layer, &ip_layer);
-
-    try packet.to_string(std.heap.page_allocator);
-
     packet.print_layers_meta();
-
-    print("Packet buf: {}\n", .{packet.aligned_buffer.len});
-
-    var next_layer = try eth_layer.get_next_layer_type() orelse {
-        print("no next layer.\n", .{});
-        return;
-    };
-
-    print("{any}\n", .{next_layer.get_protocol()});
-
-    var ipv4Layer = packet.get_layer_of_type(IPv4Layer) orelse {
-        print("ipv4 layer not found.\n", .{});
-        return;
-    };
-
-    next_layer = try ipv4Layer.get_next_layer_type() orelse {
-        print("no next layer from ip\n", .{});
-        return;
-    };
-
-    print("{any}\n", .{next_layer.get_protocol()});
 }
 
 const raw: [87]u8 = .{ 0x14, 0x4f, 0x8a, 0xa4, 0x15, 0x7d, 0x38, 0x6, 0xe6, 0x92, 0x63, 0xac, 0x8, 0x0, 0x45, 0x0, 0x0, 0x49, 0x5d, 0xf7, 0x40, 0x0, 0x40, 0x11, 0x57, 0x7d, 0xc0, 0xa8, 0x1, 0xfe, 0xc0, 0xa8, 0x1, 0xe1, 0x0, 0x35, 0xfd, 0xdf, 0x0, 0x35, 0x9d, 0xff, 0x3a, 0xd0, 0x81, 0x80, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x7, 0x7a, 0x69, 0x67, 0x6c, 0x61, 0x6e, 0x67, 0x3, 0x6f, 0x72, 0x67, 0x0, 0x0, 0x1, 0x0, 0x1, 0xc0, 0xc, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x1, 0x2c, 0x0, 0x4, 0x41, 0x6d, 0x69, 0xb2 };

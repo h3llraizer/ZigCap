@@ -14,13 +14,17 @@ const IPv4Header = @import("IPv4.zig").IPv4Header;
 const IPv4 = @import("IPv4.zig");
 const IPv6Layer = @import("IPv6.zig").IPv6Layer;
 const IPv6HeaderSize = @import("IPv6.zig").IPv6HeaderSize;
-const ArpHeaderSize = @import("Arp.zig").ArpHeaderSize;
+const ARP = @import("ARP.zig");
 
 const Layer = @import("Layer.zig");
 const LayerOwner = Layer.LayerOwner;
 const AllocatorOwner = Layer.AllocatorOwned;
 
 const GenericLayer = @import("GenericLayer.zig");
+
+const RawData = @import("RawData.zig").RawData;
+
+const panic = std.debug.panic;
 
 /// return the next layer and its size
 pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
@@ -163,6 +167,7 @@ pub const EthHeader = extern struct {
     }
 
     pub fn get_eth_type(self: *const EthHeader) EthType {
+        //        print("{any}\n", .{self.eth_type});
         return @enumFromInt(@byteSwap(self.eth_type));
     }
 };
@@ -190,6 +195,9 @@ pub const EthLayer = struct {
 
                 return self;
             },
+            .immutable_layer => return {
+                return EthLayer{ .owner = owner };
+            },
         }
     }
 
@@ -200,29 +208,46 @@ pub const EthLayer = struct {
         return data;
     }
 
-    pub fn get_header(self: *const EthLayer) *EthHeader {
-        // Use alignCast to ensure proper alignment
-        const data = self.get_data();
+    fn get_mutable_header(self: *const EthLayer) *EthHeader {
+        const data = self.get_data().mutable;
         const aligned_ptr: [*]align(@alignOf(EthHeader)) u8 = @alignCast(data.ptr);
         return @ptrCast(aligned_ptr);
     }
 
-    pub fn to_string(self: *const EthLayer, allocator: Allocator) []const u8 {
-        const hdr = self.get_header();
+    fn get_immutable_header(self: *const EthLayer) *const EthHeader {
+        var data: []const u8 = undefined;
 
-        const src_mac = hdr.get_src_mac().to_string(allocator) catch |err| blk: {
+        if (self.get_data().is_mutable()) { // if the data is actually mutable - we just need immutable in this case anyway
+            data = self.get_data().get_mutable();
+        } else {
+            data = self.get_data().get_immutable();
+        }
+
+        if (data.len < EthHeaderSize) {
+            panic("Eth Raw Data len ({}) less than EthHeaderSize", .{data.len});
+        }
+
+        const aligned_ptr: [*]align(@alignOf(EthHeader)) const u8 = @alignCast(data.ptr);
+        return @ptrCast(aligned_ptr);
+    }
+
+    pub fn to_string(self: *const EthLayer, allocator: Allocator) []const u8 {
+        const src_mac = self.get_src_mac().to_string(allocator) catch |err| blk: {
             std.debug.print("src_mac to_string failed: {s}\n", .{@errorName(err)});
             break :blk "";
         };
         defer if (src_mac.len != 0) allocator.free(src_mac);
 
-        const dst_mac = hdr.get_dst_mac().to_string(allocator) catch |err| blk: {
+        const dst_mac = self.get_dst_mac().to_string(allocator) catch |err| blk: {
             std.debug.print("dst_mac to_string failed: {s}\n", .{@errorName(err)});
             break :blk "";
         };
         defer if (dst_mac.len != 0) allocator.free(dst_mac);
 
-        const eth_type = hdr.get_eth_type();
+        const eth_type = self.get_eth_type() catch {
+            print("ethtype {any} is invalid.\n", .{});
+            return;
+        };
         const eth_type_str = @tagName(eth_type);
 
         const result = std.fmt.allocPrint(
@@ -237,30 +262,27 @@ pub const EthLayer = struct {
         return result;
     }
 
-    pub fn ptr(self: *EthLayer) *anyopaque {
-        return @ptrCast(self);
-    }
-
     /// get slice of data (hdr+payload)
-    pub fn get_data(self: *const EthLayer) []u8 {
+    pub fn get_data(self: *const EthLayer) RawData {
         switch (self.owner) {
             .packet_layer => {
-                //print("getting self ({*}) data from packet\n", .{self});
-                const eth_data = self.owner.packet_layer.packet.find_layer_ptr(@ptrCast(@constCast(self))) orelse {
-                    std.debug.panic("eth layer ptr ({*}) not found in packet\n", .{self});
-                };
+                print("getting data from packet.\n", .{});
+
+                const eth_data = self.owner.packet_layer.get_data(); // Layer in packet - it might be mutable or immutable
                 return eth_data;
             },
-            else => {
-                //print("getting self ({*}) data from allocator\n", .{self});
-                return self.owner.allocator_owned.data;
+            .allocator_owned => {
+                return RawData{ .mutable = self.owner.allocator_owned.data }; // standalone layer - it is mutable by default
+            },
+            .immutable_layer => {
+                return RawData{ .immutable = self.owner.immutable_layer.raw_data };
             },
         }
     }
 
     /// return mutable slice of the payload
-    pub fn get_payload(self: *const EthLayer) ?[]const u8 {
-        const data = self.get_data();
+    pub fn get_payload(self: *const EthLayer) ?[]const u8 { // needs to return RawData
+        const data = self.get_data().get_immutable();
         if (data.len > EthHeaderSize) {
             return data[EthHeaderSize..];
         } else {
@@ -270,10 +292,10 @@ pub const EthLayer = struct {
 
     /// return the next layer protocol type
     pub fn get_next_layer_type(self: *EthLayer, layer: *Packet.Layer) !?LayerImpl {
-        const hdr = self.get_header();
+        const hdr = self.get_immutable_header();
         const eth_type = hdr.get_eth_type();
 
-        const data = self.get_data();
+        const data = self.get_data().get_immutable();
 
         switch (eth_type) {
             EthType.IP => {
@@ -294,51 +316,50 @@ pub const EthLayer = struct {
                 }
 
                 if (ip_version == @intFromEnum(NetworkProtocols.IPv6)) {
-                    //return LayerProtocols{ .Network = .IPv6 };
                     return null;
                 } else {
                     return null;
-                    //return LayerProtocols{ .Network = .Generic };
                 }
             },
             EthType.IPV6 => {
                 return null;
-                //return LayerProtocols{ .Network = .IPv6 };
+            },
+            EthType.ARP => {
+                return try LayerImpl.init(ARP.ARPLayer, LayerOwner{ .packet_layer = layer });
             },
             else => {
                 return null;
-                //return LayerProtocols{ .Network = .Generic };
             },
         }
     }
 
-    pub fn get_src_mac(self: *EthLayer) MacAddress {
-        const hdr = self.get_header();
+    pub fn get_src_mac(self: *const EthLayer) MacAddress {
+        const hdr = self.get_immutable_header();
         return hdr.get_src_mac();
     }
 
-    pub fn get_dst_mac(self: *EthLayer) MacAddress {
-        const hdr = self.get_header();
+    pub fn get_dst_mac(self: *const EthLayer) MacAddress {
+        const hdr = self.get_immutable_header();
         return hdr.get_dst_mac();
     }
 
     pub fn set_src_mac(self: *EthLayer, src_mac: MacAddress) void {
-        var hdr = self.get_header();
+        var hdr = self.get_mutable_header();
         hdr.set_src_mac(src_mac);
     }
 
     pub fn set_dst_mac(self: *EthLayer, dst_mac: MacAddress) void {
-        var hdr = self.get_header();
+        var hdr = self.get_mutable_header();
         hdr.set_dst_mac(dst_mac);
     }
 
-    pub fn get_eth_type(self: *EthLayer) !EthType {
-        const hdr = self.get_header();
+    pub fn get_eth_type(self: *const EthLayer) !EthType {
+        const hdr = self.get_immutable_header();
         return hdr.get_eth_type();
     }
 
     pub fn set_eth_type(self: *EthLayer, eth_type: EthType) !void {
-        var hdr = self.get_header();
+        var hdr = self.get_mutable_header();
         hdr.set_eth_type(eth_type);
     }
 

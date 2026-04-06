@@ -2,34 +2,22 @@ const std = @import("std");
 const print = std.debug.print;
 const activeTag = std.meta.activeTag;
 const Allocator = std.mem.Allocator;
+const panic = std.debug.panic;
 
-const WirePacket = @import("WirePacket.zig").WirePacket;
 const ProtocolHelpers = @import("ProtocolHelpers.zig");
-
 const LayerProtocols = ProtocolHelpers.LayerProtocols;
 const LayerError = @import("ProtocolHelpers.zig").LayerError;
-
 const LinkLayerProtocols = @import("ProtocolHelpers.zig").LinkLayerProtocols;
 const NetworkProtocols = @import("ProtocolHelpers.zig").NetworkProtocols;
-
 const LayerImpl = @import("ProtocolHelpers.zig").LayerImpl;
-
 const Eth = @import("Eth.zig");
-const IPv4 = @import("IPv4.zig");
-const IPv6Layer = @import("IPv6.zig");
-const UDP = @import("UDP.zig");
-const TCP = @import("TCP.zig");
-
-const GenericLayer = @import("GenericLayer.zig").GenericLayer;
-
 const EthLayer = Eth.EthLayer;
-
 const LayerOwner = @import("Layer.zig").LayerOwner;
-
 const get_layer_type_enum = @import("ProtocolHelpers.zig").get_layer_type_enum;
 const comparePayloads = @import("ProtocolHelpers.zig").comparePayloads;
-
 const compare_impl = @import("ProtocolHelpers.zig").compare_impl;
+
+const RawData = @import("RawData.zig").RawData;
 
 pub const Layer = struct {
     layer_impl: LayerImpl,
@@ -43,8 +31,11 @@ pub const Layer = struct {
         return Layer{ .layer_impl = layer_impl, .offset = offset, .length = length, .packet = packet };
     }
 
+    pub fn get_data(self: *Layer) RawData {
+        return self.packet.raw_data.get_slice_from_offset(self.offset);
+    }
+
     pub fn to_string(self: *Layer, allocator: Allocator) void {
-        print("layer struct to string: \n", .{});
         print("{s}\n", .{self.layer_impl.to_string(allocator)});
     }
 };
@@ -52,21 +43,23 @@ pub const Layer = struct {
 /// if data is owned by Packet it has to be mutable. if it is owned by WirePacket, it can be mutable or immutable
 pub const Packet = struct {
     allocator: Allocator,
-    aligned_buffer: []u8, // this buffer is aligned - NOT wire format. don't send it over the network
+    raw_data: RawData, // this buffer is aligned - NOT wire format. don't send it over the network
     first_layer: ?*Layer,
-    free_buffer: bool = false,
 
     /// Creates an empty Packet - alloc's zero bytes to aligned buffer initially
     pub fn create(allocator: Allocator) !Packet {
         return Packet{
             .allocator = allocator,
-            .aligned_buffer = try allocator.alloc(u8, 0),
+            .raw_data = RawData{ .mutable = try allocator.alloc(u8, 0) },
             .first_layer = null,
         };
     }
 
-    pub fn from_wire_packet(self: *Packet, wire_packet: *WirePacket) !void {
-        self.aligned_buffer = wire_packet.raw_data;
+    /// Packet must be created with .create first. raw_data will be overwritten with the RawData provided
+    pub fn from_raw(self: *Packet, raw_data: RawData, link_layer_type: LinkLayerProtocols) !void {
+        self.raw_data = raw_data;
+
+        _ = link_layer_type;
 
         const first_layer = try self.allocator.create(Layer); // create layer struct
 
@@ -77,14 +70,17 @@ pub const Packet = struct {
 
         self.first_layer = first_layer;
 
-        try self.accumulate_layers();
+        self.accumulate_layers() catch |err| {
+            print("couldn't parse all layers: {s}\n", .{@errorName(err)});
+            return;
+        };
     }
 
     fn accumulate_layers(self: *Packet) !void {
         var cur = self.first_layer;
         while (cur) |current_layer| {
             const current_layer_payload = current_layer.layer_impl.get_payload() orelse { // if the current layer only has a header
-                current_layer.length = current_layer.layer_impl.get_data().len; // set its length to the length of the header
+                current_layer.length = current_layer.layer_impl.get_data().get_immutable().len; // set its length to the length of the header
                 return;
             };
 
@@ -110,6 +106,8 @@ pub const Packet = struct {
                 }
             };
 
+            print("{any}\n", .{impl_layer});
+
             const next_layer_data_len = current_layer_payload.len;
 
             // Initialize the layer with its actual data length
@@ -126,7 +124,7 @@ pub const Packet = struct {
                 return;
             };
 
-            const next_layer_data = next_layer.layer_impl.get_data();
+            const next_layer_data = next_layer.layer_impl.get_data().get_immutable();
 
             const next_layer_hdr_len = next_layer_data.len - next_layer_payload.len;
 
@@ -173,15 +171,15 @@ pub const Packet = struct {
             self.first_layer = layer;
         }
 
-        const current_buf_len: usize = self.aligned_buffer.len;
+        const current_buf_len: usize = self.raw_data.len;
 
-        const new_buf: []u8 = try self.allocator.realloc(self.aligned_buffer, current_buf_len + data.len);
+        const new_buf: []u8 = try self.allocator.realloc(self.raw_data, current_buf_len + data.len);
 
         const dest = new_buf[current_buf_len..];
 
         @memmove(dest, data);
 
-        self.aligned_buffer = new_buf[0..];
+        self.raw_data = new_buf[0..];
 
         print("added: {any}\n", .{layer});
 
@@ -194,7 +192,7 @@ pub const Packet = struct {
 
         while (cur) |layer| {
             if (layer.layer_impl.ptr() == layer_ptr) {
-                return self.aligned_buffer[layer.offset..];
+                return self.raw_data[layer.offset..];
             }
 
             cur = layer.next_layer;
@@ -234,7 +232,7 @@ pub const Packet = struct {
         return null;
     }
 
-    fn search_layers(self: *Packet, target: LayerProtocols) !?*Layer {
+    pub fn search_layers(self: *Packet, target: LayerProtocols) !?*Layer {
         var cur = self.first_layer;
         while (cur) |layer| {
             if (comparePayloads(try layer.layer_impl.get_protocol(), target)) {
@@ -290,12 +288,12 @@ pub const Packet = struct {
                     }
 
                     // Update the packet buffer
-                    const current_buf_len: usize = self.aligned_buffer.len;
+                    const current_buf_len: usize = self.raw_data.len;
                     const insert_offset = new_layer.offset;
 
                     // Reallocate buffer to make room for new layer
-                    const new_buf: []u8 = try self.allocator.realloc(self.aligned_buffer, current_buf_len + new_layer.length);
-                    self.aligned_buffer = new_buf;
+                    const new_buf: []u8 = try self.allocator.realloc(self.raw_data, current_buf_len + new_layer.length);
+                    self.raw_data = new_buf;
 
                     // Shift data after insertion point to the right
                     const data_to_shift = new_buf[insert_offset..current_buf_len];
@@ -334,20 +332,20 @@ pub const Packet = struct {
             prev.next_layer = layer.next_layer;
         }
 
-        const delete_buf = self.aligned_buffer[layer.offset .. layer.offset + layer.length];
+        const delete_buf = self.raw_data[layer.offset .. layer.offset + layer.length];
         print("deletion buffer: {x} ({})\n", .{ delete_buf, delete_buf.len });
 
-        const remaining_buf = self.aligned_buffer[delete_start + delete_buf.len ..];
+        const remaining_buf = self.raw_data[delete_start + delete_buf.len ..];
         print("remaining buf: {x} ({})\n", .{ remaining_buf, remaining_buf.len });
 
-        const dest = self.aligned_buffer[delete_start .. delete_start + remaining_buf.len];
+        const dest = self.raw_data[delete_start .. delete_start + remaining_buf.len];
 
         print("dest: {x} ({})\n", .{ dest, dest.len });
 
         @memmove(dest, remaining_buf);
 
         const new_len = delete_start + remaining_buf.len;
-        self.aligned_buffer = self.aligned_buffer[0..new_len];
+        self.raw_data = self.raw_data[0..new_len];
 
         var cur = layer.next_layer;
         while (cur) |next| {
@@ -411,18 +409,18 @@ pub const Packet = struct {
             print("no prev layer.\n", .{});
         }
 
-        const delete_buf = self.aligned_buffer[layer.offset .. layer.offset + layer.length];
+        const delete_buf = self.raw_data[layer.offset .. layer.offset + layer.length];
 
-        const remaining_buf = self.aligned_buffer[delete_start + delete_buf.len ..];
+        const remaining_buf = self.raw_data[delete_start + delete_buf.len ..];
 
-        const dest = self.aligned_buffer[delete_start .. delete_start + remaining_buf.len];
+        const dest = self.raw_data[delete_start .. delete_start + remaining_buf.len];
 
         try owner.allocator_owned.copy_from(delete_buf[0..]);
 
         @memmove(dest, remaining_buf);
 
         const new_len = delete_start + remaining_buf.len;
-        self.aligned_buffer = self.aligned_buffer[0..new_len];
+        self.raw_data = self.raw_data[0..new_len];
 
         var cur = layer.next_layer;
         while (cur) |next| {
@@ -470,8 +468,8 @@ pub const Packet = struct {
     //   pub fn print_layers(self: *Packet) void {
     //       var cur = self.first_layer;
     //       while (cur) |layer| {
-    //           //const slice = self.aligned_buffer[layer.offset..(layer.offset + layer.length)];
-    //           const slice = self.aligned_buffer[layer.offset..];
+    //           //const slice = self.raw_data[layer.offset..(layer.offset + layer.length)];
+    //           const slice = self.raw_data[layer.offset..];
     //
     //           print("{any}, {}, {}: {x} ({})\n", .{ layer.protocol, layer.offset, layer.length, slice, slice.len });
     //           cur = layer.next_layer;

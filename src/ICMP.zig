@@ -1,10 +1,18 @@
 const std = @import("std");
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
+const panic = std.debug.panic;
 
 const ProtocolHelpers = @import("ProtocolHelpers.zig");
-
+const LayerImpl = ProtocolHelpers.LayerImpl;
 const LayerError = ProtocolHelpers.LayerError;
+const LayerProtocols = ProtocolHelpers.LayerProtocols;
+
+const LayerOwner = @import("Layer.zig").LayerOwner;
+
+const Layer = @import("Packet.zig").Layer;
+
+const RawData = @import("RawData.zig").RawData;
 
 pub const ICMPHeaderSize = 8; // Base ICMP header (without payload)
 
@@ -157,7 +165,7 @@ pub const ICMPHeader = extern union {
         type: u8,
         code: u8,
         checksum: u16,
-        unused: u32,
+        unused: [4]u8,
     },
 
     // For Redirect
@@ -165,7 +173,7 @@ pub const ICMPHeader = extern union {
         type: u8,
         code: u8,
         checksum: u16,
-        gateway: u32,
+        gateway: [4]u8,
     },
 
     // For Parameter Problem
@@ -192,7 +200,7 @@ pub const ICMPHeader = extern union {
         type: u8,
         code: u8,
         checksum: u16,
-        reserved: u32,
+        reserved: [4]u8,
     },
 
     comptime {
@@ -273,7 +281,7 @@ pub const ICMPHeader = extern union {
     }
 
     pub fn get_gateway(self: *const ICMPHeader) u32 {
-        return self.redirect.gateway;
+        return self.redirect.gateway; // TODO: Convert this to u32
     }
 
     // Parameter Problem methods
@@ -364,47 +372,91 @@ pub const ICMPHeader = extern union {
 };
 
 pub const ICMPLayer = struct {
-    data: []u8, // ICMP header + payload
+    owner: LayerOwner,
+    const Protocol = LayerProtocols{ .Network = .ICMP };
 
-    pub fn init(buffer: []u8) LayerError!ICMPLayer {
-        if (buffer.len < @sizeOf(ICMPHeader)) return LayerError.BufferTooSmall;
+    pub fn init(owner: LayerOwner) LayerError!ICMPLayer {
+        switch (owner) {
+            .packet_layer => {
+                return ICMPLayer{
+                    .owner = owner,
+                };
+            },
+            .allocator_owned => {
+                var self = ICMPLayer{ .owner = owner };
+                // Allocate directly into the struct's data field
+                if (owner.allocator_owned.data.len < ICMPHeaderSize) {
+                    self.owner.allocator_owned.data = try self.owner.allocator_owned.allocator.alloc(u8, ICMPHeaderSize);
+                }
 
-        // Verify alignment
-        const alignment = @alignOf(ICMPHeader);
-        const addr = @intFromPtr(buffer.ptr);
-        if (addr % alignment != 0) {
-            return LayerError.MisalignedBuffer;
+                //var header = ICMPHeader.init_default();
+                //@memcpy(self.owner.allocator_owned.data[0..@sizeOf(ICMPHeader)], std.mem.asBytes(&header));
+
+                return self;
+            },
+            .immutable_layer => return {
+                return ICMPLayer{ .owner = owner };
+            },
         }
-
-        return ICMPLayer{ .data = buffer };
     }
 
-    pub fn get_header(self: *ICMPLayer) *ICMPHeader {
-        const aligned_ptr: [*]align(@alignOf(ICMPHeader)) u8 = @alignCast(self.data.ptr);
+    fn get_mutable_header(self: *const ICMPLayer) *ICMPHeader {
+        const data = self.get_data().mutable;
+        const aligned_ptr: [*]align(@alignOf(ICMPHeader)) u8 = @alignCast(data.ptr);
         return @ptrCast(aligned_ptr);
     }
 
-    pub fn get_data(self: *ICMPLayer) []u8 {
-        return self.data;
+    fn get_immutable_header(self: *const ICMPLayer) *const ICMPHeader {
+        var data: []const u8 = undefined;
+
+        if (self.get_data().is_mutable()) { // if the data is actually mutable - we just need immutable in this case anyway
+            data = self.get_data().get_mutable();
+        } else {
+            data = self.get_data().get_immutable();
+        }
+
+        if (data.len < ICMPHeaderSize) {
+            panic("ICMP Raw Data len ({}) less than ICMPHeaderSize", .{data.len});
+        }
+
+        const aligned_ptr: [*]align(@alignOf(ICMPHeader)) const u8 = @alignCast(data.ptr);
+        return @ptrCast(aligned_ptr);
     }
 
-    pub fn get_payload(self: *ICMPLayer) []u8 {
-        return self.data[ICMPHeaderSize..];
+    pub fn get_data(self: *const ICMPLayer) RawData {
+        switch (self.owner) {
+            .packet_layer => {
+                print("getting data from packet.\n", .{});
+
+                return self.owner.packet_layer.get_data(); // Layer in packet - it might be mutable or immutable
+            },
+            .allocator_owned => {
+                return RawData{ .mutable = self.owner.allocator_owned.data }; // standalone layer - it is mutable by default
+            },
+            .immutable_layer => {
+                return RawData{ .immutable = self.owner.immutable_layer.raw_data };
+            },
+        }
+    }
+
+    pub fn get_payload(self: *ICMPLayer) ?[]const u8 { // callers may want to mutate the payload - need to implement this
+        const data = self.get_data().get_immutable();
+        return data[ICMPHeaderSize..];
     }
 
     pub fn get_type(self: *ICMPLayer) ICMPType {
-        const hdr = self.get_header();
+        const hdr = self.get_immutable_header();
         return hdr.get_type();
     }
 
     pub fn set_type(self: *ICMPLayer, icmp_type: ICMPType) void {
-        var hdr = self.get_header();
+        var hdr = self.get_mutable_header();
         hdr.set_type(icmp_type);
     }
 
     // Type-safe code getters/setters based on ICMP type
     pub fn get_dest_unreachable_code(self: *ICMPLayer) !ICMPDestinationUnreachableCode {
-        const hdr = self.get_header();
+        const hdr = self.get_immutable_header();
         if (hdr.get_type() != .DestinationUnreachable) {
             return LayerError.InvalidOperation;
         }
@@ -412,7 +464,7 @@ pub const ICMPLayer = struct {
     }
 
     pub fn set_dest_unreachable_code(self: *ICMPLayer, code: ICMPDestinationUnreachableCode) !void {
-        var hdr = self.get_header();
+        var hdr = self.get_mutable_header();
         if (hdr.get_type() != .DestinationUnreachable) {
             return LayerError.InvalidOperation;
         }
@@ -420,7 +472,7 @@ pub const ICMPLayer = struct {
     }
 
     pub fn get_redirect_code(self: *ICMPLayer) !ICMPRedirectCode {
-        const hdr = self.get_header();
+        const hdr = self.get_immutable_header();
         if (hdr.get_type() != .Redirect) {
             return LayerError.InvalidOperation;
         }
@@ -428,7 +480,7 @@ pub const ICMPLayer = struct {
     }
 
     pub fn set_redirect_code(self: *ICMPLayer, code: ICMPRedirectCode) !void {
-        var hdr = self.get_header();
+        var hdr = self.get_mutable_header();
         if (hdr.get_type() != .Redirect) {
             return LayerError.InvalidOperation;
         }
@@ -436,7 +488,7 @@ pub const ICMPLayer = struct {
     }
 
     pub fn get_time_exceeded_code(self: *ICMPLayer) !ICMPTimeExceededCode {
-        const hdr = self.get_header();
+        const hdr = self.get_immutable_header();
         if (hdr.get_type() != .TimeExceeded) {
             return LayerError.InvalidOperation;
         }
@@ -444,7 +496,7 @@ pub const ICMPLayer = struct {
     }
 
     pub fn set_time_exceeded_code(self: *ICMPLayer, code: ICMPTimeExceededCode) !void {
-        var hdr = self.get_header();
+        var hdr = self.get_mutable_header();
         if (hdr.get_type() != .TimeExceeded) {
             return LayerError.InvalidOperation;
         }
@@ -452,7 +504,7 @@ pub const ICMPLayer = struct {
     }
 
     pub fn get_param_problem_code(self: *ICMPLayer) !ICMPParameterProblemCode {
-        const hdr = self.get_header();
+        const hdr = self.get_immutable_header();
         if (hdr.get_type() != .ParameterProblem) {
             return LayerError.InvalidOperation;
         }
@@ -460,7 +512,7 @@ pub const ICMPLayer = struct {
     }
 
     pub fn set_param_problem_code(self: *ICMPLayer, code: ICMPParameterProblemCode) !void {
-        var hdr = self.get_header();
+        var hdr = self.get_mutable_header();
         if (hdr.get_type() != .ParameterProblem) {
             return LayerError.InvalidOperation;
         }
@@ -469,39 +521,39 @@ pub const ICMPLayer = struct {
 
     // Generic code getter (returns raw u8, use with caution)
     pub fn get_code_raw(self: *ICMPLayer) u8 {
-        const hdr = self.get_header();
+        const hdr = self.get_immutable_header();
         return hdr.code;
     }
 
     pub fn set_code_raw(self: *ICMPLayer, code: u8) void {
-        var hdr = self.get_header();
+        var hdr = self.get_mutable_header();
         hdr.code = code;
     }
 
     // For Echo, Timestamp, Information, and Address Mask messages
     pub fn get_identifier(self: *ICMPLayer) u16 {
-        const hdr = self.get_header();
+        const hdr = self.get_immutable_header();
         return hdr.get_identifier();
     }
 
     pub fn set_identifier(self: *ICMPLayer, id: u16) void {
-        var hdr = self.get_header();
+        var hdr = self.get_mutable_header();
         hdr.set_identifier(id);
     }
 
     pub fn get_sequence(self: *ICMPLayer) u16 {
-        const hdr = self.get_header();
+        const hdr = self.get_immutable_header();
         return hdr.get_sequence();
     }
 
     pub fn set_sequence(self: *ICMPLayer, seq: u16) void {
-        var hdr = self.get_header();
+        var hdr = self.get_mutable_header();
         hdr.set_sequence(seq);
     }
 
     // For Redirect messages
     pub fn get_gateway(self: *ICMPLayer) !u32 {
-        const hdr = self.get_header();
+        const hdr = self.get_immutable_header();
         if (hdr.get_type() != .Redirect) {
             return LayerError.InvalidOperation;
         }
@@ -509,7 +561,7 @@ pub const ICMPLayer = struct {
     }
 
     pub fn set_gateway(self: *ICMPLayer, gateway: u32) !void {
-        var hdr = self.get_header();
+        var hdr = self.get_mutable_header();
         if (hdr.get_type() != .Redirect) {
             return LayerError.InvalidOperation;
         }
@@ -518,7 +570,7 @@ pub const ICMPLayer = struct {
 
     // For Parameter Problem messages
     pub fn get_pointer(self: *ICMPLayer) !u8 {
-        const hdr = self.get_header();
+        const hdr = self.get_immutable_header();
         if (hdr.get_type() != .ParameterProblem) {
             return LayerError.InvalidOperation;
         }
@@ -526,7 +578,7 @@ pub const ICMPLayer = struct {
     }
 
     pub fn set_pointer(self: *ICMPLayer, pointer: u8) !void {
-        var hdr = self.get_header();
+        var hdr = self.get_mutable_header();
         if (hdr.get_type() != .ParameterProblem) {
             return LayerError.InvalidOperation;
         }
@@ -534,24 +586,24 @@ pub const ICMPLayer = struct {
     }
 
     pub fn get_checksum(self: *ICMPLayer) u16 {
-        const hdr = self.get_header();
+        const hdr = self.get_immutable_header();
         return hdr.checksum;
     }
 
     pub fn calculate_checksum(self: *ICMPLayer) void {
-        const hdr = self.get_header();
+        const hdr = self.get_mutable_header();
         const payload = self.get_payload();
         hdr.calculate_checksum(payload);
     }
 
     pub fn validate_checksum(self: *ICMPLayer) bool {
-        const hdr = self.get_header();
+        const hdr = self.get_immutable_header();
         const payload = self.get_payload();
         return hdr.validate_checksum(payload);
     }
 
-    pub fn to_string(self: *ICMPLayer, allocator: std.mem.Allocator) ![]const u8 {
-        const hdr = self.get_header();
+    pub fn to_string(self: *ICMPLayer, allocator: std.mem.Allocator) []const u8 {
+        const hdr = self.get_immutable_header();
         const icmp_type = hdr.get_type();
 
         var code_string: []const u8 = undefined;
@@ -559,24 +611,40 @@ pub const ICMPLayer = struct {
 
         switch (icmp_type) {
             .DestinationUnreachable => {
-                const code = try self.get_dest_unreachable_code();
-                code_string = code.to_string();
-                code_value = @intFromEnum(code);
+                if (self.get_dest_unreachable_code()) |code| {
+                    code_string = code.to_string();
+                    code_value = @intFromEnum(code);
+                } else |_| {
+                    code_string = "Error";
+                    code_value = hdr.code;
+                }
             },
             .Redirect => {
-                const code = try self.get_redirect_code();
-                code_string = code.to_string();
-                code_value = @intFromEnum(code);
+                if (self.get_redirect_code()) |code| {
+                    code_string = code.to_string();
+                    code_value = @intFromEnum(code);
+                } else |_| {
+                    code_string = "Error";
+                    code_value = hdr.code;
+                }
             },
             .TimeExceeded => {
-                const code = try self.get_time_exceeded_code();
-                code_string = code.to_string();
-                code_value = @intFromEnum(code);
+                if (self.get_time_exceeded_code()) |code| {
+                    code_string = code.to_string();
+                    code_value = @intFromEnum(code);
+                } else |_| {
+                    code_string = "Error";
+                    code_value = hdr.code;
+                }
             },
             .ParameterProblem => {
-                const code = try self.get_param_problem_code();
-                code_string = code.to_string();
-                code_value = @intFromEnum(code);
+                if (self.get_param_problem_code()) |code| {
+                    code_string = code.to_string();
+                    code_value = @intFromEnum(code);
+                } else |_| {
+                    code_string = "Error";
+                    code_value = hdr.code;
+                }
             },
             else => {
                 code_string = "None";
@@ -591,8 +659,8 @@ pub const ICMPLayer = struct {
 
         const writer = buf.writer(allocator);
 
-        // Base info
-        try writer.print(
+        // Base info (using catch to handle any print errors)
+        _ = writer.print(
             \\ICMP Layer:
             \\  Type: {s} ({})
             \\  Code: {s} ({})
@@ -604,34 +672,44 @@ pub const ICMPLayer = struct {
             code_string,
             code_value,
             checksum,
-        });
+        }) catch {};
 
         // Type-specific fields
         switch (icmp_type) {
             .EchoRequest, .EchoReply, .TimestampRequest, .TimestampReply, .InformationRequest, .InformationReply, .AddressMaskRequest, .AddressMaskReply => {
-                try writer.print(
-                    "  Identifier: {}\n  Sequence: {}\n",
-                    .{ self.get_identifier(), self.get_sequence() },
-                );
+                const identifier = self.get_identifier();
+                const sequence = self.get_sequence();
+                _ = writer.print("  Identifier: {}\n  Sequence: {}\n", .{ identifier, sequence }) catch {};
             },
             .Redirect => {
                 const gateway = self.get_gateway() catch 0;
-                try writer.print("  Gateway: {}\n", .{gateway});
+                _ = writer.print("  Gateway: {}\n", .{gateway}) catch {};
             },
             .ParameterProblem => {
                 const pointer = self.get_pointer() catch 0;
-                try writer.print("  Pointer: {}\n", .{pointer});
+                _ = writer.print("  Pointer: {}\n", .{pointer}) catch {};
             },
             else => {},
         }
 
         // Payload
         const payload = self.get_payload();
-        if (payload.len > 0) {
-            try writer.print("  Payload Length: {} bytes\n", .{payload.len});
+        if (payload) |p| {
+            _ = writer.print("  Payload Length: {} bytes\n", .{p.len}) catch {};
         }
 
-        return buf.toOwnedSlice(allocator);
+        return buf.toOwnedSlice(allocator) catch return &[_]u8{};
+    }
+
+    pub fn get_protocol(self: *ICMPLayer) LayerProtocols {
+        _ = self;
+        return ICMPLayer.Protocol;
+    }
+
+    pub fn get_next_layer_type(self: *ICMPLayer, layer: *Layer) !?LayerImpl {
+        _ = self;
+        _ = layer;
+        return null;
     }
 
     pub fn deinit(self: *ICMPLayer, allocator: std.mem.Allocator) void {

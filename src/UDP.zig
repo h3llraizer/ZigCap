@@ -20,47 +20,11 @@ const comparePayloads = @import("ProtocolHelpers.zig").comparePayloads;
 
 const nativeToBig = std.mem.nativeToBig;
 const activeTag = std.meta.activeTag;
+const panic = std.debug.panic;
+
+const RawData = @import("RawData.zig").RawData;
 
 pub const UDPHeaderSize = 8;
-
-pub fn get_next_layer_type(buffer: []u8) !Packet.Layer { // could return optional instead to handle empty payloads instead
-    if (buffer.len < @sizeOf(UDPHeader)) return LayerError.BufferTooSmall;
-
-    const alignment = @alignOf(UDPHeader);
-    const addr = @intFromPtr(buffer.ptr);
-    if (addr % alignment != 0) {
-        return LayerError.MisalignedBuffer;
-    }
-
-    const aligned_ptr: [*]align(@alignOf(UDPHeader)) u8 = @alignCast(buffer.ptr);
-    const hdr: *const UDPHeader = @ptrCast(aligned_ptr);
-
-    var layer = Packet.Layer{ .protocol = undefined, .offset = 0, .length = 0, .next_layer = null };
-
-    const total_udp_length = hdr.get_length();
-
-    print("total length udp: {}\n", .{total_udp_length});
-
-    // Validate UDP length
-    if (total_udp_length < UDPHeaderSize) {
-        return LayerError.BufferTooSmall;
-    }
-
-    // Check if we have enough data
-    if (buffer.len < total_udp_length) {
-        return LayerError.EmptyPayload;
-    }
-
-    // set offset to where payload starts (right after UDP header)
-    layer.offset = UDPHeaderSize;
-
-    // set length to UDP payload length (total length - header size)
-    layer.length = total_udp_length - UDPHeaderSize;
-
-    layer.protocol = LayerProtocols{ .Application = .Generic };
-
-    return layer;
-}
 
 // UDP Header structure (extern struct for exact layout)
 pub const UDPHeader = extern struct {
@@ -289,6 +253,9 @@ pub const UDPLayer = struct {
 
                 return self;
             },
+            .immutable_layer => return {
+                return UDPLayer{ .owner = owner };
+            },
         }
     }
 
@@ -299,54 +266,53 @@ pub const UDPLayer = struct {
         return data;
     }
 
-    pub fn get_header(self: *UDPLayer) *UDPHeader {
-        const data = self.get_data();
+    fn get_mutable_header(self: *const UDPLayer) *UDPHeader {
+        const data = self.get_data().mutable;
         const aligned_ptr: [*]align(@alignOf(UDPHeader)) u8 = @alignCast(data.ptr);
         return @ptrCast(aligned_ptr);
     }
 
-    /// Get slice of data (header + payload)
-    pub fn set_data(self: *UDPLayer, data: []u8) LayerError!void {
-        if (data.len < @sizeOf(UDPHeader)) return LayerError.BufferTooSmall;
+    fn get_immutable_header(self: *const UDPLayer) *const UDPHeader {
+        var data: []const u8 = undefined;
 
-        _ = self;
-
-        print("set data called.\n", .{});
-
-        // Verify alignment (optional)
-        const alignment = @alignOf(UDPHeader);
-        const addr = @intFromPtr(data.ptr);
-        if (addr % alignment != 0) {
-            return LayerError.MisalignedBuffer;
+        if (self.get_data().is_mutable()) { // if the data is actually mutable - we just need immutable in this case anyway
+            data = self.get_data().get_mutable();
+        } else {
+            data = self.get_data().get_immutable();
         }
 
-        //self.data = data;
+        if (data.len < UDPHeaderSize) {
+            panic("Eth Raw Data len ({}) less than UDPHeaderSize", .{data.len});
+        }
+
+        const aligned_ptr: [*]align(@alignOf(UDPHeader)) const u8 = @alignCast(data.ptr);
+        return @ptrCast(aligned_ptr);
     }
 
     /// Get slice of data (header + payload)
-    pub fn get_data(self: *const UDPLayer) []u8 {
+    pub fn get_data(self: *const UDPLayer) RawData {
         switch (self.owner) {
             .packet_layer => {
                 //print("getting self ({*}) data from packet\n", .{self});
-                const udp_data = self.owner.packet_layer.packet.find_layer_ptr(@ptrCast(@constCast(self))) orelse {
-                    std.debug.panic("udp layer ptr ({*}) not found in packet\n", .{self});
-                };
+                const udp_data = self.owner.packet_layer.get_data();
                 return udp_data;
             },
-            else => {
-                //print("getting self ({*}) data from allocator\n", .{self});
-                return self.owner.allocator_owned.data;
+            .allocator_owned => {
+                return RawData{ .mutable = self.owner.allocator_owned.data }; // standalone layer - it is mutable by default
+            },
+            .immutable_layer => {
+                return RawData{ .immutable = self.owner.immutable_layer.raw_data };
             },
         }
     }
 
     /// Get the payload (data after UDP header)
-    pub fn get_payload(self: *UDPLayer) ?[]u8 {
+    pub fn get_payload(self: *UDPLayer) ?[]const u8 {
         //const hdr = self.get_header();
         //const total_len = hdr.get_length();
         //const payload_start = UDPHeaderSize;
 
-        const data = self.get_data();
+        const data = self.get_data().get_immutable();
 
         //if (total_len < UDPHeaderSize) return data[UDPHeaderSize..];
 
@@ -361,83 +327,38 @@ pub const UDPLayer = struct {
         //        return data[payload_start..payload_end];
     }
 
-    pub fn owns(self: *UDPLayer) void {
-        switch (self.owner) {
-            .packet_layer => { //call packet extended layer
-                print("packet.\n", .{});
-            },
-            .allocator => {
-                print("allocator.\n", .{});
-            },
-        }
-    }
-
-    // pub fn set_payload(self: *UDPLayer, payload: []const u8) !void {
-    //     const total_len = UDPHeaderSize + payload.len;
-
-    //     switch (self.owner) {
-    //         .packet_layer => { //call packet extended layer
-
-    //             if (self.owner.packet_layer.packet) |owning_packet| {
-    //                 if (self.owner.packet_layer.length < payload.len) {
-    //                     try owning_packet.extend_layer(self.owner.packet_layer, payload.len % self.get_payload().len);
-    //                 } else if (self.owner.packet_layer.length > payload.len) {
-    //                     try owning_packet.shorten_layer(self.owner.packet_layer, self.get_payload().len % payload.len);
-    //                 }
-
-    //                 _ = try owning_packet.add_layer(ApplicationLayer, payload);
-    //             }
-
-    //             return;
-    //         },
-    //         .allocator => {
-    //             print("calling allocator.\n", .{});
-    //             if (self.data.len < total_len) {
-    //                 self.data = try self.owner.allocator.realloc(self.data, (total_len));
-    //             }
-
-    //             // Copy payload
-    //             @memcpy(self.data[UDPHeaderSize..][0..payload.len], payload);
-    //         },
-    //     }
-
-    //     // Update header length
-    //     var hdr = self.get_header();
-    //     try hdr.set_length(@intCast(total_len));
-    // }
-
     pub fn get_src_port(self: *UDPLayer) u16 {
-        const hdr = self.get_header();
+        const hdr = self.get_immutable_header();
         return hdr.get_src_port();
     }
 
     pub fn get_dst_port(self: *UDPLayer) u16 {
-        const hdr = self.get_header();
+        const hdr = self.get_immutable_header();
         return hdr.get_dst_port();
     }
 
     pub fn set_src_port(self: *UDPLayer, port: u16) void {
-        var hdr = self.get_header();
+        var hdr = self.get_mutable_header();
         hdr.set_src_port(port);
     }
 
     pub fn set_dst_port(self: *UDPLayer, port: u16) void {
-        var hdr = self.get_header();
+        var hdr = self.get_mutable_header();
         hdr.set_dst_port(port);
     }
 
     pub fn get_length(self: *UDPLayer) u16 {
-        const hdr = self.get_header();
+        const hdr = self.get_immutable_header();
         return hdr.get_length();
     }
 
     pub fn set_length(self: *UDPLayer, len: u16) !void {
-        var hdr = self.get_header();
+        var hdr = self.get_mutable_header();
         try hdr.set_length(len);
     }
 
     pub fn get_checksum(self: *UDPLayer) u16 {
-        const hdr = self.get_header();
+        const hdr = self.get_immutable_header();
         return hdr.checksum;
     }
 
@@ -459,7 +380,7 @@ pub const UDPLayer = struct {
     }
 
     pub fn calculate_checksum(self: *UDPLayer) void {
-        const hdr = self.get_header();
+        const hdr = self.get_mutable_header();
 
         switch (self.owner) {
             .packet_layer => {
@@ -486,13 +407,14 @@ pub const UDPLayer = struct {
         //hdr.calculate_checksum(src_ip, dst_ip, payload);
     }
 
+    /// caller needs to free
     pub fn to_string(self: *UDPLayer, allocator: Allocator) []const u8 {
-        const hdr = self.get_header();
+        const hdr = self.get_immutable_header();
 
         const src_port = hdr.get_src_port();
         const dst_port = hdr.get_dst_port();
         const length = hdr.get_length();
-        const checksum = hdr.checksum;
+        const checksum = nativeToBig(u16, hdr.checksum);
 
         return std.fmt.allocPrint(allocator,
             \\UDP Layer:

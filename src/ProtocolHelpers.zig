@@ -17,6 +17,8 @@ const LayerOwner = @import("Layer.zig").LayerOwner;
 
 const Allocator = @import("std").mem.Allocator;
 
+const RawData = @import("RawData.zig").RawData;
+
 pub const ApplicationProtocols = enum(u16) {
     HTTP = 80,
     DNS = 53,
@@ -99,69 +101,7 @@ pub fn comparePayloads(a: LayerProtocols, b: LayerProtocols) bool {
     };
 }
 
-pub fn get_next_layer_type(
-    layer_protocol: LayerProtocols,
-) ?(*const fn ([]u8) LayerError!Packet.Layer) {
-    switch (layer_protocol) {
-        .LinkLayer => |protocol| switch (protocol) {
-            .ETHERNET => {
-                return Eth.get_next_layer_type;
-            },
-            else => {
-                //next_layer = LayerProtocols{ .Network = .Generic };
-                return null;
-            },
-        },
-        .Network => |protocol| switch (protocol) {
-            .ICMP => {
-                print("icmp skip.\n", .{});
-                // the icmp layer has already been created at this point and it cannot "normally" contain any preceeding layers so just return
-                return null;
-            },
-            .IPv4 => {
-                return IPv4.get_next_layer_type;
-            },
-            .IPv6 => {
-                return IPv6.get_next_layer_type;
-            },
-            .ARP => {
-                // the arp layer has already been created at this point and it cannot "normally" contain any preceeding layers so just return
-                return null;
-            },
-            .Generic => {
-                // we cannot parse a generic network layer. magic might be implemented in the future
-                return null;
-            },
-        },
-        .Transport => |protocol| switch (protocol) {
-            .TCP => {
-                return TCP.get_next_layer_type;
-            },
-            .UDP => {
-                return UDP.get_next_layer_type;
-            },
-            .Generic => {
-                //next_layer = LayerProtocols{ .Transport = .Generic };
-                return null;
-            },
-        },
-        .Application => |protocol| switch (protocol) {
-            .DNS => {
-                //next_layer = LayerProtocols{ .Application = .Generic };
-                return null;
-            },
-            .HTTP => {
-                //next_layer = LayerProtocols{ .Application = .Generic };
-                return null;
-            },
-            .Generic => {
-                return null;
-            },
-        },
-    }
-}
-
-pub const LayerError = error{ OutOfMemory, BufferTooSmall, MisalignedBuffer, EmptyPayload, InvalidOperation };
+pub const LayerError = error{ OutOfMemory, BufferTooSmall, MisalignedBuffer, EmptyPayload, InvalidOperation, LayerInvalid };
 
 pub fn get_layer_type_enum(value: type) !LayerProtocols {
     switch (value) {
@@ -170,7 +110,7 @@ pub fn get_layer_type_enum(value: type) !LayerProtocols {
         IPv6.IPv6Layer => return LayerProtocols{ .Network = .IPv6 },
         UDP.UDPLayer => return LayerProtocols{ .Transport = .UDP },
         TCP.TCPLayer => return LayerProtocols{ .Transport = .TCP },
-        ARP.ArpLayer => return LayerProtocols{ .Network = .ARP },
+        ARP.ARPLayer => return LayerProtocols{ .Network = .ARP },
         ICMP.ICMPLayer => return LayerProtocols{ .Network = .ICMP },
         else => return error.LayerInvalid,
     }
@@ -291,9 +231,9 @@ pub const LayerImpl = union(enum) {
     //   ipv6Layer: IPv6.IPv6Layer,
     udpLayer: UDP.UDPLayer,
     tcpLayer: TCP.TCPLayer,
-    //   arpLayer: ARP.ArpLayer,
-    //   icmpLayer: ICMP.ICMPLayer,
-    genericAppLayer: GenericLayer.ApplicationLayer,
+    arpLayer: ARP.ARPLayer,
+    icmpLayer: ICMP.ICMPLayer,
+    //    genericAppLayer: GenericLayer.ApplicationLayer,
 
     pub fn init(choice: type, owner: LayerOwner) LayerError!LayerImpl {
         switch (choice) {
@@ -302,10 +242,10 @@ pub const LayerImpl = union(enum) {
             //           IPv6.IPv6Layer => return IPv6.IPv6Layer.init(owner),
             UDP.UDPLayer => return LayerImpl{ .udpLayer = try UDP.UDPLayer.init(owner) },
             TCP.TCPLayer => return LayerImpl{ .tcpLayer = try TCP.TCPLayer.init(owner) },
-            //           ARP.ArpLayer => return ARP.ArpLayer.init(owner),
-            //           ICMP.ICMPLayer => return ICMP.ICMPLayer.init(owner),
-            GenericLayer.ApplicationLayer => return LayerImpl{ .genericAppLayer = try GenericLayer.ApplicationLayer.init(owner) },
-            else => return error.LayerInvalid,
+            ARP.ARPLayer => return LayerImpl{ .arpLayer = try ARP.ARPLayer.init(owner) },
+            ICMP.ICMPLayer => return LayerImpl{ .icmpLayer = try ICMP.ICMPLayer.init(owner) },
+            //         GenericLayer.ApplicationLayer => return LayerImpl{ .genericAppLayer = try GenericLayer.ApplicationLayer.init(owner) },
+            else => return LayerError.LayerInvalid,
         }
     }
 
@@ -316,9 +256,9 @@ pub const LayerImpl = union(enum) {
             // .ipv6Layer => |*layer| try LayerImpl{ .ipv6Layer = try IPv6.IPv6Layer.init(owner) },
             .udpLayer => LayerImpl{ .udpLayer = try UDP.UDPLayer.init(owner) },
             .tcpLayer => LayerImpl{ .tcpLayer = try TCP.TCPLayer.init(owner) },
-            // .arpLayer => |*layer| try LayerImpl{ .arpLayer = try ARP.ArpLayer.init(owner) },
-            // .icmpLayer => |*layer| try LayerImpl{ .icmpLayer = try ICMP.ICMPLayer.init(owner) },
-            .genericAppLayer => LayerImpl{ .genericAppLayer = try GenericLayer.ApplicationLayer.init(owner) },
+            .arpLayer => LayerImpl{ .arpLayer = try ARP.ARPLayer.init(owner) },
+            .icmpLayer => LayerImpl{ .icmpLayer = try ICMP.ICMPLayer.init(owner) },
+            //        .genericAppLayer => LayerImpl{ .genericAppLayer = try GenericLayer.ApplicationLayer.init(owner) },
         };
         self.* = new_instance;
     }
@@ -330,13 +270,9 @@ pub const LayerImpl = union(enum) {
     }
 
     pub fn get_protocol(self: *LayerImpl) !LayerProtocols {
-        switch (self.*) {
-            .ethLayer => return LayerProtocols{ .LinkLayer = .ETHERNET },
-            .ipv4Layer => return LayerProtocols{ .Network = .IPv4 },
-            .udpLayer => return LayerProtocols{ .Transport = .UDP },
-            .tcpLayer => return LayerProtocols{ .Transport = .TCP },
-            .genericAppLayer => return LayerProtocols{ .Application = .Generic },
-        }
+        return switch (self.*) {
+            inline else => |*layer| layer.get_protocol(),
+        };
     }
 
     pub fn ptr(self: *LayerImpl) *anyopaque {
@@ -351,7 +287,7 @@ pub const LayerImpl = union(enum) {
         };
     }
 
-    pub fn get_data(self: *LayerImpl) []const u8 {
+    pub fn get_data(self: *LayerImpl) RawData {
         return switch (self.*) {
             inline else => |*layer| layer.get_data(),
         };

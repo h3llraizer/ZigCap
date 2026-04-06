@@ -2,6 +2,7 @@ const print = @import("std").debug.print;
 const Packet = @import("Packet.zig");
 const Allocator = @import("std").mem.Allocator;
 
+/// soon to be renamed to SelfOwned
 pub const AllocatorOwned = struct {
     allocator: Allocator,
     data: []u8,
@@ -26,4 +27,20 @@ pub const AllocatorOwned = struct {
 pub const LayerOwner = union(enum) {
     packet_layer: *Packet.Layer,
     allocator_owned: AllocatorOwned,
+    immutable_layer: ImmutableLayer,
+};
+
+pub const MutableLayer = struct {
+    raw_data: []u8,
+    allocator: Allocator,
+};
+
+pub const ImmutableLayer = struct {
+    raw_data: []const u8,
+};
+
+pub const LayerVariant = union(enum) {
+    mutable: MutableLayer,
+    immutable: ImmutableLayer,
+    packet_layer: *Packet.Layer,
 };
