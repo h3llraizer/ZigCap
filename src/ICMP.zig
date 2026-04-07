@@ -277,11 +277,11 @@ pub const ICMPHeader = extern union {
 
     // Redirect methods
     pub fn set_gateway(self: *ICMPHeader, gateway: u32) void {
-        self.redirect.gateway = gateway;
+        self.redirect.gateway = std.mem.toBytes(gateway);
     }
 
     pub fn get_gateway(self: *const ICMPHeader) u32 {
-        return self.redirect.gateway; // TODO: Convert this to u32
+        return std.mem.bytesToValue(u32, &self.redirect.gateway);
     }
 
     // Parameter Problem methods

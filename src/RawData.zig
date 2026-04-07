@@ -26,7 +26,7 @@ pub const RawData = union(enum) {
     pub fn get_immutable(self: RawData) []const u8 {
         switch (self) {
             .mutable => {
-                print("getting immutable data.\n", .{});
+                //                print("getting immutable data.\n", .{});
                 const sub: []const u8 = self.mutable;
                 return sub;
             },
@@ -45,7 +45,7 @@ pub const RawData = union(enum) {
                     panic("out of bounds. offset {} + length {} exceeds data length {}\n", .{ offset, length, slice.len });
                 }
 
-                print("getting slice.\n", .{});
+                //               print("getting slice.\n", .{});
 
                 const sub = slice[offset .. offset + length];
 
@@ -102,7 +102,7 @@ pub const Mutable = struct {
 
         @memmove(self.data, data);
 
-        print("data in allocator: {x}\n", .{self.data});
+        //      print("data in allocator: {x}\n", .{self.data});
     }
 };
 

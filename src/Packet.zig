@@ -59,19 +59,28 @@ pub const Packet = struct {
     pub fn from_raw(self: *Packet, raw_data: RawData, link_layer_type: LinkLayerProtocols) !void {
         self.raw_data = raw_data;
 
-        _ = link_layer_type;
-
         const first_layer = try self.allocator.create(Layer); // create layer struct
 
-        const link_layer = try LayerImpl.init(EthLayer, LayerOwner{ .packet_layer = first_layer });
+        const link_layer = try ProtocolHelpers.create_first_layer(self.raw_data.get_immutable(), link_layer_type, first_layer) orelse {
+            return error.Failed;
+        };
 
-        first_layer.* = Layer.init(link_layer, 0, Eth.EthHeaderSize, self); // harcoded for the moment for testing
-        first_layer.layer_impl = try LayerImpl.init(EthLayer, LayerOwner{ .packet_layer = first_layer });
+        first_layer.* = Layer.init(link_layer, 0, self.raw_data.get_immutable().len, self);
 
         self.first_layer = first_layer;
 
+        const first_layer_payload = first_layer.layer_impl.get_payload() orelse {
+            print("first layer has no payload.\n", .{});
+            return;
+        };
+
+        //        print("first layer payload len: {}\n", .{first_layer_payload.len});
+
+        // need to adjust the length
+        self.first_layer.?.length -= first_layer_payload.len;
+
         self.accumulate_layers() catch |err| {
-            print("couldn't parse all layers: {s}\n", .{@errorName(err)});
+            print("couldn't parse remaining layers: {s}\n", .{@errorName(err)});
             return;
         };
     }
@@ -106,7 +115,7 @@ pub const Packet = struct {
                 }
             };
 
-            print("{any}\n", .{impl_layer});
+            //           print("LayerImpl: {any}\n", .{impl_layer});
 
             const next_layer_data_len = current_layer_payload.len;
 
@@ -121,6 +130,8 @@ pub const Packet = struct {
             next_layer.offset = current_layer.length;
 
             const next_layer_payload = next_layer.layer_impl.get_payload() orelse {
+                //                print("next layer has no payload.\n", .{});
+                next_layer.length = next_layer.layer_impl.get_data().get_immutable().len;
                 return;
             };
 
@@ -435,39 +446,143 @@ pub const Packet = struct {
         return layer;
     }
 
-    //
-    //   fn extend_layer(self: *Packet, layer: *Layer, len: usize) !void {
-    //       var cur = self.first_layer;
-    //       while (cur) |l| {
-    //           if (l == layer) {
-    //               l.length += len;
-    //               var next = l.next_layer;
-    //               while (next) |n| {
-    //                   n.offset += len;
-    //                   n.length += len;
-    //                   next = n.next_layer;
-    //               }
-    //           }
-    //           cur = l.next_layer;
-    //       }
-    //   }
-    //
-    //   fn shorten_layer(self: *Packet, layer: *Layer, len: usize) !void {
-    //       var cur = self.first_layer;
-    //       while (cur) |l| {
-    //           if (l == layer) {
-    //               l.length -= len;
-    //               var next = l.next_layer;
-    //               while (next) |n| {
-    //                   n.offset -= len;
-    //                   n.length -= len;
-    //                   next = n.next_layer;
-    //               }
-    //           }
-    //           cur = l.next_layer;
-    //       }
-    //   }
-    //
+    fn find_layer(self: *Packet, layer: *Layer) bool {
+        var cur = self.first_layer;
+        while (cur) |l| {
+            if (l == layer) {
+                return true;
+            }
+
+            cur = l.next_layer;
+        }
+
+        return false;
+    }
+
+    fn isSubslice(main: []const u8, sub: []const u8) bool {
+        const main_start = @intFromPtr(main.ptr);
+        const main_end = main_start + main.len;
+        const sub_start = @intFromPtr(sub.ptr);
+        const sub_end = sub_start + sub.len;
+
+        return sub_start >= main_start and sub_end <= main_end;
+    }
+
+    fn subsliceOffset(main: []const u8, sub: []const u8) ?usize {
+        const main_start = @intFromPtr(main.ptr);
+        const main_end = main_start + main.len;
+        const sub_start = @intFromPtr(sub.ptr);
+        const sub_end = sub_start + sub.len;
+
+        // Check if sub is within main's memory range
+        if (sub_start >= main_start and sub_end <= main_end) {
+            // Calculate offset in bytes
+            const offset_bytes = sub_start - main_start;
+            // Verify it's a valid element offset (no partial elements)
+            // For u8, offset_bytes is the element offset since each element is 1 byte
+            return @intCast(offset_bytes);
+        }
+
+        return null;
+    }
+
+    /// removes a slice of data from the Layer. Mostly used by Application Layers to modify their payload in the packet, but can be used directly if required but be aware that attempting to remove data in a layers header will result in an exception. Don't use this function to "delete" a layer (use delete_layer instead)
+    pub fn remove_data(self: *Packet, layer: *Layer, raw_data: RawData) !void {
+        if (!self.find_layer(layer)) {
+            return error.LayerNotFound;
+        }
+
+        if (!self.raw_data.is_mutable()) {
+            return error.PacketRawDataNotMutable;
+        }
+
+        const layer_data = layer.get_data();
+
+        if (!Packet.isSubslice(layer_data.get_immutable(), raw_data.get_immutable())) {
+            return error.SliceDoesNotBelongToLayer;
+        }
+
+        print("slice removal: {s}\n", .{raw_data.get_immutable()});
+
+        const delete_start_in_layer = Packet.subsliceOffset(layer_data.get_immutable(), raw_data.get_immutable()) orelse {
+            return error.OffsetNotFound;
+        };
+
+        const delete_end_in_layer = raw_data.get_immutable().len;
+
+        print("delete start offset in layer: {}\n", .{delete_start_in_layer});
+
+        print("delete end in layer: {}\n", .{delete_end_in_layer});
+
+        const delete_start_in_packet = layer.offset + delete_start_in_layer;
+
+        print("delete start in packet: {}\n", .{delete_start_in_packet});
+
+        const delete_end_in_packet = delete_start_in_packet + delete_end_in_layer;
+
+        print("delete end in packet: {}\n", .{delete_end_in_packet});
+
+        const packet_data = self.raw_data.get_mutable();
+
+        print("original: ({}) {x}\n", .{ packet_data.len, packet_data });
+
+        const delete_buf = packet_data[delete_start_in_packet..delete_end_in_packet];
+        print("deletion buffer: {x} ({})\n", .{ delete_buf, delete_buf.len });
+
+        const remaining_buf = packet_data[delete_start_in_packet + delete_buf.len ..];
+        print("remaining buf: {x} ({})\n", .{ remaining_buf, remaining_buf.len });
+
+        const dest = packet_data[delete_start_in_packet .. delete_start_in_packet + remaining_buf.len];
+        print("dest: {x} ({})\n", .{ dest, dest.len });
+
+        @memmove(dest, remaining_buf);
+
+        const new_len = delete_start_in_packet + remaining_buf.len;
+        self.raw_data = RawData{ .mutable = packet_data[0..new_len] };
+
+        var cur = layer.next_layer;
+        while (cur) |next| {
+            print("next: offset={} length={}\n", .{ next.offset, next.length });
+            next.offset -= delete_buf.len;
+            print("updated offset: {}\n", .{next.offset});
+            cur = next.next_layer;
+        }
+
+        layer.length -= raw_data.get_immutable().len;
+    }
+    /// inserts a slice of data into the Layer. Mostly used by Application Layers to modify their payload in the packet, but can be used directly if required
+    pub fn insert_data(self: *Packet, layer: *Layer, raw_data: RawData) !void {
+        if (!self.find_layer(layer)) {
+            return error.LayerNotFound;
+        }
+
+        if (!self.raw_data.is_mutable()) {
+            return error.PacketRawDataNotMutable;
+        }
+
+        const raw_data_len = raw_data.get_immutable().len;
+
+        const current_buf_len: usize = self.raw_data.get_immutable().len;
+
+        const new_buf: []u8 = try self.allocator.realloc(self.raw_data.get_mutable(), current_buf_len + raw_data_len);
+
+        const dest = new_buf[current_buf_len..];
+
+        @memmove(dest, raw_data.get_immutable());
+
+        self.raw_data = RawData{ .mutable = new_buf[0..] };
+
+        var cur = layer.next_layer;
+        while (cur) |next| {
+            print("next: offset={} length={}\n", .{ next.offset, next.length });
+            next.offset += raw_data_len;
+            print("updated offset: {}\n", .{next.offset});
+            cur = next.next_layer;
+        }
+
+        layer.length += raw_data_len;
+    }
+
     //
     //   pub fn print_layers(self: *Packet) void {
     //       var cur = self.first_layer;

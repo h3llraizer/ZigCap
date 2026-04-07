@@ -65,6 +65,50 @@ pub const ApplicationLayer = struct {
         return self.get_data().get_immutable();
     }
 
+    pub fn set_payload(self: *ApplicationLayer, raw_data: RawData) !void {
+        if (!self.get_data().is_mutable()) {
+            return error.PayloadNotMutable;
+        }
+
+        //        const raw_len = raw_data.get_immutable().len;
+
+        switch (self.owner) {
+            .packet_layer => |layer| {
+                try layer.packet.insert_data(layer, raw_data);
+            },
+            .allocator_owned => {
+                return {
+                    try self.owner.allocator_owned.copy_from(raw_data.get_mutable());
+                };
+            },
+            .immutable_layer => {
+                return error.PayloadNotMutable; //RawData{ .immutable = self.owner.immutable_layer.raw_data };
+            },
+        }
+    }
+
+    pub fn delete_payload_data(self: *ApplicationLayer, raw_data: RawData) !void {
+        if (!self.get_data().is_mutable()) {
+            return error.PayloadNotMutable;
+        }
+
+        //        const raw_len = raw_data.get_immutable().len;
+
+        switch (self.owner) {
+            .packet_layer => |layer| {
+                try layer.packet.remove_data(layer, raw_data);
+            },
+            .allocator_owned => {
+                return {
+                    try self.owner.allocator_owned.copy_from(raw_data.get_mutable()); // change this to remove
+                };
+            },
+            .immutable_layer => {
+                return error.PayloadNotMutable; //RawData{ .immutable = self.owner.immutable_layer.raw_data };
+            },
+        }
+    }
+
     pub fn to_string(self: *const ApplicationLayer, allocator: Allocator) []const u8 {
         _ = allocator;
         return self.get_data().get_immutable();

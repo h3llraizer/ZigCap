@@ -12,7 +12,7 @@ const NetworkProtocols = @import("ProtocolHelpers.zig").NetworkProtocols;
 const IPv4Layer = @import("IPv4.zig").IPv4Layer;
 const IPv4Header = @import("IPv4.zig").IPv4Header;
 const IPv4 = @import("IPv4.zig");
-const IPv6Layer = @import("IPv6.zig").IPv6Layer;
+const IPv6 = @import("IPv6.zig");
 const IPv6HeaderSize = @import("IPv6.zig").IPv6HeaderSize;
 const ARP = @import("ARP.zig");
 
@@ -167,7 +167,6 @@ pub const EthHeader = extern struct {
     }
 
     pub fn get_eth_type(self: *const EthHeader) EthType {
-        //        print("{any}\n", .{self.eth_type});
         return @enumFromInt(@byteSwap(self.eth_type));
     }
 };
@@ -322,7 +321,7 @@ pub const EthLayer = struct {
                 }
             },
             EthType.IPV6 => {
-                return null;
+                return try LayerImpl.init(IPv6.IPv6Layer, LayerOwner{ .packet_layer = layer });
             },
             EthType.ARP => {
                 return try LayerImpl.init(ARP.ARPLayer, LayerOwner{ .packet_layer = layer });

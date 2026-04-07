@@ -5,6 +5,8 @@ const print = @import("std").debug.print;
 const Packet = @import("Packet.zig");
 const Layer = @import("Packet.zig").Layer;
 const Eth = @import("Eth.zig");
+const LoopBack = @import("Loopback.zig");
+
 const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
 const UDP = @import("UDP.zig");
@@ -45,6 +47,11 @@ pub const NetworkProtocols = enum(u4) {
     Generic = 0,
 };
 
+pub const IPVersions = enum(u4) {
+    IPv4 = 4,
+    IPv6 = 6,
+};
+
 pub const EthType = enum(u16) {
     IP = 0x0800,
     ARP = 0x0806,
@@ -80,6 +87,71 @@ pub const LinkLayerProtocols = enum(u16) { // these should be renamed to LinkLay
     INVALID = 0xFFFF,
 };
 
+pub fn create_first_layer(raw: []const u8, link_layer_type: LinkLayerProtocols, layer: *Layer) !?LayerImpl {
+    switch (link_layer_type) {
+        .ETHERNET => {
+            return try LayerImpl.init(Eth.EthLayer, LayerOwner{ .packet_layer = layer });
+        },
+        .RAW => {
+            return try create_ip_layer(raw, layer);
+        },
+        .LOOP, .NULL => {
+            return try LayerImpl.init(LoopBack.LoopBackLayer, LayerOwner{ .packet_layer = layer });
+        },
+        else => {
+            return error.LinkLayerUnknown;
+        },
+    }
+}
+
+pub const NullLinkType = enum(u8) {
+    IPv4 = 0x02,
+    OSI = 0x07,
+    IPX = 0x23,
+};
+
+pub fn get_loopback(raw: []const u8) !LayerProtocols {
+    if (raw.len < 4) {
+        return error.LoopBackInvalid;
+    }
+
+    print("{x}\n", .{raw});
+
+    const null_link_type_val: u8 = raw[0];
+
+    print("{any}\n", .{null_link_type_val});
+
+    if (null_link_type_val == @intFromEnum(NullLinkType.IPv4)) {
+        return LayerProtocols{ .Network = .IPv4 };
+    }
+
+    return error.LoopBackNotHandled;
+}
+
+pub fn create_ip_layer(raw: []const u8, layer: *Layer) !?LayerImpl {
+    if (raw.len < IPv4.MinHeaderLength) {
+        return error.HeaderTooSmall;
+    }
+
+    const ihl_byte = raw[0];
+    const ip_version = ihl_byte >> 4;
+    if (ip_version == @intFromEnum(IPVersions.IPv4)) {
+        const hdr_len = (ihl_byte & 0x0F) * 4;
+        if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) {
+            return try LayerImpl.init(GenericLayer.ApplicationLayer, LayerOwner{ .packet_layer = layer });
+        }
+
+        return try LayerImpl.init(IPv4.IPv4Layer, LayerOwner{ .packet_layer = layer });
+    }
+
+    if (ip_version == @intFromEnum(IPVersions.IPv6)) {
+        return try LayerImpl.init(IPv6.IPv6Layer, LayerOwner{ .packet_layer = layer });
+    } else {
+        print("Unknown link type.\n", .{});
+        return null;
+    }
+}
+
 pub const LayerProtocols = union(enum) {
     LinkLayer: LinkLayerProtocols,
     Network: NetworkProtocols,
@@ -106,12 +178,14 @@ pub const LayerError = error{ OutOfMemory, BufferTooSmall, MisalignedBuffer, Emp
 pub fn get_layer_type_enum(value: type) !LayerProtocols {
     switch (value) {
         Eth.EthLayer => return LayerProtocols{ .LinkLayer = .ETHERNET },
+        LoopBack.LoopBackLayer => return LayerProtocols{ .LinkLayer = .LOOP },
         IPv4.IPv4Layer => return LayerProtocols{ .Network = .IPv4 },
         IPv6.IPv6Layer => return LayerProtocols{ .Network = .IPv6 },
         UDP.UDPLayer => return LayerProtocols{ .Transport = .UDP },
         TCP.TCPLayer => return LayerProtocols{ .Transport = .TCP },
         ARP.ARPLayer => return LayerProtocols{ .Network = .ARP },
         ICMP.ICMPLayer => return LayerProtocols{ .Network = .ICMP },
+        GenericLayer.ApplicationLayer => return LayerProtocols{ .Application = .Generic },
         else => return error.LayerInvalid,
     }
 }
@@ -188,8 +262,9 @@ pub fn get_layer_alignment(protocol: LayerProtocols) usize {
 
 pub const LayerImpl = union(enum) {
     ethLayer: Eth.EthLayer,
+    loopbackLayer: LoopBack.LoopBackLayer,
     ipv4Layer: IPv4.IPv4Layer,
-    //   ipv6Layer: IPv6.IPv6Layer,
+    ipv6Layer: IPv6.IPv6Layer,
     udpLayer: UDP.UDPLayer,
     tcpLayer: TCP.TCPLayer,
     arpLayer: ARP.ARPLayer,
@@ -199,8 +274,9 @@ pub const LayerImpl = union(enum) {
     pub fn init(choice: type, owner: LayerOwner) LayerError!LayerImpl {
         switch (choice) {
             Eth.EthLayer => return LayerImpl{ .ethLayer = try Eth.EthLayer.init(owner) },
+            LoopBack.LoopBackLayer => return LayerImpl{ .loopbackLayer = try LoopBack.LoopBackLayer.init(owner) },
             IPv4.IPv4Layer => return LayerImpl{ .ipv4Layer = try IPv4.IPv4Layer.init(owner) },
-            //           IPv6.IPv6Layer => return IPv6.IPv6Layer.init(owner),
+            IPv6.IPv6Layer => return LayerImpl{ .ipv6Layer = try IPv6.IPv6Layer.init(owner) },
             UDP.UDPLayer => return LayerImpl{ .udpLayer = try UDP.UDPLayer.init(owner) },
             TCP.TCPLayer => return LayerImpl{ .tcpLayer = try TCP.TCPLayer.init(owner) },
             ARP.ARPLayer => return LayerImpl{ .arpLayer = try ARP.ARPLayer.init(owner) },
@@ -213,8 +289,9 @@ pub const LayerImpl = union(enum) {
     pub fn reinit(self: *LayerImpl, owner: LayerOwner) LayerError!void {
         const new_instance = switch (self.*) {
             .ethLayer => LayerImpl{ .ethLayer = try Eth.EthLayer.init(owner) },
+            .loopbackLayer => LayerImpl{ .loopbackLayer = try LoopBack.LoopBackLayer.init(owner) },
             .ipv4Layer => LayerImpl{ .ipv4Layer = try IPv4.IPv4Layer.init(owner) },
-            // .ipv6Layer => |*layer| try LayerImpl{ .ipv6Layer = try IPv6.IPv6Layer.init(owner) },
+            .ipv6Layer => LayerImpl{ .ipv6Layer = try IPv6.IPv6Layer.init(owner) },
             .udpLayer => LayerImpl{ .udpLayer = try UDP.UDPLayer.init(owner) },
             .tcpLayer => LayerImpl{ .tcpLayer = try TCP.TCPLayer.init(owner) },
             .arpLayer => LayerImpl{ .arpLayer = try ARP.ARPLayer.init(owner) },
