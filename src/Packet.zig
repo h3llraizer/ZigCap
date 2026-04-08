@@ -62,7 +62,7 @@ pub const Packet = struct {
         const first_layer = try self.allocator.create(Layer); // create layer struct
 
         const link_layer = try ProtocolHelpers.create_first_layer(self.raw_data.get_immutable(), link_layer_type, first_layer) orelse {
-            return error.Failed;
+            return error.LinkLayerCreationFailed;
         };
 
         first_layer.* = Layer.init(link_layer, 0, self.raw_data.get_immutable().len, self);
@@ -459,33 +459,6 @@ pub const Packet = struct {
         return false;
     }
 
-    fn isSubslice(main: []const u8, sub: []const u8) bool {
-        const main_start = @intFromPtr(main.ptr);
-        const main_end = main_start + main.len;
-        const sub_start = @intFromPtr(sub.ptr);
-        const sub_end = sub_start + sub.len;
-
-        return sub_start >= main_start and sub_end <= main_end;
-    }
-
-    fn subsliceOffset(main: []const u8, sub: []const u8) ?usize {
-        const main_start = @intFromPtr(main.ptr);
-        const main_end = main_start + main.len;
-        const sub_start = @intFromPtr(sub.ptr);
-        const sub_end = sub_start + sub.len;
-
-        // Check if sub is within main's memory range
-        if (sub_start >= main_start and sub_end <= main_end) {
-            // Calculate offset in bytes
-            const offset_bytes = sub_start - main_start;
-            // Verify it's a valid element offset (no partial elements)
-            // For u8, offset_bytes is the element offset since each element is 1 byte
-            return @intCast(offset_bytes);
-        }
-
-        return null;
-    }
-
     /// removes a slice of data from the Layer. Mostly used by Application Layers to modify their payload in the packet, but can be used directly if required but be aware that attempting to remove data in a layers header will result in an exception. Don't use this function to "delete" a layer (use delete_layer instead)
     pub fn remove_data(self: *Packet, layer: *Layer, raw_data: RawData) !void {
         if (!self.find_layer(layer)) {
@@ -496,15 +469,15 @@ pub const Packet = struct {
             return error.PacketRawDataNotMutable;
         }
 
-        const layer_data = layer.get_data();
+        //const layer_data = layer.get_data();
 
-        if (!Packet.isSubslice(layer_data.get_immutable(), raw_data.get_immutable())) {
+        if (!layer.get_data().isSubslice(raw_data.get_immutable())) {
             return error.SliceDoesNotBelongToLayer;
         }
 
         print("slice removal: {s}\n", .{raw_data.get_immutable()});
 
-        const delete_start_in_layer = Packet.subsliceOffset(layer_data.get_immutable(), raw_data.get_immutable()) orelse {
+        const delete_start_in_layer = layer.get_data().subsliceOffset(raw_data.get_immutable()) orelse {
             return error.OffsetNotFound;
         };
 
@@ -583,7 +556,6 @@ pub const Packet = struct {
         layer.length += raw_data_len;
     }
 
-    //
     //   pub fn print_layers(self: *Packet) void {
     //       var cur = self.first_layer;
     //       while (cur) |layer| {
@@ -594,7 +566,7 @@ pub const Packet = struct {
     //           cur = layer.next_layer;
     //       }
     //   }
-    //
+
     pub fn print_layers_meta(self: *Packet) void {
         var cur = self.first_layer;
         while (cur) |layer| {

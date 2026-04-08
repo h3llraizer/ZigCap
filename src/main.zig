@@ -85,7 +85,7 @@ pub fn main() !void {
 
     try layer.set_payload(RawData.RawData{ .immutable = new_data });
 
-    //    try layer.delete_payload_data(RawData.RawData{ .immutable = layer.get_data().get_immutable()[5..] });
+    try layer.delete_payload_data(RawData.RawData{ .immutable = layer.get_data().get_immutable()[5..] });
 
     packet.print_layers_meta();
 

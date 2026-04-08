@@ -23,6 +23,35 @@ pub const RawData = union(enum) {
         }
     }
 
+    pub fn isSubslice(self: RawData, sub: []const u8) bool {
+        const main = self.get_immutable();
+        const main_start = @intFromPtr(main.ptr);
+        const main_end = main_start + main.len;
+        const sub_start = @intFromPtr(sub.ptr);
+        const sub_end = sub_start + sub.len;
+
+        return sub_start >= main_start and sub_end <= main_end;
+    }
+
+    pub fn subsliceOffset(self: RawData, sub: []const u8) ?usize {
+        const main = self.get_immutable();
+        const main_start = @intFromPtr(main.ptr);
+        const main_end = main_start + main.len;
+        const sub_start = @intFromPtr(sub.ptr);
+        const sub_end = sub_start + sub.len;
+
+        // Check if sub is within main's memory range
+        if (sub_start >= main_start and sub_end <= main_end) {
+            // Calculate offset in bytes
+            const offset_bytes = sub_start - main_start;
+            // Verify it's a valid element offset (no partial elements)
+            // For u8, offset_bytes is the element offset since each element is 1 byte
+            return @intCast(offset_bytes);
+        }
+
+        return null;
+    }
+
     pub fn get_immutable(self: RawData) []const u8 {
         switch (self) {
             .mutable => {
