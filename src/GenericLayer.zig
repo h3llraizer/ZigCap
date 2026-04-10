@@ -31,6 +31,8 @@ pub const ApplicationLayer = struct {
                 //var header = ApplicationHeader.init_default();
                 //@memcpy(self.owner.allocator_owned.data[0..MinHeaderLength], std.mem.asBytes(&header));
 
+                print("init'ing app layer with {x}\n", .{self.owner.allocator_owned.data});
+
                 return self;
             },
             .immutable_layer => return {

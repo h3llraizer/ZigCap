@@ -179,10 +179,14 @@ pub const IPv4Layer = struct {
                 var self = IPv4Layer{ .owner = owner };
                 // Allocate directly into the struct's data field
                 if (owner.allocator_owned.data.len < MinHeaderLength) {
+                    print("IPv4 data passed to init has less bytes ({}) than min header len: {x}\n", .{
+                        owner.allocator_owned.data.len,
+                        owner.allocator_owned.data,
+                    });
                     self.owner.allocator_owned.data = try self.owner.allocator_owned.allocator.alloc(u8, MinHeaderLength);
                 }
-                var header = IPv4Header.init_default();
-                @memcpy(self.owner.allocator_owned.data[0..MinHeaderLength], std.mem.asBytes(&header));
+                //var header = IPv4Header.init_default();
+                //@memcpy(self.owner.allocator_owned.data[0..MinHeaderLength], std.mem.asBytes(&header));
 
                 return self;
             },
@@ -365,6 +369,8 @@ pub const IPv4Layer = struct {
             data = self.get_data().get_immutable();
         }
 
+        //        print("ipv4 data: {x}\n", .{data});
+
         if (data.len < MinHeaderLength) {
             panic("Eth Raw Data len ({}) less than IPv4HeaderSize", .{data.len});
         }
@@ -397,19 +403,7 @@ pub const IPv4Layer = struct {
 
         return std.fmt.allocPrint(
             allocator,
-            \\IPv4 Layer:
-            \\  version: {}
-            \\  ihl: {}
-            \\  src_ip: {s}
-            \\  dst_ip: {s}
-            \\  dscp_ecn: {}
-            \\  total_length: {}
-            \\  identification: {}
-            \\  flags_fragment: {}
-            \\  ttl: {}
-            \\  protocol: {}
-            \\  checksum: 0x{x:0>4}
-        ,
+            "IP : ver: {} ihl: {} src: {s} dst: {s} dscp_ecn: {} total_length: {} id: {} flags_frag: {} ttl: {} protocol: {} checksum: 0x{x:0>4}",
             .{
                 version,
                 ihl,

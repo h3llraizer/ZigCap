@@ -23,6 +23,10 @@ pub const RawData = union(enum) {
         }
     }
 
+    pub fn get_len(self: RawData) usize {
+        return self.get_immutable().len;
+    }
+
     pub fn isSubslice(self: RawData, sub: []const u8) bool {
         const main = self.get_immutable();
         const main_start = @intFromPtr(main.ptr);
@@ -70,14 +74,14 @@ pub const RawData = union(enum) {
                 if (offset > slice.len) {
                     panic("out of bounds. offset {} exceeds data length {}\n", .{ offset, slice.len });
                 }
-                if (offset + length > slice.len) {
-                    panic("out of bounds. offset {} + length {} exceeds data length {}\n", .{ offset, length, slice.len });
+                if (length > slice.len) {
+                    panic("out of bounds. length {} exceeds data length {}\n", .{ length, slice.len });
                 }
 
                 //               print("getting slice.\n", .{});
 
-                const sub = slice[offset .. offset + length];
-
+                //                const sub = slice[offset .. offset + length];
+                const sub = slice[offset..length];
                 return switch (tag) {
                     .mutable => RawData{ .mutable = sub },
                     .immutable => RawData{ .immutable = sub },
@@ -103,72 +107,4 @@ pub const RawData = union(enum) {
             },
         };
     }
-};
-
-pub const Mutable = struct {
-    raw_data: []u8,
-    allocator: ?Allocator,
-
-    pub fn init(allocator: Allocator, initial_len: usize) !Mutable {
-        return Mutable{ .raw_data = try allocator.alloc(u8, initial_len), .allocator = allocator };
-    }
-
-    pub fn get_slice(self: *Mutable, offset: usize, len: usize) ![]u8 {
-        return self.raw_data[offset..len];
-    }
-
-    pub fn deinit(self: *Mutable) void {
-        if (self.allocator) |allocator| {
-            allocator.free(self.raw_data);
-        }
-    }
-
-    pub fn copy_from(self: *Mutable, data: []u8) !void {
-        if (self.data.len < data.len) {
-            const new_buf = try self.allocator.realloc(self.data, data.len);
-            self.data = new_buf;
-        }
-
-        @memmove(self.data, data);
-
-        //      print("data in allocator: {x}\n", .{self.data});
-    }
-};
-
-pub const Immutable = struct {
-    raw_data: []const u8,
-
-    pub fn from_mutable(mutable: Mutable) Immutable {
-        return Immutable{ .raw_data = mutable.raw_data };
-    }
-
-    pub fn get_slice(self: *const Immutable, offset: usize, len: usize) ![]const u8 {
-        return self.raw_data[offset..len];
-    }
-};
-
-pub const LayerOwned = struct { // layers use this when they are not in a Packet
-    raw_data: RawData,
-
-    pub fn init(allocator: Allocator, initial_len: usize) LayerOwned {
-        const self = LayerOwned{ .raw_data = .{ .mutable = .init(allocator, initial_len) } };
-        return self;
-    }
-
-    pub fn deinit(self: *LayerOwned) void {
-        self.allocator.free(self.data);
-    }
-};
-
-pub const PacketOwned = struct {
-    packet_layer: *Packet.Layer,
-};
-
-pub const LayerData = union(enum) { // concrete layers store this
-    packet_layer: *Packet.Layer, // layer gets data from packet_layer.get_data() - RawData is returned, layer checks mutability
-    layer_owned: LayerOwned, // lets gets data from layer_owned.data
-};
-
-pub const PacketData = union(enum) { // Packet stores this
-    data: RawData,
 };

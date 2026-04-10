@@ -30,17 +30,6 @@ pub const LayerOwner = union(enum) {
     immutable_layer: ImmutableLayer,
 };
 
-pub const MutableLayer = struct {
-    raw_data: []u8,
-    allocator: Allocator,
-};
-
 pub const ImmutableLayer = struct {
     raw_data: []const u8,
-};
-
-pub const LayerVariant = union(enum) {
-    mutable: MutableLayer,
-    immutable: ImmutableLayer,
-    packet_layer: *Packet.Layer,
 };

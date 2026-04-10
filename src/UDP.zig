@@ -416,14 +416,7 @@ pub const UDPLayer = struct {
         const length = hdr.get_length();
         const checksum = nativeToBig(u16, hdr.checksum);
 
-        return std.fmt.allocPrint(allocator,
-            \\UDP Layer:
-            \\  src_port: {}
-            \\  dst_port: {}
-            \\  length: {}
-            \\  checksum: 0x{x:0>4}
-            \\
-        , .{
+        return std.fmt.allocPrint(allocator, "UDP Layer: src_port: {} dst_port: {} length: {} checksum: 0x{x:0>4}", .{
             src_port,
             dst_port,
             length,

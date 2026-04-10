@@ -265,7 +265,7 @@ pub const EthLayer = struct {
     pub fn get_data(self: *const EthLayer) RawData {
         switch (self.owner) {
             .packet_layer => {
-                print("getting data from packet.\n", .{});
+                //             print("getting data from packet.\n", .{});
 
                 const eth_data = self.owner.packet_layer.get_data(); // Layer in packet - it might be mutable or immutable
                 return eth_data;
@@ -282,6 +282,7 @@ pub const EthLayer = struct {
     /// return mutable slice of the payload
     pub fn get_payload(self: *const EthLayer) ?[]const u8 { // needs to return RawData
         const data = self.get_data().get_immutable();
+        //    print("data {x}\n", .{data});
         if (data.len > EthHeaderSize) {
             return data[EthHeaderSize..];
         } else {
@@ -294,15 +295,23 @@ pub const EthLayer = struct {
         const hdr = self.get_immutable_header();
         const eth_type = hdr.get_eth_type();
 
-        const data = self.get_data().get_immutable();
+        const data = self.get_payload() orelse {
+            print("no more data.\n", .{});
+            return null;
+        };
+
+        //       print("payload in eth: {x}\n", .{data});
 
         switch (eth_type) {
             EthType.IP => {
-                if (data.len <= EthHeaderSize) {
-                    return null;
-                }
+                //              print("ethtype is IP.\n", .{});
+                //if (data.len <= EthHeaderSize) {
+                //    print("data len is {}\n", .{data.len});
 
-                const ihl_byte = data[EthHeaderSize];
+                //    return null;
+                //}
+
+                const ihl_byte = data[0];
                 const ip_version = ihl_byte >> 4;
                 const hdr_len = (ihl_byte & 0x0F) * 4;
 
@@ -311,12 +320,15 @@ pub const EthLayer = struct {
                         return try LayerImpl.init(GenericLayer.ApplicationLayer, LayerOwner{ .packet_layer = layer });
                     }
 
+                    //                    print("returning IPv4.\n", .{});
+
                     return try LayerImpl.init(IPv4.IPv4Layer, LayerOwner{ .packet_layer = layer });
                 }
 
                 if (ip_version == @intFromEnum(NetworkProtocols.IPv6)) {
                     return null;
                 } else {
+                    print("unknown IP type.\n", .{});
                     return null;
                 }
             },
@@ -327,6 +339,7 @@ pub const EthLayer = struct {
                 return try LayerImpl.init(ARP.ARPLayer, LayerOwner{ .packet_layer = layer });
             },
             else => {
+                print("couldn't get Eth protocol.\n", .{});
                 return null;
             },
         }

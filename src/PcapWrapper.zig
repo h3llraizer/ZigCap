@@ -3,6 +3,7 @@ const print = std.debug.print;
 const MAX_PATH = std.os.windows.MAX_PATH;
 const allocPrint = std.fmt.allocPrint;
 const WirePacket = @import("WirePacket.zig").WirePacket;
+const IPv4Address = @import("IPv4.zig").IPv4Address;
 
 const pcap = @cImport({
     @cDefine("WIN32", "1"); // needed on Windows
@@ -44,29 +45,14 @@ pub const sockaddr_in6 = extern struct {
     sin6_scope_id: u_long,
 };
 
-pub const IPv4 = struct {
-    asBytes: [4]u8,
-    asString: []const u8,
-
-    pub fn init(bytes: [4]u8, allocator: Allocator) !IPv4 {
-        const string = try allocPrint(allocator, "{}.{}.{}.{}", .{ bytes[0], bytes[1], bytes[2], bytes[3] });
-
-        return IPv4{ .asBytes = bytes, .asString = string };
-    }
-
-    pub fn toString(self: IPv4) []const u8 {
-        return self.asString;
-    }
-};
-
 pub const Interface = struct {
     name: []u8,
     desc: []u8,
-    ipv4: std.ArrayList(IPv4),
+    ipv4: std.ArrayList(IPv4Address),
     handle: ?*pcap.pcap_t = null,
     link_type: ?c_int,
 
-    pub fn init(name: []const u8, desc: []const u8, ipv4: std.ArrayList(IPv4), allocator: Allocator) !Interface {
+    pub fn init(name: []const u8, desc: []const u8, ipv4: std.ArrayList(IPv4Address), allocator: Allocator) !Interface {
         const name_copy = try allocator.alloc(u8, name.len);
         std.mem.copyForwards(u8, name_copy, name);
 
@@ -174,8 +160,9 @@ pub const Interfaces = struct {
     error_buffer: [256:0]u8 = .{0} ** 256,
     pcap_iface: ?*pcap.pcap_if,
     list: std.ArrayList(Interface),
+    allocator: Allocator,
 
-    pub fn init() !Interfaces {
+    pub fn init(allocator: Allocator) !Interfaces {
         var errbuf: [256:0]u8 = .{0} ** 256;
         var alldevs: ?*pcap.pcap_if = null;
 
@@ -188,11 +175,12 @@ pub const Interfaces = struct {
             .pcap_iface = alldevs,
             .error_buffer = errbuf,
             .list = undefined,
+            .allocator = allocator,
         };
     }
 
-    fn extractIPs(addresses_ptr: ?*pcap.pcap_addr, allocator: std.mem.Allocator) !std.ArrayList(IPv4) {
-        var ips_list: std.ArrayList(IPv4) = .empty;
+    fn extractIPs(self: Interfaces, addresses_ptr: ?*pcap.pcap_addr) !std.ArrayList(IPv4Address) {
+        var ips_list: std.ArrayList(IPv4Address) = .empty;
 
         var address_ptr = addresses_ptr;
         while (address_ptr) |addr| {
@@ -207,14 +195,10 @@ pub const Interfaces = struct {
 
                     std.mem.reverse(u8, &octets);
 
-                    const ip_address = IPv4.init(octets, allocator) catch continue;
+                    const ip_address = IPv4Address.init_from_u32(host_u32) catch continue;
 
-                    try ips_list.append(allocator, ip_address);
-                } //else if (sa.sa_family == 23) { // AF_INET6
-                // const ipv6: *sockaddr_in6 = @ptrCast(sa);
-                //print("IPv6 SinAddr: {any}", .{ipv6.sin_addr});
-                // ipv6.sin6_addr.u
-                //}
+                    try ips_list.append(self.allocator, ip_address);
+                }
             }
             address_ptr = addr.next;
         }
@@ -222,7 +206,7 @@ pub const Interfaces = struct {
         return ips_list;
     }
 
-    pub fn list_all(self: *Interfaces, allocator: std.mem.Allocator) !std.ArrayList(Interface) {
+    pub fn list_all(self: *Interfaces) !std.ArrayList(Interface) {
         var iface_list: std.ArrayList(Interface) = .empty;
         var dev = self.*.pcap_iface;
 
@@ -254,14 +238,14 @@ pub const Interfaces = struct {
                 std.mem.copyForwards(u8, desc, na);
             }
 
-            const ips = try extractIPs(d.addresses, allocator);
+            const ips = try extractIPs(d.addresses, self.allocator);
 
-            const iface = try Interface.init(name, desc, ips, allocator);
+            const iface = try Interface.init(name, desc, ips, self.allocator);
 
-            try iface_list.append(allocator, iface);
+            try iface_list.append(self.allocator, iface);
         }
 
-        self.*.list = iface_list;
+        self.list = iface_list;
 
         return iface_list;
     }
@@ -276,13 +260,11 @@ pub const Interfaces = struct {
         return null;
     }
 
-    pub fn find_by_ip(
-        self: Interfaces,
-        ip: []const u8,
-    ) ?*Interface {
+    pub fn find_by_ip(self: Interfaces, ip: IPv4Address) !?*Interface {
         for (self.list.items) |*iface| {
             for (iface.ipv4.items) |ip_address| {
-                if (std.mem.eql(u8, ip, ip_address.toString())) {
+                print("{s}\n", .{try ip_address.to_string(self.allocator)});
+                if (ip.to_u32() == ip_address.to_u32()) {
                     return iface;
                 }
             }

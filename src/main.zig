@@ -2,6 +2,7 @@ const std = @import("std");
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 const activeTag = std.meta.activeTag;
+const expect = std.testing.expect;
 
 const PcapWrapper = @import("PcapWrapper.zig");
 
@@ -49,8 +50,8 @@ const RawData = @import("RawData.zig");
 
 const ImmutableLayer = @import("Layer.zig").ImmutableLayer;
 
-pub fn main() !void {
-    var backing_buffer: [2048]u8 = undefined;
+test "remove_eth" {
+    var backing_buffer: [1024]u8 = undefined;
 
     var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
     const allocator = fba.allocator();
@@ -59,42 +60,39 @@ pub fn main() !void {
 
     const page_allocator = std.heap.page_allocator;
 
-    _ = &page_allocator;
-
     const raw_data = RawData.RawData{ .mutable = try allocator.alloc(u8, udp_raw.len) };
 
-    std.mem.copyForwards(u8, raw_data.mutable, udp_raw[0..]);
+    std.mem.copyForwards(u8, raw_data.mutable, udp_raw[0..udp_raw.len]);
+
+    print("original ({}) {x}\n", .{ raw_data.get_len(), raw_data.get_immutable() });
 
     var packet = try Packet.Packet.create(allocator);
 
     try packet.from_raw(raw_data, LinkLayerProtocols.ETHERNET);
-    _ = &packet;
 
-    packet.print_layers_meta();
+    try expect(packet.raw_data.get_len() == udp_raw.len);
 
-    print("({}) {x}\n", .{ packet.raw_data.get_immutable().len, packet.raw_data.get_immutable() });
+    try packet.to_string(page_allocator);
 
-    var layer: *ApplicationLayer = packet.get_layer_of_type(ApplicationLayer) orelse {
-        print("no app layer.\n", .{});
+    try packet.print_layers_metad();
+
+    var layer_owner = LayerOwner{ .allocator_owned = .{ .allocator = page_allocator, .data = undefined } };
+
+    _ = &layer_owner;
+
+    const layer: *Packet.Layer = try packet.search_layers(LayerProtocols{ .Transport = .UDP }) orelse {
+        print("could not find layer.\n", .{});
         return;
     };
 
-    print("{s}\n", .{layer.to_string(page_allocator)});
+    try expect(try packet.delete_layer(layer));
 
-    const new_data: []const u8 = " world.";
-
-    try layer.set_payload(RawData.RawData{ .immutable = new_data });
-
-    try layer.delete_payload_data(RawData.RawData{ .immutable = layer.get_data().get_immutable()[5..] });
-
-    packet.print_layers_meta();
-
-    print("{s}\n", .{layer.to_string(page_allocator)});
+    try packet.print_layers_metad();
 
     print("({}) {x}\n", .{ packet.raw_data.get_immutable().len, packet.raw_data.get_immutable() });
-
-    print("end index: {}\n", .{fba.end_index});
 }
+
+pub fn main() !void {}
 
 const null_ipv4_udp = [_]u8{ 0x2, 0x0, 0x0, 0x0, 0x45, 0x0, 0x0, 0x48, 0xcd, 0x56, 0x0, 0x0, 0x80, 0x11, 0xda, 0xfc, 0xc0, 0xa8, 0x88, 0x1, 0xc0, 0xa8, 0x88, 0xff, 0xe1, 0x15, 0xe1, 0x15, 0x0, 0x34, 0xb0, 0xee, 0x53, 0x70, 0x6f, 0x74, 0x55, 0x64, 0x70, 0x30, 0x24, 0x8d, 0x51, 0x4c, 0xed, 0x5d, 0xa3, 0x52, 0x0, 0x1, 0x0, 0x4, 0x48, 0x95, 0xc2, 0x3, 0xcd, 0x88, 0xe6, 0xa0, 0x46, 0x3d, 0x42, 0x5f, 0x2b, 0xfd, 0x38, 0x99, 0xd8, 0xdd, 0xd6, 0x60, 0x2e, 0x19, 0xe1, 0xc3 };
 

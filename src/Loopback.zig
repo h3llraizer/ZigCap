@@ -163,6 +163,13 @@ pub const LoopBackLayer = struct {
         }
     }
 
+    pub fn to_string(self: *LoopBackLayer, allocator: Allocator) []const u8 {
+        _ = self;
+        _ = allocator;
+        const str: []const u8 = "loopback layer.\n";
+        return str;
+    }
+
     pub fn get_protocol(self: *LoopBackLayer) LayerProtocols {
         _ = self;
         return LoopBackLayer.Protocol;
