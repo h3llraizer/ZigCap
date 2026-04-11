@@ -82,7 +82,7 @@ pub const Packet = struct {
 
         self.first_layer = first_layer;
 
-        if (self.first_layer) |f_layer| { // if the self.first_layer = first_layer line failed silently for some reason, this is no-recoverable. The packet is not in a state to process further
+        if (self.first_layer) |f_layer| { // if the self.first_layer = first_layer line failed silently for some reason, this is not recoverable. The packet is not in a state to process further
             f_layer.raw_data = self.raw_data.get_slice_from_offset(0);
         } else {
             panic("first layer didn't get assigned to the Packet.", .{});

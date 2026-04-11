@@ -23,7 +23,7 @@ pub const AllocatorOwned = struct {
     }
 };
 
-/// choose who owns this layers data
+/// choose who owns this layers data - AllocatorOwned is not a good name. Changing soon
 pub const LayerOwner = union(enum) {
     packet_layer: *Packet.Layer,
     allocator_owned: AllocatorOwned,
