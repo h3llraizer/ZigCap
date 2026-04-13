@@ -2,7 +2,7 @@ const std = @import("std");
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
-const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
+const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 
 pub const QueryType = enum(u16) {
     A = 1, // IPv4 address record
@@ -171,7 +171,7 @@ pub const DNSLayer = struct {
     queries: ?*DNSQuery,
     answers: ?*DNSAnswer,
 
-    const Protocol = LayerProtocols{ .Application = .DNS };
+    const Protocol = tcp_ip_protocol.dns;
 
     //// Creates a DNS layer from an existing buffer // rename this to from_buf
     pub fn init(raw: []u8, allocator: std.mem.Allocator) !*DNSLayer {
@@ -490,7 +490,7 @@ pub const DNSLayer = struct {
         self.raw = data;
     }
 
-    pub fn get_protocol(self: *DNSLayer) LayerProtocols {
+    pub fn get_protocol(self: *DNSLayer) tcp_ip_protocol {
         _ = self;
         return DNSLayer.Protocol;
     }

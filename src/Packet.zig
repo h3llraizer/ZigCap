@@ -5,45 +5,45 @@ const Allocator = std.mem.Allocator;
 const panic = std.debug.panic;
 
 const ProtocolHelpers = @import("ProtocolHelpers.zig");
-const LayerProtocols = ProtocolHelpers.LayerProtocols;
+const IPVersions = ProtocolHelpers.IPVersions;
+const tcp_ip_protocols = @import("tcp_ip_protocols.zig");
+const tcp_ip_protocol = tcp_ip_protocols.tcp_ip_protocol;
+const get_layer_type_enum = tcp_ip_protocols.get_layer_type_enum;
 const LayerError = @import("ProtocolHelpers.zig").LayerError;
-const LinkLayerProtocols = @import("ProtocolHelpers.zig").LinkLayerProtocols;
-const NetworkProtocols = @import("ProtocolHelpers.zig").NetworkProtocols;
-const LayerImpl = @import("ProtocolHelpers.zig").LayerImpl;
+const link_layer_type = @import("ProtocolHelpers.zig").link_layer_type;
+const net_protocol = @import("ProtocolHelpers.zig").net_protocol;
+const LayerIface = @import("LayerIface.zig").LayerIface;
 const Eth = @import("Eth.zig");
 const EthLayer = Eth.EthLayer;
+const LoopBack = @import("Loopback.zig");
+const IPv4 = @import("IPv4.zig");
+const IPv6 = @import("IPv6.zig");
+const GenericLayer = @import("GenericLayer.zig");
 const LayerOwner = @import("Layer.zig").LayerOwner;
-const get_layer_type_enum = @import("ProtocolHelpers.zig").get_layer_type_enum;
-const comparePayloads = @import("ProtocolHelpers.zig").comparePayloads;
-const compare_impl = @import("ProtocolHelpers.zig").compare_impl;
 
-const RawData = @import("RawData.zig").RawData;
+const Buffer = @import("Buffer.zig").Buffer;
 
 pub const Layer = struct {
-    raw_data: RawData,
-    layer_impl: LayerImpl,
+    offset: usize,
+    length: usize,
+    layer_impl: LayerIface,
     packet: *Packet,
     next_layer: ?*Layer = null,
     prev_layer: ?*Layer = null,
 
-    pub fn init(raw_data: RawData, layer_impl: LayerImpl, packet: *Packet) Layer {
-        return Layer{ .raw_data = raw_data, .layer_impl = layer_impl, .packet = packet };
+    pub fn init(offset: usize, length: usize, layer_impl: LayerIface, packet: *Packet) Layer {
+        return Layer{ .offset = offset, .length = length, .layer_impl = layer_impl, .packet = packet };
     }
 
-    pub fn get_data(self: *Layer) RawData {
-        return self.raw_data;
+    pub fn get_data(self: *Layer) []u8 {
+        return self.packet.buffer.buffer.items[self.offset..];
     }
 
     /// get the Layers payload as a const slice. It's const because it adheres to the API design in that modifications should be made through the layers concrete layer type
     pub fn get_payload(self: *Layer) []const u8 {
-        if (self.next_layer) |next| {
-            const next_layer_offset: usize = self.packet.raw_data.subsliceOffset(next.get_data().get_immutable()) orelse {
-                return self.raw_data.get_immutable();
-            };
-            return self.packet.raw_data.get_slice_from_offset(next_layer_offset).get_immutable();
-        }
-
-        return self.raw_data.get_immutable();
+        return self.layer_impl.get_payload() orelse {
+            return "";
+        };
     }
 
     pub fn to_string(self: *Layer, allocator: Allocator) void {
@@ -52,55 +52,92 @@ pub const Layer = struct {
 };
 
 pub const Packet = struct {
-    allocator: Allocator,
-    raw_data: RawData,
+    layer_allocator: Allocator,
+    buffer: Buffer,
     first_layer: ?*Layer,
     last_layer: ?*Layer,
     // *Packet // encapsulation? e.g. VPN packets etc
 
     /// Creates an empty Packet - alloc's zero bytes to aligned buffer initially
-    pub fn create(allocator: Allocator) !Packet {
+    pub fn create(buffer_allocator: Allocator, layer_allocator: Allocator) !Packet {
         return Packet{
-            .allocator = allocator,
-            .raw_data = RawData{ .mutable = try allocator.alloc(u8, 0) },
+            .layer_allocator = layer_allocator,
+            .buffer = Buffer.init_empty(buffer_allocator),
             .first_layer = null,
             .last_layer = null,
         };
     }
 
     /// Packet must be created with .create first. raw_data will be overwritten with the RawData provided
-    pub fn from_raw(self: *Packet, raw_data: RawData, link_layer_type: LinkLayerProtocols) !void {
-        self.raw_data = raw_data;
+    pub fn from_raw(self: *Packet, data: []u8, link_type: link_layer_type) !void {
+        self.buffer.buffer.items = data;
 
-        const first_layer = try self.allocator.create(Layer); // create layer struct
+        const first_layer = try self.layer_allocator.create(Layer); // create layer struct
 
-        const link_layer = try ProtocolHelpers.create_first_layer(self.raw_data.get_immutable(), link_layer_type, first_layer) orelse {
+        const link_layer = try create_first_layer(self.buffer.buffer.items, link_type, first_layer) orelse {
             return error.LinkLayerCreationFailed;
         };
 
-        first_layer.* = Layer.init(self.raw_data, link_layer, self);
+        first_layer.* = Layer.init(0, self.buffer.buffer.items.len, link_layer, self);
 
         self.first_layer = first_layer;
 
-        if (self.first_layer) |f_layer| { // if the self.first_layer = first_layer line failed silently for some reason, this is not recoverable. The packet is not in a state to process further
-            f_layer.raw_data = self.raw_data.get_slice_from_offset(0);
-        } else {
-            panic("first layer didn't get assigned to the Packet.", .{});
+        try self.accumulate_layers();
+    }
+
+    fn create_ip_layer(raw: []const u8, layer: *Layer) !?LayerIface {
+        if (raw.len < IPv4.MinHeaderLength) {
+            return error.HeaderTooSmall;
         }
 
-        try self.accumulate_layers();
+        const ihl_byte = raw[0];
+        const ip_version = ihl_byte >> 4;
+        if (ip_version == @intFromEnum(IPVersions.IPv4)) {
+            const hdr_len = (ihl_byte & 0x0F) * 4;
+            if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) {
+                return try LayerIface.init(GenericLayer.ApplicationLayer, LayerOwner{ .packet_layer = layer });
+            }
+
+            return try LayerIface.init(IPv4.IPv4Layer, LayerOwner{ .packet_layer = layer });
+        }
+
+        if (ip_version == @intFromEnum(IPVersions.IPv6)) {
+            return try LayerIface.init(IPv6.IPv6Layer, LayerOwner{ .packet_layer = layer });
+        } else {
+            print("Unknown link type.\n", .{});
+            return null;
+        }
+    }
+
+    fn create_first_layer(raw: []const u8, link_type: link_layer_type, layer: *Layer) !?LayerIface {
+        switch (link_type) {
+            .ETHERNET => {
+                return try LayerIface.init(Eth.EthLayer, LayerOwner{ .packet_layer = layer });
+            },
+            .RAW => {
+                return try create_ip_layer(raw, layer);
+            },
+            .LOOP, .NULL => {
+                return try LayerIface.init(LoopBack.LoopBackLayer, LayerOwner{ .packet_layer = layer });
+            },
+            else => {
+                return error.LinkLayerUnknown;
+            },
+        }
     }
 
     fn accumulate_layers(self: *Packet) !void {
         var cur = self.first_layer;
 
         while (cur) |current_layer| {
-            const next_layer: *Layer = try self.allocator.create(Layer);
+            const next_layer: *Layer = try self.layer_allocator.create(Layer);
+
+            print("current layer: {any}\n", .{current_layer.layer_impl.get_protocol()});
 
             const impl_layer = blk: {
                 const result = current_layer.layer_impl.get_next_layer(next_layer) catch |err| {
                     print("error getting next layer: {}\n", .{err});
-                    self.allocator.destroy(next_layer);
+                    self.layer_allocator.destroy(next_layer);
                     self.last_layer = current_layer;
                     return;
                 };
@@ -108,21 +145,25 @@ pub const Packet = struct {
                 if (result) |layer| {
                     break :blk layer;
                 } else {
-                    self.allocator.destroy(next_layer);
+                    self.layer_allocator.destroy(next_layer);
                     self.last_layer = current_layer;
                     return;
                 }
             };
 
-            const current_layer_payload = current_layer.layer_impl.get_payload() orelse {
-                self.allocator.destroy(next_layer);
-                return;
-            };
+            const current_layer_len = current_layer.length;
 
-            const current_layer_len = current_layer.get_data().get_len() - current_layer_payload.len;
+            const next_layer_len = current_layer.get_payload().len;
 
-            next_layer.* = Layer.init(current_layer.get_data().get_slice_from_offset(current_layer_len), impl_layer, self);
+            next_layer.* = Layer.init(current_layer_len, next_layer_len, impl_layer, self);
 
+            current_layer.length = current_layer_len - next_layer_len;
+
+            next_layer.offset = current_layer.length + current_layer.offset;
+
+            const current_layer_p_len = current_layer.get_payload().len;
+
+            _ = current_layer_p_len;
             // Set up the linked list pointers
             next_layer.prev_layer = current_layer;
             current_layer.next_layer = next_layer;
@@ -137,46 +178,37 @@ pub const Packet = struct {
         return self.last_layer;
     }
 
-    pub fn add_layer(self: *Packet, layer_impl: *LayerImpl) !bool {
-        print("adding: {any}\n", .{layer_impl});
+    pub fn add_layer(self: *Packet, layer_iface: *LayerIface) !bool {
+        const data = layer_iface.get_data();
 
-        const data = layer_impl.get_data();
+        const layer: *Layer = try self.layer_allocator.create(Layer); // create the layer
+        layer.* = Layer.init(0, data.len, layer_iface.*, self); // init the layer by setting the initial offset to 0, data len to len of the layer data, deref th layerIface to copy it, specify the Packet to self (this Packet)
 
-        print("data: {x}\n", .{data.get_immutable()});
+        try layer.layer_impl.reinit(LayerOwner{ .packet_layer = layer }); // set the owner to packet layer that was just created
 
-        const layer: *Layer = try self.allocator.create(Layer); // create the layer
-        layer.* = Layer.init(data, layer_impl.*, self); // copy
+        const last_layer: ?*Layer = self.last_layer; // get the last layer (might be null)
 
-        try layer.layer_impl.reinit(LayerOwner{ .packet_layer = layer });
-
-        const last_layer: ?*Layer = self.get_last_layer();
-
-        if (last_layer) |last| {
-            last.next_layer = layer;
-            layer.prev_layer = last;
-        } else {
-            self.first_layer = layer;
-            self.last_layer = layer;
+        if (last_layer) |last| { // if the last layer is not null
+            last.next_layer = layer; // set the last layer next layer to the layer created (layer being added)
+            layer.prev_layer = last; // set the layer created (layer being added)'s prev layer to the last layer
+            self.last_layer = layer; // the last layer is now the layer that's being added
+            layer.offset = last.offset + last.length; // set layer added offset to the last offset + last length
+        } else { // there was no last layer
+            self.first_layer = layer; // set first layer to this layer being added
+            self.last_layer = layer; // set last layer to this layer being added
         }
 
-        const current_buf_len: usize = self.raw_data.get_len();
+        const layer_buffer = try self.buffer.extend(layer.offset, layer.length); // now extend the packet's buffer to make space for copyng the layer being added's buffer into the packet
 
-        const new_buf: []u8 = try self.allocator.realloc(self.raw_data.get_mutable(), current_buf_len + data.get_len());
+        @memmove(layer_buffer, data); // copy the data into the slice
 
-        const dest = new_buf[current_buf_len..];
-
-        @memmove(dest, data.get_mutable());
-
-        self.raw_data = RawData{ .mutable = new_buf[0..] };
-
-        return true;
+        return true; // tbh it probably shouldn't even need to return a true, just void with error union
     }
 
     pub fn to_string(self: *Packet, allocator: Allocator) !void {
         var cur = self.first_layer;
         while (cur) |layer| {
             const str: []const u8 = layer.layer_impl.to_string(allocator);
-            //defer allocator.free(str);
 
             print("{s}\n", .{str});
 
@@ -201,10 +233,10 @@ pub const Packet = struct {
         return null;
     }
 
-    pub fn search_layers(self: *Packet, target: LayerProtocols) !?*Layer {
+    pub fn search_layers(self: *Packet, target: tcp_ip_protocol) !?*Layer {
         var cur = self.first_layer;
         while (cur) |layer| {
-            if (comparePayloads(try layer.layer_impl.get_protocol(), target)) {
+            if (try layer.layer_impl.get_protocol() == target) {
                 return layer;
             }
             cur = layer.next_layer;
@@ -213,104 +245,104 @@ pub const Packet = struct {
         return null;
     }
 
-    fn create_layer(self: *Packet, layer_impl: *LayerImpl) !*Layer {
+    fn create_layer(self: *Packet, layer_impl: *LayerIface) !*Layer {
         const data = layer_impl.get_data();
 
-        const layer: *Layer = try self.allocator.create(Layer); // create the layer (part of the linked list)
+        const layer: *Layer = try self.allocator.create(Layer);
         layer.* = Layer.init(data, layer_impl.*, self); // deref and set the values
 
         return layer;
     }
 
-    pub fn insert_layer(self: *Packet, prev_layer: ?*Layer, layer_to_insert: *LayerImpl) !bool {
-        if (prev_layer) |prev| {
-            var cur = self.first_layer;
+    pub fn extend_layer(self: *Packet, layer: *Layer, length: usize) ![]u8 {
+        const extend_offset = layer.offset + layer.length;
+        const buf = try self.buffer.extend(extend_offset, length);
 
-            while (cur) |layer| {
-                if (layer == prev) {
-                    print("found prev layer: {any}\n", .{layer.layer_impl.get_protocol()});
+        layer.length += length; // increase the length of the layer by length that it was extended by
 
-                    const new_layer: *Layer = try self.create_layer(layer_to_insert);
+        // now the proceeding layers offsets and lengths need to be increased by the length that this layer was extended by
+        var cur = layer.next_layer; // get the layers next layer
+        while (cur) |next| {
+            next.offset += length; // increase it's offset by the length
+            next.length += length; // increase it's length by the length
+            cur = next.next_layer; // set cur to its next layer
+        }
 
-                    print("{x}\n", .{new_layer.layer_impl.get_data().get_immutable()});
+        return buf; // return the extend slice
+    }
 
-                    new_layer.prev_layer = layer;
-                    new_layer.next_layer = layer.next_layer;
+    pub fn shorten_layer(self: *Packet, layer: *Layer, offset: usize, length: usize) !void {
+        const shorten_offset = layer.offset + offset;
+        try self.buffer.shorten(shorten_offset, length);
 
-                    // Get the correct offset for the new layer
-                    const position = try self.find_by_layer(layer);
+        layer.length -= length;
 
-                    //const start = position[0];
-                    const end = position[1];
+        var cur = layer.next_layer;
+        while (cur) |next| {
+            next.offset -= length;
+            next.length -= length;
+            cur = next.next_layer;
+        }
+    }
 
-                    // Update the packet buffer
-                    const current_buf_len: usize = self.raw_data.get_len();
-                    const insert_offset = end;
+    /// Insert a layer after the prev_layer
+    /// Use search_layers to find the specific layer you want to insert after
+    pub fn insert_layer(self: *Packet, prev_layer: *Layer, layer_to_insert: *LayerIface) !bool {
+        var cur = self.first_layer;
+        while (cur) |layer| {
+            if (layer == prev_layer) {
+                const data = layer_to_insert.get_data();
 
-                    // Reallocate buffer to make room for new layer
-                    const new_buf: []u8 = try self.allocator.realloc(self.raw_data.get_mutable(), current_buf_len + new_layer.get_data().get_len());
-                    self.raw_data = RawData{ .mutable = new_buf };
+                const new_layer: *Layer = try self.layer_allocator.create(Layer);
+                new_layer.* = Layer.init(layer.offset + layer.length, data.len, layer_to_insert.*, self);
 
-                    // Shift data after insertion point to the right
-                    const data_to_shift = new_buf[insert_offset..current_buf_len];
-                    const shifted_start = insert_offset + new_layer.get_data().get_len();
-                    @memmove(new_buf[shifted_start..], data_to_shift);
+                try new_layer.layer_impl.reinit(LayerOwner{ .packet_layer = new_layer });
 
-                    // Copy the new layer's data into the space
-                    const dest = new_buf[insert_offset..][0..end];
-                    @memcpy(dest, new_layer.layer_impl.get_data().get_mutable());
+                var next_layer = layer.next_layer;
+                layer.next_layer = new_layer;
+                new_layer.prev_layer = layer;
 
-                    try new_layer.layer_impl.reinit(LayerOwner{ .packet_layer = new_layer });
-
-                    return true;
+                if (next_layer) |next| {
+                    new_layer.next_layer = next;
+                    next.prev_layer = new_layer;
                 }
-                cur = layer.next_layer;
+
+                // Update offsets for subsequent layers
+                while (next_layer) |next| {
+                    next.offset += data.len;
+                    next_layer = next.next_layer;
+                }
+
+                const layer_buffer = try self.buffer.extend(layer.offset + layer.length, data.len);
+                @memmove(layer_buffer, data);
+
+                return true;
             }
-        } else {
-            return self.add_layer(layer_to_insert);
+            cur = layer.next_layer;
         }
         return false;
     }
 
-    /// returns the start and end position of a layer in the Packet's RawData
-    fn find_by_type(self: *Packet, layer_type: anytype) ![2]usize {
-        const layer_type_enum: LayerProtocols = get_layer_type_enum(layer_type) catch |err| {
-            print("error deleting layer: {s}\n", .{@errorName(err)});
-            return error.err;
-        };
-
-        const layer: *Layer = try self.search_layers(layer_type_enum) orelse {
-            print("layer not found.\n", .{});
-            return error.LayerNotFound;
-        };
-
-        const layer_start = self.raw_data.subsliceOffset(layer.get_data().get_immutable()) orelse {
-            return error.OffsetNotFound;
-        };
-
-        // Get the actual end of the layer (start + layer length)
-        const layer_end = layer_start + layer.get_data().get_len();
-
-        return .{ layer_start, layer_end };
+    pub fn print_layers(self: *Packet) void {
+        var cur = self.first_layer;
+        while (cur) |layer| {
+            print("{any} {x}\n", .{ layer.layer_impl.get_protocol(), layer.get_data().get_immutable() });
+            cur = layer.next_layer;
+        }
     }
 
-    fn find_by_layer(self: *Packet, layer: *Layer) ![2]usize {
-        const layer_start = self.raw_data.subsliceOffset(layer.get_data().get_immutable()) orelse {
-            return error.OffsetNotFound;
-        };
-
-        // Get the actual end of the layer (start + layer length)
-        const layer_end = layer_start + layer.get_data().get_len();
-
-        return .{ layer_start, layer_end };
-    }
-
-    pub fn extract_layer(self: *Packet, layer: *Layer, owner: *LayerOwner) !?LayerImpl {
-        try self.move_layer(layer, owner);
+    pub fn extract_layer(self: *Packet, layer: *Layer, owner: *LayerOwner) !?LayerIface {
+        try self.buffer.cutRange(&owner.owned_buffer, layer.offset, layer.length);
 
         try layer.layer_impl.reinit(owner.*); // transfers ownership of the packets data to the new owner
 
         const return_layer = layer.layer_impl; // copy the layer_impl before Layer is destroyed
+
+        var cur = layer.next_layer;
+        while (cur) |next_layer| {
+            next_layer.offset -= layer.length;
+            cur = next_layer.next_layer;
+        }
 
         if (layer.prev_layer == null) {
             self.first_layer = layer.next_layer;
@@ -324,37 +356,9 @@ pub const Packet = struct {
             next.prev_layer = layer.prev_layer;
         }
 
-        if (self.first_layer) |first_layer| {
-            self.raw_data = first_layer.raw_data; // update Packet RawData ptr again because previous mutations changed ptr
-        } else { // the last layer was deleted, there is no more RawData to use
-            self.raw_data = RawData{ .mutable = undefined };
-            print("last layer has been deleted.\n", .{});
-        }
-
-        self.allocator.destroy(layer); // destroy the layer
+        self.layer_allocator.destroy(layer); // destroy the layer
 
         return return_layer; // return the copied implementation layer
-    }
-
-    fn move_layer(self: *Packet, layer: *Layer, owner: *LayerOwner) !void {
-        const data = layer.get_data();
-        const payload = layer.get_payload();
-
-        const start_in_packet = self.raw_data.subsliceOffset(data.get_immutable()) orelse {
-            return error.LayerDataNotFound;
-        };
-        var end_in_packet = self.raw_data.get_len();
-        if (self.raw_data.subsliceOffset(payload)) |payload_start| {
-            end_in_packet = payload_start;
-        }
-
-        print("start in packet:{} end in packet: {}\n", .{ start_in_packet, end_in_packet });
-
-        const removal_data = self.raw_data.get_slice(start_in_packet, end_in_packet);
-
-        print("removal data: {x}\n", .{removal_data.get_immutable()});
-
-        try self.copy_data(layer, removal_data, owner);
     }
 
     fn find_layer(self: *Packet, layer: *Layer) bool {
@@ -371,7 +375,7 @@ pub const Packet = struct {
     }
 
     pub fn delete_layer(self: *Packet, layer: *Layer) !bool {
-        try self.remove_data(layer, layer.raw_data);
+        try self.buffer.shorten(layer.offset, layer.length);
 
         if (layer.prev_layer == null) {
             self.first_layer = layer.next_layer;
@@ -387,226 +391,21 @@ pub const Packet = struct {
             self.last_layer = layer.prev_layer;
         }
 
-        self.allocator.destroy(layer);
-
-        if (self.first_layer) |first_layer| {
-            _ = first_layer;
-            //self.raw_data = first_layer.raw_data; // update Packet RawData ptr again because previous mutations changed the ptr
-        } else { // the last layer was deleted, there is no more RawData
-            self.raw_data = RawData{ .mutable = undefined };
-            print("no more layers.\n", .{});
+        var cur = layer.next_layer;
+        while (cur) |next_layer| {
+            next_layer.offset -= layer.length;
+            cur = next_layer.next_layer;
         }
+
+        self.layer_allocator.destroy(layer);
 
         return true;
     }
 
-    /// removes a slice of data from the Layer. Mostly used by Application Layers to modify their payload in the packet, but can be used directly if required but be aware that attempting to remove data in a layers header will result in an exception. Don't use this function to "delete" a layer (use delete_layer instead)
-    pub fn remove_data(self: *Packet, layer: *Layer, raw_data: RawData) !void {
-        if (!self.find_layer(layer)) {
-            return error.LayerNotFound;
-        }
-
-        if (!self.raw_data.is_mutable()) {
-            return error.PacketRawDataNotMutable;
-        }
-
-        if (!layer.get_data().isSubslice(raw_data.get_immutable())) {
-            return error.SliceDoesNotBelongToLayer;
-        }
-
-        const delete_start_in_layer: usize = layer.get_data().subsliceOffset(raw_data.get_immutable()) orelse {
-            return error.OffsetNotFound;
-        };
-
-        const delete_end_in_layer: usize = raw_data.get_immutable().len - layer.get_payload().len;
-
-        //const delete_end_in_layer: usize = raw_data.get_immutable().len;
-
-        print("delete start offset in layer: {}\n", .{delete_start_in_layer});
-
-        print("delete end in layer: {}\n", .{delete_end_in_layer});
-
-        const slice_for_removal = raw_data.get_slice(delete_start_in_layer, delete_end_in_layer).get_immutable();
-
-        print("slice removal: {x}\n", .{slice_for_removal});
-
-        const position_in_packet = try self.find_by_layer(layer);
-
-        print("position: {any}\n", .{position_in_packet});
-
-        const start_in_packet: usize = position_in_packet[0];
-
-        const delete_start_in_packet = start_in_packet + delete_start_in_layer;
-
-        print("delete start in packet: {}\n", .{delete_start_in_packet});
-
-        const delete_end_in_packet = delete_start_in_packet + delete_end_in_layer;
-
-        print("delete end in packet: {}\n", .{delete_end_in_packet});
-
-        const packet_data = self.raw_data.get_mutable();
-
-        print("original: ({}) {x}\n", .{ packet_data.len, packet_data });
-
-        const delete_buf = packet_data[delete_start_in_packet..delete_end_in_packet];
-        print("deletion buffer: {x} ({})\n", .{ delete_buf, delete_buf.len });
-
-        const remaining_buf = packet_data[delete_start_in_packet + delete_buf.len ..];
-        print("remaining buf: {x} ({})\n", .{ remaining_buf, remaining_buf.len });
-
-        const dest = packet_data[delete_start_in_packet .. delete_start_in_packet + remaining_buf.len];
-        print("dest: {x} ({})\n", .{ dest, dest.len });
-
-        @memmove(dest, remaining_buf);
-
-        const new_len = delete_start_in_packet + remaining_buf.len;
-        print("new len: {}\n", .{new_len});
-
-        var cur = layer.prev_layer;
-        while (cur) |prev| {
-            print("{any}\n", .{try prev.layer_impl.get_protocol()});
-            const pos = try self.find_by_layer(prev);
-            prev.raw_data = RawData{ .mutable = packet_data[pos[0]..new_len] };
-            cur = prev.prev_layer;
-        }
-
-        cur = layer.next_layer;
-        while (cur) |next| {
-            print("{any}\n", .{try next.layer_impl.get_protocol()});
-            const pos = try self.find_by_layer(next);
-            next.raw_data = RawData{ .mutable = packet_data[(pos[0] - slice_for_removal.len)..new_len] };
-            cur = next.next_layer;
-        }
-
-        const new_buf = RawData{ .mutable = packet_data[0..new_len] };
-
-        self.raw_data = new_buf;
-
-        print("new len: {}\n", .{new_len});
-
-        print("new buf: {x}\n", .{new_buf.get_immutable()});
-    }
-
-    pub fn copy_data(self: *Packet, layer: *Layer, raw_data: RawData, new_owner: *LayerOwner) !void {
-        if (!self.find_layer(layer)) {
-            return error.LayerNotFound;
-        }
-
-        if (!self.raw_data.is_mutable()) {
-            return error.PacketRawDataNotMutable;
-        }
-
-        if (!layer.get_data().isSubslice(raw_data.get_immutable())) {
-            return error.SliceDoesNotBelongToLayer;
-        }
-
-        const delete_start_in_layer: usize = layer.get_data().subsliceOffset(raw_data.get_immutable()) orelse {
-            return error.OffsetNotFound;
-        };
-
-        const delete_end_in_layer: usize = raw_data.get_immutable().len;
-
-        print("delete start offset in layer: {}\n", .{delete_start_in_layer});
-
-        print("delete end in layer: {}\n", .{delete_end_in_layer});
-
-        const slice_for_removal = raw_data.get_slice(delete_start_in_layer, delete_end_in_layer).get_immutable();
-
-        print("slice removal: {x}\n", .{slice_for_removal});
-
-        const position_in_packet = try self.find_by_layer(layer);
-
-        print("position: {any}\n", .{position_in_packet});
-
-        const start_in_packet: usize = position_in_packet[0];
-
-        const delete_start_in_packet = start_in_packet + delete_start_in_layer;
-
-        print("delete start in packet: {}\n", .{delete_start_in_packet});
-
-        const delete_end_in_packet = delete_start_in_packet + delete_end_in_layer;
-
-        print("delete end in packet: {}\n", .{delete_end_in_packet});
-
-        const packet_data = self.raw_data.get_mutable();
-
-        print("original: ({}) {x}\n", .{ packet_data.len, packet_data });
-
-        const delete_buf = packet_data[delete_start_in_packet..delete_end_in_packet];
-        print("deletion buffer: {x} ({})\n", .{ delete_buf, delete_buf.len });
-
-        const remaining_buf = packet_data[delete_start_in_packet + delete_buf.len ..];
-        print("remaining buf: {x} ({})\n", .{ remaining_buf, remaining_buf.len });
-
-        const dest = packet_data[delete_start_in_packet .. delete_start_in_packet + remaining_buf.len];
-        print("dest: {x} ({})\n", .{ dest, dest.len });
-
-        try new_owner.allocator_owned.copy_from(delete_buf);
-
-        @memmove(dest, remaining_buf);
-
-        const new_len = delete_start_in_packet + remaining_buf.len;
-
-        var cur = layer.prev_layer;
-        while (cur) |prev| {
-            const pos = try self.find_by_layer(prev);
-            prev.raw_data = RawData{ .mutable = packet_data[pos[0]..new_len] };
-            cur = prev.prev_layer;
-        }
-
-        const new_buf = RawData{ .mutable = packet_data[0..new_len] };
-
-        self.raw_data = new_buf;
-
-        print("new len: {}\n", .{new_len});
-
-        print("new buf: {x}\n", .{new_buf.get_immutable()});
-    }
-
-    /// inserts a slice of data into the Layer. Mostly used by Application Layers to modify their payload in the packet, but can be used directly if required
-    pub fn insert_data(self: *Packet, layer: *Layer, raw_data: RawData) !void {
-        if (!self.find_layer(layer)) {
-            return error.LayerNotFound;
-        }
-
-        if (!self.raw_data.is_mutable()) {
-            return error.PacketRawDataNotMutable;
-        }
-
-        const raw_data_len = raw_data.get_len();
-
-        print("raw data append len: {}\n", .{raw_data_len});
-
-        const current_packet_len: usize = self.raw_data.get_immutable().len;
-
-        print("current buf len: {}\n", .{current_packet_len});
-
-        const new_buf: RawData = RawData{ .mutable = try self.allocator.realloc(self.raw_data.get_mutable(), current_packet_len + raw_data_len) };
-
-        const dest = new_buf.get_slice_from_offset(current_packet_len);
-
-        @memmove(dest.get_mutable(), raw_data.get_immutable());
-
-        var cur = self.first_layer;
-        while (cur) |next| {
-            const pos = try self.find_by_layer(next);
-            print("{any} {any}\n", .{ next.layer_impl.get_protocol(), pos });
-            const layer_start = pos[0];
-            const layer_end = (pos[1] + raw_data_len);
-            next.raw_data = RawData{ .mutable = new_buf.get_slice(layer_start, (layer_end)).get_mutable() };
-            cur = next.next_layer;
-        }
-
-        self.raw_data = new_buf;
-    }
-
-    pub fn print_layers_metad(self: *Packet) !void {
+    pub fn print_layers_meta(self: *Packet) void {
         var cur = self.first_layer;
         while (cur) |layer| {
-            const data = layer.get_data().get_immutable();
-
-            print("{any} ({}) {x}\n", .{ layer.layer_impl.get_protocol(), data.len, data });
-
+            print("{any} offset={} length={} data:{x}\n", .{ layer.layer_impl.get_protocol(), layer.offset, layer.length, self.buffer.get_immutable_slice(layer.offset, layer.length) });
             cur = layer.next_layer;
         }
     }

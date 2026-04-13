@@ -78,10 +78,11 @@ pub const RawData = union(enum) {
                     panic("out of bounds. length {} exceeds data length {}\n", .{ length, slice.len });
                 }
 
-                //               print("getting slice.\n", .{});
+                if (offset + length > slice.len) {
+                    panic("out of bounds...", .{});
+                }
 
-                //                const sub = slice[offset .. offset + length];
-                const sub = slice[offset..length];
+                const sub = slice[offset .. offset + length];
                 return switch (tag) {
                     .mutable => RawData{ .mutable = sub },
                     .immutable => RawData{ .immutable = sub },

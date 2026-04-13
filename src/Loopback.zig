@@ -3,14 +3,14 @@ const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
 const Packet = @import("Packet.zig");
-const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
+const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerError = @import("ProtocolHelpers.zig").LayerError;
 
 const NullLinkType = @import("ProtocolHelpers.zig").NullLinkType;
 
-const LayerImpl = @import("ProtocolHelpers.zig").LayerImpl;
+const LayerIface = @import("LayerIface.zig").LayerIface;
 
-const NetworkProtocols = @import("ProtocolHelpers.zig").NetworkProtocols;
+const IPVersion = @import("ProtocolHelpers.zig").IPVersions;
 const IPv4Layer = @import("IPv4.zig").IPv4Layer;
 const IPv4Header = @import("IPv4.zig").IPv4Header;
 const IPv4 = @import("IPv4.zig");
@@ -44,7 +44,7 @@ pub const LoopBackHeader = extern struct {
 
 pub const LoopBackLayer = struct {
     owner: LayerOwner,
-    const Protocol = LayerProtocols{ .LinkLayer = .LOOP };
+    const Protocol = tcp_ip_protocol.loopback;
 
     pub fn init(owner: LayerOwner) LayerError!LoopBackLayer {
         switch (owner) {
@@ -121,7 +121,7 @@ pub const LoopBackLayer = struct {
         }
     }
 
-    pub fn get_next_layer_type(self: *LoopBackLayer, layer: *Packet.Layer) !?LayerImpl {
+    pub fn get_next_layer_type(self: *LoopBackLayer, layer: *Packet.Layer) !?LayerIface {
         const hdr = self.get_immutable_header();
         const protocol_type = hdr.get_protocol_type();
 
@@ -139,22 +139,22 @@ pub const LoopBackLayer = struct {
                 const ip_version = ihl_byte >> 4;
                 const hdr_len = (ihl_byte & 0x0F) * 4;
 
-                if (ip_version == @intFromEnum(NetworkProtocols.IPv4)) {
+                if (ip_version == @intFromEnum(IPVersion.IPv4)) {
                     if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) {
-                        return try LayerImpl.init(GenericLayer.ApplicationLayer, LayerOwner{ .packet_layer = layer });
+                        return try LayerIface.init(GenericLayer.ApplicationLayer, LayerOwner{ .packet_layer = layer });
                     }
 
-                    return try LayerImpl.init(IPv4.IPv4Layer, LayerOwner{ .packet_layer = layer });
+                    return try LayerIface.init(IPv4.IPv4Layer, LayerOwner{ .packet_layer = layer });
                 }
 
-                if (ip_version == @intFromEnum(NetworkProtocols.IPv6)) {
+                if (ip_version == @intFromEnum(IPVersion.IPv6)) {
                     return null;
                 } else {
                     return null;
                 }
             },
             //           LoopBackType.IPV6 => {
-            //               return try LayerImpl.init(IPv6.IPv6Layer, LayerOwner{ .packet_layer = layer });
+            //               return try LayerIface.init(IPv6.IPv6Layer, LayerOwner{ .packet_layer = layer });
             //           },
 
             else => {
@@ -170,7 +170,7 @@ pub const LoopBackLayer = struct {
         return str;
     }
 
-    pub fn get_protocol(self: *LoopBackLayer) LayerProtocols {
+    pub fn get_protocol(self: *LoopBackLayer) tcp_ip_protocol {
         _ = self;
         return LoopBackLayer.Protocol;
     }

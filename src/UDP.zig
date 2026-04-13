@@ -6,15 +6,15 @@ const DNS = @import("DNS.zig");
 
 const IPv4 = @import("IPv4.zig");
 
-const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
+const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerError = @import("ProtocolHelpers.zig").LayerError;
-const NetworkProtocols = @import("ProtocolHelpers.zig").NetworkProtocols;
+const net_protocol = @import("ProtocolHelpers.zig").net_protocol;
 
 const Packet = @import("Packet.zig");
 const LayerOwner = @import("Layer.zig").LayerOwner;
 const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
 
-const LayerImpl = @import("ProtocolHelpers.zig").LayerImpl;
+const LayerIface = @import("LayerIface.zig").LayerIface;
 
 const comparePayloads = @import("ProtocolHelpers.zig").comparePayloads;
 
@@ -230,7 +230,7 @@ pub const UDPHeader = extern struct {
 pub const UDPLayer = struct {
     owner: LayerOwner,
 
-    const Protocol = LayerProtocols{ .Transport = .UDP };
+    const Protocol = tcp_ip_protocol.udp;
 
     pub fn init(owner: LayerOwner) LayerError!UDPLayer {
         switch (owner) {
@@ -239,22 +239,16 @@ pub const UDPLayer = struct {
                     .owner = owner,
                 };
             },
-            .allocator_owned => {
+            .owned_buffer => {
                 var self = UDPLayer{ .owner = owner };
-                // Allocate directly into the struct's data field
-                //
-                // will cause data wipe
-                if (self.owner.allocator_owned.data.len < UDPHeaderSize) {
-                    self.owner.allocator_owned.data = try self.owner.allocator_owned.allocator.alloc(u8, UDPHeaderSize);
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < UDPHeaderSize) {
+                    const eth_data = try self.owner.owned_buffer.extend(buffer_len, UDPHeaderSize);
 
-                    var header = UDPHeader.init_default();
-                    @memcpy(self.owner.allocator_owned.data[0..UDPHeaderSize], std.mem.asBytes(&header));
+                    @memset(eth_data, 0);
                 }
 
                 return self;
-            },
-            .immutable_layer => return {
-                return UDPLayer{ .owner = owner };
             },
         }
     }
@@ -267,19 +261,13 @@ pub const UDPLayer = struct {
     }
 
     fn get_mutable_header(self: *const UDPLayer) *UDPHeader {
-        const data = self.get_data().mutable;
+        const data = self.get_data();
         const aligned_ptr: [*]align(@alignOf(UDPHeader)) u8 = @alignCast(data.ptr);
         return @ptrCast(aligned_ptr);
     }
 
     fn get_immutable_header(self: *const UDPLayer) *const UDPHeader {
-        var data: []const u8 = undefined;
-
-        if (self.get_data().is_mutable()) { // if the data is actually mutable - we just need immutable in this case anyway
-            data = self.get_data().get_mutable();
-        } else {
-            data = self.get_data().get_immutable();
-        }
+        const data: []const u8 = self.get_data();
 
         if (data.len < UDPHeaderSize) {
             panic("Eth Raw Data len ({}) less than UDPHeaderSize", .{data.len});
@@ -290,18 +278,16 @@ pub const UDPLayer = struct {
     }
 
     /// Get slice of data (header + payload)
-    pub fn get_data(self: *const UDPLayer) RawData {
+    pub fn get_data(self: *const UDPLayer) []u8 {
         switch (self.owner) {
             .packet_layer => {
-                //print("getting self ({*}) data from packet\n", .{self});
-                const udp_data = self.owner.packet_layer.get_data();
-                return udp_data;
+                //             print("getting data from packet.\n", .{});
+
+                print("{x}\n", .{self.owner.packet_layer.get_data()});
+                return self.owner.packet_layer.get_data(); // Layer in packet - it might be mutable or immutable
             },
-            .allocator_owned => {
-                return RawData{ .mutable = self.owner.allocator_owned.data }; // standalone layer - it is mutable by default
-            },
-            .immutable_layer => {
-                return RawData{ .immutable = self.owner.immutable_layer.raw_data };
+            .owned_buffer => {
+                return self.owner.owned_buffer.buffer.items; // standalone layer - it is mutable by default
             },
         }
     }
@@ -312,7 +298,7 @@ pub const UDPLayer = struct {
         //const total_len = hdr.get_length();
         //const payload_start = UDPHeaderSize;
 
-        const data = self.get_data().get_immutable();
+        const data = self.get_data();
 
         //if (total_len < UDPHeaderSize) return data[UDPHeaderSize..];
 
@@ -385,16 +371,16 @@ pub const UDPLayer = struct {
         switch (self.owner) {
             .packet_layer => {
                 if (self.owner.packet_layer.prev_layer) |prev_layer| {
-                    if (comparePayloads(prev_layer.protocol, LayerProtocols{ .Network = .IPv4 })) {
+                    if (prev_layer.protocol == tcp_ip_protocol.ipv4) {
                         var ipv4_layer: IPv4.IPv4Layer = self.owner.packet_layer.packet.get_layer_of_type(IPv4.IPv4Layer) orelse {
                             print("failed to get IPv4 layer.\n", .{});
                             return;
                         };
 
                         hdr.calculate_checksum(ipv4_layer.get_src_ip().to_u32(), ipv4_layer.get_dst_ip().to_u32(), self.get_data()[UDPHeaderSize..]);
-                    } else if (comparePayloads(prev_layer.protocol, LayerProtocols{ .Network = .IPv6 })) {
+                    } else if (prev_layer.protocol == tcp_ip_protocol.ipv6) {
                         return;
-                        //prev_protocol = NetworkProtocols.IPv6;
+                        //prev_protocol = net_protocol.IPv6;
                     }
                 } else {
                     print("no prev layer.\n", .{});
@@ -424,13 +410,13 @@ pub const UDPLayer = struct {
         }) catch return "";
     }
 
-    pub fn get_next_layer_type(self: *UDPLayer, layer: *Packet.Layer) !?LayerImpl {
+    pub fn get_next_layer_type(self: *UDPLayer, layer: *Packet.Layer) !?LayerIface {
         //        const data = self.get_data();
         _ = self;
-        return try LayerImpl.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
+        return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
     }
 
-    pub fn get_protocol(self: *UDPLayer) LayerProtocols {
+    pub fn get_protocol(self: *UDPLayer) tcp_ip_protocol {
         _ = self;
         return UDPLayer.Protocol;
     }

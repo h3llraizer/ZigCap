@@ -5,9 +5,9 @@ const panic = std.debug.print;
 const Allocator = std.mem.Allocator;
 
 const ProtocolHelpers = @import("ProtocolHelpers.zig");
-const LayerProtocols = ProtocolHelpers.LayerProtocols;
+const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerError = ProtocolHelpers.LayerError;
-const LayerImpl = ProtocolHelpers.LayerImpl;
+const LayerIface = @import("LayerIface.zig").LayerIface;
 const LayerOwner = @import("Layer.zig").LayerOwner;
 
 const Packet = @import("Packet.zig");
@@ -32,7 +32,7 @@ pub const TCPHeader = extern struct {
 
 pub const TCPLayer = struct {
     owner: LayerOwner,
-    const Protocol = LayerProtocols{ .Transport = .TCP };
+    const Protocol = tcp_ip_protocol.tcp;
 
     //// Creates layer from ptr to minimum 20 byte length buffer - ensure that the buffer outlives the TCPLayer or UB occurs
     pub fn init(owner: LayerOwner) LayerError!TCPLayer {
@@ -104,7 +104,7 @@ pub const TCPLayer = struct {
         return;
     }
 
-    pub fn get_next_layer_type(self: *TCPLayer, layer: *Packet.Layer) !?LayerImpl {
+    pub fn get_next_layer_type(self: *TCPLayer, layer: *Packet.Layer) !?LayerIface {
         const data = self.get_data().get_immutable();
 
         if (data.len < TCPHeaderMinSize) {
@@ -117,7 +117,7 @@ pub const TCPLayer = struct {
             return LayerError.MisalignedBuffer;
         }
 
-        return try LayerImpl.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
+        return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
     }
 
     /// return mutable slice of the payload
@@ -235,7 +235,7 @@ pub const TCPLayer = struct {
         return result;
     }
 
-    pub fn get_protocol(self: *TCPLayer) LayerProtocols {
+    pub fn get_protocol(self: *TCPLayer) tcp_ip_protocol {
         _ = self;
         return TCPLayer.Protocol;
     }

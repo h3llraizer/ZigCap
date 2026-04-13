@@ -5,11 +5,9 @@ const panic = std.debug.panic;
 
 const IPProtocol = @import("ProtocolHelpers.zig").IPProtocol;
 
-const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
-const TransportProtocol = @import("ProtocolHelpers.zig").TransportProtocols;
+const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 
 const LayerError = @import("ProtocolHelpers.zig").LayerError;
-const NetworkProtocols = @import("ProtocolHelpers.zig").NetworkProtocols;
 
 const Packet = @import("Packet.zig");
 
@@ -19,7 +17,7 @@ const ICMP = @import("ICMP.zig");
 
 const LayerOwner = @import("Layer.zig").LayerOwner;
 
-const LayerImpl = @import("ProtocolHelpers.zig").LayerImpl;
+const LayerIface = @import("LayerIface.zig").LayerIface;
 
 const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
 
@@ -166,7 +164,7 @@ pub const IPOption = struct {
 
 pub const IPv4Layer = struct {
     owner: LayerOwner,
-    const Protocol = LayerProtocols{ .Network = .IPv4 };
+    const Protocol = tcp_ip_protocol.ipv4;
 
     pub fn init(owner: LayerOwner) LayerError!IPv4Layer {
         switch (owner) {
@@ -175,23 +173,20 @@ pub const IPv4Layer = struct {
                     .owner = owner,
                 };
             },
-            .allocator_owned => {
+            .owned_buffer => {
                 var self = IPv4Layer{ .owner = owner };
-                // Allocate directly into the struct's data field
-                if (owner.allocator_owned.data.len < MinHeaderLength) {
-                    print("IPv4 data passed to init has less bytes ({}) than min header len: {x}\n", .{
-                        owner.allocator_owned.data.len,
-                        owner.allocator_owned.data,
-                    });
-                    self.owner.allocator_owned.data = try self.owner.allocator_owned.allocator.alloc(u8, MinHeaderLength);
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < MinHeaderLength) {
+                    const ipv4_data = try self.owner.owned_buffer.extend(buffer_len, MinHeaderLength);
+
+                    @memset(ipv4_data, 0);
+
+                    var header = IPv4Header.init_default();
+
+                    @memcpy(ipv4_data[0..MinHeaderLength], std.mem.asBytes(&header));
                 }
-                //var header = IPv4Header.init_default();
-                //@memcpy(self.owner.allocator_owned.data[0..MinHeaderLength], std.mem.asBytes(&header));
 
                 return self;
-            },
-            .immutable_layer => return {
-                return IPv4Layer{ .owner = owner };
             },
         }
     }
@@ -224,24 +219,19 @@ pub const IPv4Layer = struct {
     }
 
     /// get slice of data (hdr+payload)
-    pub fn get_data(self: *const IPv4Layer) RawData {
+    pub fn get_data(self: *const IPv4Layer) []u8 {
         switch (self.owner) {
-            .packet_layer => {
-                const ipv4_data = self.owner.packet_layer.get_data();
-                return ipv4_data;
+            .packet_layer => |layer| {
+                return layer.get_data(); // Layer in packet - it might be mutable or immutable
             },
-            .allocator_owned => {
-                //print("getting self ({*}) data from allocator\n", .{self});
-                return RawData{ .mutable = self.owner.allocator_owned.data };
-            },
-            .immutable_layer => {
-                return RawData{ .immutable = self.owner.immutable_layer.raw_data };
+            .owned_buffer => {
+                return self.owner.owned_buffer.buffer.items; // standalone layer - it is mutable by default
             },
         }
     }
 
-    pub fn get_next_layer_type(self: *const IPv4Layer, layer: *Packet.Layer) !?LayerImpl {
-        const data = self.get_data().get_immutable();
+    pub fn get_next_layer_type(self: *const IPv4Layer, layer: *Packet.Layer) !?LayerIface {
+        const data = self.get_data();
 
         if (data.len < @sizeOf(IPv4Header)) return error.BufferTooSmall;
 
@@ -255,19 +245,19 @@ pub const IPv4Layer = struct {
         const hdr = self.get_immutable_header();
 
         const ip_protocol = std.meta.intToEnum(IPProtocol, hdr.protocol) catch {
-            return try LayerImpl.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
+            return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
         };
 
         switch (ip_protocol) {
             IPProtocol.ICMP => {
-                return try LayerImpl.init(ICMP.ICMPLayer, LayerOwner{ .packet_layer = layer });
+                return try LayerIface.init(ICMP.ICMPLayer, LayerOwner{ .packet_layer = layer });
             },
 
             IPProtocol.TCP => {
-                return try LayerImpl.init(TCP.TCPLayer, LayerOwner{ .packet_layer = layer });
+                return try LayerIface.init(TCP.TCPLayer, LayerOwner{ .packet_layer = layer });
             },
             IPProtocol.UDP => {
-                return try LayerImpl.init(UDP.UDPLayer, LayerOwner{ .packet_layer = layer });
+                return try LayerIface.init(UDP.UDPLayer, LayerOwner{ .packet_layer = layer });
             },
         }
     }
@@ -276,7 +266,7 @@ pub const IPv4Layer = struct {
     pub fn get_payload(self: *IPv4Layer) ?[]const u8 {
         const header_len = (self.get_immutable_header().version_ihl & 0x0F) * 4;
 
-        const data = self.get_data().get_immutable();
+        const data = self.get_data();
 
         if (data.len > header_len) {
             return data[header_len..];
@@ -308,11 +298,11 @@ pub const IPv4Layer = struct {
             return error.OptionsTooLong;
         }
 
-        const data = self.get_data().get_mutable();
+        const data = self.get_data();
 
         // Reallocate buffer if needed
         if (data.len < new_header_len) {
-            const new_data = try allocator.realloc(data, new_header_len);
+            const new_data = try allocator.realloc(data, new_header_len); // need to call extend instead
             data = new_data;
         }
 
@@ -351,28 +341,38 @@ pub const IPv4Layer = struct {
     pub fn calculate_length(self: *IPv4Layer) void {
         var hdr = self.get_mutable_header();
         const data = self.get_data();
-        hdr.total_length = std.mem.nativeToBig(u16, @as(u16, @intCast(data.len))); // No byte swap
+        hdr.total_length = std.mem.nativeToBig(u16, @as(u16, @intCast(data.get_len())));
+    }
+
+    pub fn get_length(self: *IPv4Layer) u16 {
+        const hdr = self.get_immutable_header();
+        const total_length = hdr.total_length;
+        return std.mem.nativeToBig(u16, @as(u16, @intCast(total_length))); // No byte swap
+    }
+
+    pub fn get_ttl(self: *IPv4Layer) u8 {
+        const hdr = self.get_mutable_header();
+        return hdr.ttl;
+    }
+
+    pub fn set_ttl(self: *IPv4Layer, ttl: u8) void {
+        const hdr = self.get_mutable_header();
+        hdr.ttl = ttl;
     }
 
     fn get_mutable_header(self: *const IPv4Layer) *IPv4Header {
-        const data = self.get_data().mutable;
+        const data = self.get_data();
         const aligned_ptr: [*]align(@alignOf(IPv4Header)) u8 = @alignCast(data.ptr);
         return @ptrCast(aligned_ptr);
     }
 
     fn get_immutable_header(self: *const IPv4Layer) *const IPv4Header {
-        var data: []const u8 = undefined;
-
-        if (self.get_data().is_mutable()) { // if the data is actually mutable - we just need immutable in this case anyway
-            data = self.get_data().get_mutable();
-        } else {
-            data = self.get_data().get_immutable();
-        }
+        const data: []const u8 = self.get_data();
 
         //        print("ipv4 data: {x}\n", .{data});
 
         if (data.len < MinHeaderLength) {
-            panic("Eth Raw Data len ({}) less than IPv4HeaderSize", .{data.len});
+            panic("IPv4 data len ({}) less than IPv4HeaderSize", .{data.len});
         }
 
         const aligned_ptr: [*]align(@alignOf(IPv4Header)) const u8 = @alignCast(data.ptr);
@@ -420,17 +420,17 @@ pub const IPv4Layer = struct {
         ) catch return "";
     }
 
-    pub fn get_transport_type(self: *IPv4Layer) !TransportProtocol {
+    pub fn get_transport_type(self: *IPv4Layer) !IPProtocol {
         const hdr = self.get_immutable_header();
-        return try std.meta.intToEnum(TransportProtocol, hdr.protocol);
+        return try std.meta.intToEnum(IPProtocol, hdr.protocol);
     }
 
-    pub fn set_protocol(self: *IPv4Layer, protocol: TransportProtocol) void {
+    pub fn set_transport_type(self: *IPv4Layer, protocol: IPProtocol) void {
         var hdr = self.get_mutable_header();
         hdr.protocol = @intFromEnum(protocol);
     }
 
-    pub fn get_protocol(self: *IPv4Layer) LayerProtocols {
+    pub fn get_protocol(self: *IPv4Layer) tcp_ip_protocol {
         _ = self;
         return IPv4Layer.Protocol;
     }

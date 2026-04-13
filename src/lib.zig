@@ -26,3 +26,5 @@ pub const UDP = @import("UDP.zig");
 pub const RawData = @import("RawData.zig").RawData;
 pub const ProtocolHelpers = @import("ProtocolHelpers.zig");
 pub const Layer = @import("Layer.zig");
+pub const LayerIface = @import("LayerIface.zig").LayerIface;
+pub const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;

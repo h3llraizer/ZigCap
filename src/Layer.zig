@@ -1,35 +1,12 @@
 const print = @import("std").debug.print;
 const Packet = @import("Packet.zig");
 const Allocator = @import("std").mem.Allocator;
+const Buffer = @import("Buffer.zig").Buffer;
 
-/// soon to be renamed to SelfOwned
-pub const AllocatorOwned = struct {
-    allocator: Allocator,
-    data: []u8,
-
-    pub fn copy_from(self: *AllocatorOwned, data: []u8) !void {
-        if (self.data.len < data.len) {
-            const new_buf = try self.allocator.realloc(self.data, data.len);
-            self.data = new_buf;
-        }
-
-        @memmove(self.data, data);
-
-        print("data in allocator: {x}\n", .{self.data});
-    }
-
-    pub fn deinit(self: *AllocatorOwned) void {
-        self.allocator.free(self.data);
-    }
-};
-
-/// choose who owns this layers data - AllocatorOwned is not a good name. Changing soon
+/// The Layer is either owned by Packet or Buffer ("owned_buffer")
+/// When owned by packet_layer, the data is retrieved and modified via the Layers e.g. get_data() calls Layer.get_data() which uses its own offset to return the packets buffer from its offset. See Packet.Layer.
+/// when "owned_buffer" owns the layers data (Buffer is a wrapper around std.ArrayList(u8)), it just uses the pub methods from Buffer to coordinate data retrival and modification, the same way Packet does for the Layers which it owns
 pub const LayerOwner = union(enum) {
     packet_layer: *Packet.Layer,
-    allocator_owned: AllocatorOwned,
-    immutable_layer: ImmutableLayer,
-};
-
-pub const ImmutableLayer = struct {
-    raw_data: []const u8,
+    owned_buffer: Buffer,
 };

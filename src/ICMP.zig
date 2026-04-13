@@ -4,9 +4,9 @@ const Allocator = std.mem.Allocator;
 const panic = std.debug.panic;
 
 const ProtocolHelpers = @import("ProtocolHelpers.zig");
-const LayerImpl = ProtocolHelpers.LayerImpl;
+const LayerIface = @import("LayerIface.zig").LayerIface;
 const LayerError = ProtocolHelpers.LayerError;
-const LayerProtocols = ProtocolHelpers.LayerProtocols;
+const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 
 const LayerOwner = @import("Layer.zig").LayerOwner;
 
@@ -373,7 +373,7 @@ pub const ICMPHeader = extern union {
 
 pub const ICMPLayer = struct {
     owner: LayerOwner,
-    const Protocol = LayerProtocols{ .Network = .ICMP };
+    const Protocol = tcp_ip_protocol.icmp;
 
     pub fn init(owner: LayerOwner) LayerError!ICMPLayer {
         switch (owner) {
@@ -701,12 +701,12 @@ pub const ICMPLayer = struct {
         return buf.toOwnedSlice(allocator) catch return &[_]u8{};
     }
 
-    pub fn get_protocol(self: *ICMPLayer) LayerProtocols {
+    pub fn get_protocol(self: *ICMPLayer) tcp_ip_protocol {
         _ = self;
         return ICMPLayer.Protocol;
     }
 
-    pub fn get_next_layer_type(self: *ICMPLayer, layer: *Layer) !?LayerImpl {
+    pub fn get_next_layer_type(self: *ICMPLayer, layer: *Layer) !?LayerIface {
         _ = self;
         _ = layer;
         return null;

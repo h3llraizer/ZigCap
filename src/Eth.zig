@@ -3,12 +3,13 @@ const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
 const Packet = @import("Packet.zig");
-const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
+const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerError = @import("ProtocolHelpers.zig").LayerError;
 
-const LayerImpl = @import("ProtocolHelpers.zig").LayerImpl;
+const LayerIface = @import("LayerIface.zig").LayerIface;
 
-const NetworkProtocols = @import("ProtocolHelpers.zig").NetworkProtocols;
+const IPVersion = @import("ProtocolHelpers.zig").IPVersions;
+
 const IPv4Layer = @import("IPv4.zig").IPv4Layer;
 const IPv4Header = @import("IPv4.zig").IPv4Header;
 const IPv4 = @import("IPv4.zig");
@@ -18,91 +19,12 @@ const ARP = @import("ARP.zig");
 
 const Layer = @import("Layer.zig");
 const LayerOwner = Layer.LayerOwner;
-const AllocatorOwner = Layer.AllocatorOwned;
 
 const GenericLayer = @import("GenericLayer.zig");
 
 const RawData = @import("RawData.zig").RawData;
 
 const panic = std.debug.panic;
-
-/// return the next layer and its size
-pub fn get_next_layer_type(buffer: []u8) !Packet.Layer {
-    if (buffer.len < @sizeOf(EthHeader)) return LayerError.BufferTooSmall;
-    // Verify alignment
-    const alignment = @alignOf(EthHeader);
-    const addr = @intFromPtr(buffer.ptr);
-
-    if (addr % alignment != 0) {
-        return LayerError.MisalignedBuffer;
-    }
-
-    const aligned_ptr: [*]align(@alignOf(EthHeader)) u8 = @alignCast(buffer.ptr);
-    const hdr: *EthHeader = @ptrCast(aligned_ptr);
-    const eth_type = hdr.get_eth_type();
-
-    var layer = Packet.Layer{ .protocol = undefined, .offset = 0, .length = 0 };
-
-    layer.offset = EthHeaderSize;
-
-    // ethtype for IPv4 and IPv6 will always either be 0x800 or 0x8dd respectively TODO: combine logic where appropriate and validate ip version accordingly
-    switch (eth_type) {
-        EthType.IP => {
-            if (buffer.len <= EthHeaderSize) {
-                print("buf len too small.\n", .{});
-                layer.protocol = LayerProtocols{ .Network = .Generic };
-                layer.length = buffer.len - EthHeaderSize; // should be buffer.len - sizeOf(ethhdr)
-                return layer;
-            }
-
-            const ihl_byte = buffer[EthHeaderSize];
-            const ip_version = ihl_byte >> 4;
-            const hdr_len = (ihl_byte & 0x0F) * 4;
-
-            print("ip version: {}\n", .{ip_version});
-            print("ip hdr_len: {}\n", .{hdr_len});
-
-            if (ip_version == @intFromEnum(NetworkProtocols.IPv4)) {
-                if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) {
-                    print("hdr size invalid.\n", .{});
-                    layer.protocol = LayerProtocols{ .Network = .Generic };
-                    layer.length = buffer.len - EthHeaderSize;
-                    return layer;
-                }
-                layer.protocol = LayerProtocols{ .Network = .IPv4 };
-                layer.length = hdr_len;
-                return layer;
-            }
-
-            if (ip_version == @intFromEnum(NetworkProtocols.IPv6)) {
-                layer.protocol = LayerProtocols{ .Network = .IPv6 };
-                layer.length = hdr_len;
-                return layer;
-            } else {
-                print("ip version not known.\n", .{});
-                layer.protocol = LayerProtocols{ .Network = .Generic };
-                layer.length = buffer.len;
-                return layer;
-            }
-        },
-        EthType.IPV6 => {
-            layer.protocol = LayerProtocols{ .Network = .IPv6 };
-            layer.length = IPv6HeaderSize;
-            return layer;
-        },
-        EthType.ARP => {
-            layer.protocol = LayerProtocols{ .Network = .ARP };
-            layer.length = buffer.len - EthHeaderSize;
-            return layer;
-        },
-        else => {
-            print("eth type unknown.\n", .{});
-            layer.protocol = LayerProtocols{ .Network = .Generic };
-            layer.length = buffer.len;
-            return layer;
-        },
-    }
-}
 
 pub const EthType = enum(u16) {
     IP = 0x0800,
@@ -173,7 +95,7 @@ pub const EthHeader = extern struct {
 
 pub const EthLayer = struct {
     owner: LayerOwner,
-    const Protocol = LayerProtocols{ .LinkLayer = .ETHERNET };
+    const Protocol = tcp_ip_protocol.eth;
 
     pub fn init(owner: LayerOwner) LayerError!EthLayer {
         switch (owner) {
@@ -182,20 +104,17 @@ pub const EthLayer = struct {
                     .owner = owner,
                 };
             },
-            .allocator_owned => {
+            .owned_buffer => {
                 var self = EthLayer{ .owner = owner };
-                // Allocate directly into the struct's data field
-                if (owner.allocator_owned.data.len < EthHeaderSize) {
-                    self.owner.allocator_owned.data = try self.owner.allocator_owned.allocator.alloc(u8, EthHeaderSize);
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < EthHeaderSize) {
+                    print("buffer len: {}\n", .{buffer_len});
+                    const eth_data = try self.owner.owned_buffer.extend(buffer_len, EthHeaderSize);
+
+                    @memset(eth_data, 0);
                 }
 
-                //var header = EthHeader.init_default();
-                //@memcpy(self.owner.allocator_owned.data[0..@sizeOf(EthHeader)], std.mem.asBytes(&header));
-
                 return self;
-            },
-            .immutable_layer => return {
-                return EthLayer{ .owner = owner };
             },
         }
     }
@@ -208,19 +127,13 @@ pub const EthLayer = struct {
     }
 
     fn get_mutable_header(self: *const EthLayer) *EthHeader {
-        const data = self.get_data().mutable;
+        const data = self.get_data();
         const aligned_ptr: [*]align(@alignOf(EthHeader)) u8 = @alignCast(data.ptr);
         return @ptrCast(aligned_ptr);
     }
 
     fn get_immutable_header(self: *const EthLayer) *const EthHeader {
-        var data: []const u8 = undefined;
-
-        if (self.get_data().is_mutable()) { // if the data is actually mutable - we just need immutable in this case anyway
-            data = self.get_data().get_mutable();
-        } else {
-            data = self.get_data().get_immutable();
-        }
+        const data: []const u8 = self.get_data();
 
         if (data.len < EthHeaderSize) {
             panic("Eth Raw Data len ({}) less than EthHeaderSize", .{data.len});
@@ -262,26 +175,22 @@ pub const EthLayer = struct {
     }
 
     /// get slice of data (hdr+payload)
-    pub fn get_data(self: *const EthLayer) RawData {
+    pub fn get_data(self: *const EthLayer) []u8 {
         switch (self.owner) {
-            .packet_layer => {
+            .packet_layer => |layer| {
                 //             print("getting data from packet.\n", .{});
 
-                const eth_data = self.owner.packet_layer.get_data(); // Layer in packet - it might be mutable or immutable
-                return eth_data;
+                return layer.get_data(); // Layer in packet - it might be mutable or immutable
             },
-            .allocator_owned => {
-                return RawData{ .mutable = self.owner.allocator_owned.data }; // standalone layer - it is mutable by default
-            },
-            .immutable_layer => {
-                return RawData{ .immutable = self.owner.immutable_layer.raw_data };
+            .owned_buffer => |buffer| {
+                return buffer.buffer.items; // standalone layer - it is mutable by default
             },
         }
     }
 
     /// return mutable slice of the payload
     pub fn get_payload(self: *const EthLayer) ?[]const u8 { // needs to return RawData
-        const data = self.get_data().get_immutable();
+        const data: []const u8 = self.get_data();
         //    print("data {x}\n", .{data});
         if (data.len > EthHeaderSize) {
             return data[EthHeaderSize..];
@@ -291,7 +200,7 @@ pub const EthLayer = struct {
     }
 
     /// return the next layer protocol type
-    pub fn get_next_layer_type(self: *EthLayer, layer: *Packet.Layer) !?LayerImpl {
+    pub fn get_next_layer_type(self: *EthLayer, layer: *Packet.Layer) !?LayerIface {
         const hdr = self.get_immutable_header();
         const eth_type = hdr.get_eth_type();
 
@@ -304,28 +213,21 @@ pub const EthLayer = struct {
 
         switch (eth_type) {
             EthType.IP => {
-                //              print("ethtype is IP.\n", .{});
-                //if (data.len <= EthHeaderSize) {
-                //    print("data len is {}\n", .{data.len});
-
-                //    return null;
-                //}
-
                 const ihl_byte = data[0];
                 const ip_version = ihl_byte >> 4;
                 const hdr_len = (ihl_byte & 0x0F) * 4;
 
-                if (ip_version == @intFromEnum(NetworkProtocols.IPv4)) {
+                if (ip_version == @intFromEnum(IPVersion.IPv4)) {
                     if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) {
-                        return try LayerImpl.init(GenericLayer.ApplicationLayer, LayerOwner{ .packet_layer = layer });
+                        return try LayerIface.init(GenericLayer.ApplicationLayer, LayerOwner{ .packet_layer = layer });
                     }
 
                     //                    print("returning IPv4.\n", .{});
 
-                    return try LayerImpl.init(IPv4.IPv4Layer, LayerOwner{ .packet_layer = layer });
+                    return try LayerIface.init(IPv4.IPv4Layer, LayerOwner{ .packet_layer = layer });
                 }
 
-                if (ip_version == @intFromEnum(NetworkProtocols.IPv6)) {
+                if (ip_version == @intFromEnum(IPVersion.IPv6)) {
                     return null;
                 } else {
                     print("unknown IP type.\n", .{});
@@ -333,10 +235,10 @@ pub const EthLayer = struct {
                 }
             },
             EthType.IPV6 => {
-                return try LayerImpl.init(IPv6.IPv6Layer, LayerOwner{ .packet_layer = layer });
+                return try LayerIface.init(IPv6.IPv6Layer, LayerOwner{ .packet_layer = layer });
             },
             EthType.ARP => {
-                return try LayerImpl.init(ARP.ARPLayer, LayerOwner{ .packet_layer = layer });
+                return try LayerIface.init(ARP.ARPLayer, LayerOwner{ .packet_layer = layer });
             },
             else => {
                 print("couldn't get Eth protocol.\n", .{});
@@ -370,12 +272,12 @@ pub const EthLayer = struct {
         return hdr.get_eth_type();
     }
 
-    pub fn set_eth_type(self: *EthLayer, eth_type: EthType) !void {
+    pub fn set_eth_type(self: *EthLayer, eth_type: EthType) void {
         var hdr = self.get_mutable_header();
         hdr.set_eth_type(eth_type);
     }
 
-    pub fn get_protocol(self: *EthLayer) LayerProtocols {
+    pub fn get_protocol(self: *EthLayer) tcp_ip_protocol {
         _ = self;
         return EthLayer.Protocol;
     }

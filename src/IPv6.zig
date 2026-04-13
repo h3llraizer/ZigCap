@@ -3,11 +3,11 @@ const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 const panic = std.debug.panic;
 
-const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
+const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerError = @import("ProtocolHelpers.zig").LayerError;
-const LayerImpl = @import("ProtocolHelpers.zig").LayerImpl;
+const LayerIface = @import("LayerIface.zig").LayerIface;
 
-const TransportProtocol = @import("ProtocolHelpers.zig").TransportProtocols;
+const TransportProtocol = @import("ProtocolHelpers.zig").transp_protocol;
 const ICMP = @import("ICMP.zig");
 const TCP = @import("TCP.zig");
 const UDP = @import("UDP.zig");
@@ -296,7 +296,7 @@ pub const IPv6Header = extern struct {
 
 pub const IPv6Layer = struct {
     owner: LayerOwner,
-    const Protocol = LayerProtocols{ .Network = .IPv6 };
+    const Protocol = tcp_ip_protocol.ipv6;
 
     pub fn init(owner: LayerOwner) LayerError!IPv6Layer {
         switch (owner) {
@@ -559,7 +559,7 @@ pub const IPv6Layer = struct {
         return try std.meta.intToEnum(TransportProtocol, hdr.next_header);
     }
 
-    pub fn get_next_layer_type(self: *const IPv6Layer, layer: *Packet.Layer) !?LayerImpl {
+    pub fn get_next_layer_type(self: *const IPv6Layer, layer: *Packet.Layer) !?LayerIface {
         const data = self.get_data().get_immutable();
 
         if (data.len < @sizeOf(IPv6Header)) return error.BufferTooSmall;
@@ -575,20 +575,20 @@ pub const IPv6Layer = struct {
 
         switch (hdr.get_next_header()) {
             .ICMP => {
-                return try LayerImpl.init(ICMP.ICMPLayer, LayerOwner{ .packet_layer = layer });
+                return try LayerIface.init(ICMP.ICMPLayer, LayerOwner{ .packet_layer = layer });
             },
 
             .TCP => {
-                return try LayerImpl.init(TCP.TCPLayer, LayerOwner{ .packet_layer = layer });
+                return try LayerIface.init(TCP.TCPLayer, LayerOwner{ .packet_layer = layer });
             },
             .UDP => {
-                return try LayerImpl.init(UDP.UDPLayer, LayerOwner{ .packet_layer = layer });
+                return try LayerIface.init(UDP.UDPLayer, LayerOwner{ .packet_layer = layer });
             },
             else => return null,
         }
     }
 
-    pub fn get_protocol(self: *IPv6Layer) LayerProtocols {
+    pub fn get_protocol(self: *IPv6Layer) tcp_ip_protocol {
         _ = self;
         return IPv6Layer.Protocol;
     }

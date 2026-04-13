@@ -1,15 +1,15 @@
 const std = @import("std");
 const print = std.debug.print;
-const LinkLayerProtocols = @import("ProtocolHelpers.zig").LinkLayerProtocols;
+const link_layer_type = @import("ProtocolHelpers.zig").link_layer_type;
 
 /// A Packet which is captured from the wire or is to be transmitted on the wire
 pub const WirePacket = struct {
     timestamp_s: i64,
     timestamp_ms: i64,
     raw_data: []u8,
-    link_type: LinkLayerProtocols,
+    link_type: link_layer_type,
 
-    pub fn init(ts_usec: i64, ts_sec: i64, raw: []u8, link_type: LinkLayerProtocols) WirePacket {
+    pub fn init(ts_usec: i64, ts_sec: i64, raw: []u8, link_type: link_layer_type) WirePacket {
         const self: WirePacket = WirePacket{
             .timestamp_ms = ts_usec,
 

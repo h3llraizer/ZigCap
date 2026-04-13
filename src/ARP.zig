@@ -4,7 +4,7 @@ const panic = std.debug.panic;
 
 const Eth = @import("Eth.zig");
 const IPv4 = @import("IPv4.zig");
-const LayerProtocols = @import("ProtocolHelpers.zig").LayerProtocols;
+const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 
 const Allocator = std.mem.Allocator;
 
@@ -12,7 +12,7 @@ const LayerOwner = @import("Layer.zig").LayerOwner;
 const LayerError = @import("ProtocolHelpers.zig").LayerError;
 const RawData = @import("RawData.zig").RawData;
 
-const LayerImpl = @import("ProtocolHelpers.zig").LayerImpl;
+const LayerIface = @import("LayerIface.zig").LayerIface;
 
 const Layer = @import("Packet.zig").Layer;
 
@@ -173,7 +173,7 @@ pub const ARPHeader = extern struct {
 
 pub const ARPLayer = struct {
     owner: LayerOwner,
-    const Protocol = LayerProtocols{ .Network = .ARP };
+    const Protocol = tcp_ip_protocol.arp;
 
     pub fn init(owner: LayerOwner) LayerError!ARPLayer {
         switch (owner) {
@@ -289,7 +289,7 @@ pub const ARPLayer = struct {
     }
 
     /// return the next layer protocol type (ARP doesn't have a next layer)
-    pub fn get_next_layer_type(self: *ARPLayer, layer: *Layer) !?LayerImpl {
+    pub fn get_next_layer_type(self: *ARPLayer, layer: *Layer) !?LayerIface {
         _ = self;
         _ = layer;
         return null;
@@ -350,7 +350,7 @@ pub const ARPLayer = struct {
         return hdr.is_reply();
     }
 
-    pub fn get_protocol(self: *ARPLayer) LayerProtocols {
+    pub fn get_protocol(self: *ARPLayer) tcp_ip_protocol {
         _ = self;
         return ARPLayer.Protocol;
     }
