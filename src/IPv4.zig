@@ -3,11 +3,11 @@ const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 const panic = std.debug.panic;
 
-const IPProtocol = @import("ProtocolHelpers.zig").IPProtocol;
-
+const ProtocolEnums = @import("ProtocolEnums.zig");
+const IPProtocol = ProtocolEnums.IPProtocol;
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 
-const LayerError = @import("ProtocolHelpers.zig").LayerError;
+const LayerError = ProtocolEnums.LayerError;
 
 const Packet = @import("Packet.zig");
 
@@ -282,13 +282,13 @@ pub const IPv4Layer = struct {
     }
 
     /// not yet fully implemented. will fail overtly or UB will occur
-    pub fn add_option(self: *IPv4Layer, option: IPOption, allocator: Allocator) !void { // extend layer needs to be called if allocated in Packet
+    pub fn add_option(self: *IPv4Layer, option: IPOption) !void { // extend layer needs to be called if allocated in Packet
         const hdr = self.get_mutable_header();
-        const current_ihl = hdr.get_ihl();
-        const current_options_len = (current_ihl - 5) * 4;
+        const current_ihl: usize = hdr.get_ihl();
+        const current_options_len: usize = (current_ihl - 5) * 4;
 
         const new_option_bytes = option.toBytes();
-        defer if (new_option_bytes.len > 0) allocator.free(new_option_bytes);
+        //        defer if (new_option_bytes.len > 0) allocator.free(new_option_bytes);
 
         const new_options_len = current_options_len + new_option_bytes.len;
         const new_ihl = 5 + (new_options_len + 3) / 4; // Round up to 4-byte boundary
@@ -300,14 +300,24 @@ pub const IPv4Layer = struct {
 
         const data = self.get_data();
 
+        //        const hdr_data = data[0..current_ihl];
+
+        const ops_buf: []u8 = undefined;
+
         // Reallocate buffer if needed
         if (data.len < new_header_len) {
-            const new_data = try allocator.realloc(data, new_header_len); // need to call extend instead
-            data = new_data;
+            switch (self.owner) {
+                .packet_layer => |layer| {
+                    ops_buf = try layer.packet.extend_layer(layer, new_ihl);
+                },
+                .owned_buffer => |*buffer| { // Capture as pointer
+                    try buffer.extend(data.len, new_ihl);
+                },
+            }
         }
 
         // Copy new options
-        @memcpy(data[MinHeaderLength + current_options_len ..][0..new_option_bytes.len], new_option_bytes);
+        @memcpy(ops_buf[MinHeaderLength + current_options_len ..][0..new_option_bytes.len], new_option_bytes);
 
         // Zero padding if needed
         if (new_options_len % 4 != 0) {
@@ -341,7 +351,7 @@ pub const IPv4Layer = struct {
     pub fn calculate_length(self: *IPv4Layer) void {
         var hdr = self.get_mutable_header();
         const data = self.get_data();
-        hdr.total_length = std.mem.nativeToBig(u16, @as(u16, @intCast(data.get_len())));
+        hdr.total_length = std.mem.nativeToBig(u16, @as(u16, @intCast(data.len)));
     }
 
     pub fn get_length(self: *IPv4Layer) u16 {
@@ -369,7 +379,7 @@ pub const IPv4Layer = struct {
     fn get_immutable_header(self: *const IPv4Layer) *const IPv4Header {
         const data: []const u8 = self.get_data();
 
-        //        print("ipv4 data: {x}\n", .{data});
+        print("ipv4 data: {x} ({})\n", .{ data, data.len });
 
         if (data.len < MinHeaderLength) {
             panic("IPv4 data len ({}) less than IPv4HeaderSize", .{data.len});
@@ -420,12 +430,14 @@ pub const IPv4Layer = struct {
         ) catch return "";
     }
 
-    pub fn get_transport_type(self: *IPv4Layer) !IPProtocol {
+    /// get the IP protocol. E.g. TCP, UDP, ICMP
+    pub fn get_ip_proto(self: *IPv4Layer) !IPProtocol {
         const hdr = self.get_immutable_header();
         return try std.meta.intToEnum(IPProtocol, hdr.protocol);
     }
 
-    pub fn set_transport_type(self: *IPv4Layer, protocol: IPProtocol) void {
+    // set the IP protocol. E.g. TCP, UDP, ICMP
+    pub fn set_ip_proto(self: *IPv4Layer, protocol: IPProtocol) void {
         var hdr = self.get_mutable_header();
         hdr.protocol = @intFromEnum(protocol);
     }

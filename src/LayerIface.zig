@@ -18,7 +18,7 @@ const Allocator = std.mem.Allocator;
 
 const RawData = @import("RawData.zig").RawData;
 
-const LayerError = @import("ProtocolHelpers.zig").LayerError;
+const LayerError = @import("ProtocolEnums.zig").LayerError;
 
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 

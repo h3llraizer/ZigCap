@@ -17,27 +17,27 @@ const ver = pcap.pcap_lib_version();
 const u_short = u16;
 const u_long = u32;
 
-pub const sockaddr = extern struct {
+const sockaddr = extern struct {
     sa_family: u_short,
     sa_data: [14]u8,
 };
 
-pub const in_addr = extern struct {
+const in_addr = extern struct {
     S_addr: u_long, // IPv4 address
 };
 
-pub const sockaddr_in = extern struct {
+const sockaddr_in = extern struct {
     sin_family: u_short,
     sin_port: u_short,
     sin_addr: in_addr,
     sin_zero: [8]u8,
 };
 
-pub const in6_addr = extern struct {
+const in6_addr = extern struct {
     u: [16]u8, // IPv6 address
 };
 
-pub const sockaddr_in6 = extern struct {
+const sockaddr_in6 = extern struct {
     sin6_family: u_short,
     sin6_port: u_short,
     sin6_flowinfo: u_long,
@@ -98,7 +98,7 @@ pub const Interface = struct {
         return false;
     }
 
-    pub fn toString(self: Interface, allocator: Allocator) []const u8 {
+    pub fn to_string(self: Interface, allocator: Allocator) []const u8 {
         const s = allocPrint(allocator, "Name: {s} Description: {s}", .{ self.name, self.desc }) catch |err| {
             return @errorName(err);
         };
@@ -174,7 +174,7 @@ pub const Interfaces = struct {
         return Interfaces{
             .pcap_iface = alldevs,
             .error_buffer = errbuf,
-            .list = undefined,
+            .list = .empty,
             .allocator = allocator,
         };
     }
@@ -195,7 +195,7 @@ pub const Interfaces = struct {
 
                     std.mem.reverse(u8, &octets);
 
-                    const ip_address = IPv4Address.init_from_u32(host_u32) catch continue;
+                    const ip_address = IPv4Address.init_from_u32(host_u32);
 
                     try ips_list.append(self.allocator, ip_address);
                 }
@@ -238,7 +238,7 @@ pub const Interfaces = struct {
                 std.mem.copyForwards(u8, desc, na);
             }
 
-            const ips = try extractIPs(d.addresses, self.allocator);
+            const ips = try self.extractIPs(d.addresses);
 
             const iface = try Interface.init(name, desc, ips, self.allocator);
 

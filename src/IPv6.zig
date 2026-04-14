@@ -4,10 +4,11 @@ const Allocator = std.mem.Allocator;
 const panic = std.debug.panic;
 
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
-const LayerError = @import("ProtocolHelpers.zig").LayerError;
+const LayerError = @import("ProtocolEnums.zig").LayerError;
 const LayerIface = @import("LayerIface.zig").LayerIface;
 
-const TransportProtocol = @import("ProtocolHelpers.zig").transp_protocol;
+const IPProtocol = @import("ProtocolEnums.zig").IPProtocol;
+
 const ICMP = @import("ICMP.zig");
 const TCP = @import("TCP.zig");
 const UDP = @import("UDP.zig");
@@ -554,9 +555,9 @@ pub const IPv6Layer = struct {
         });
     }
 
-    pub fn get_transport_type(self: *IPv6Layer) !TransportProtocol {
+    pub fn get_ip_proto_type(self: *IPv6Layer) !IPProtocol {
         const hdr = self.get_immutable_header();
-        return try std.meta.intToEnum(TransportProtocol, hdr.next_header);
+        return try std.meta.intToEnum(IPProtocol, hdr.next_header);
     }
 
     pub fn get_next_layer_type(self: *const IPv6Layer, layer: *Packet.Layer) !?LayerIface {

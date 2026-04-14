@@ -4,9 +4,9 @@ const panic = std.debug.print;
 
 const Allocator = std.mem.Allocator;
 
-const ProtocolHelpers = @import("ProtocolHelpers.zig");
+const ProtocolEnums = @import("ProtocolEnums.zig");
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
-const LayerError = ProtocolHelpers.LayerError;
+const LayerError = ProtocolEnums.LayerError;
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const LayerOwner = @import("Layer.zig").LayerOwner;
 

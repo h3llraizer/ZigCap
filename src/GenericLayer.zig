@@ -2,7 +2,7 @@ const std = @import("std");
 const Packet = @import("Packet.zig").Packet;
 const Layer = @import("Packet.zig").Layer;
 const LayerOwner = @import("Layer.zig").LayerOwner;
-const LayerError = @import("ProtocolHelpers.zig").LayerError;
+const LayerError = @import("ProtocolEnums.zig").LayerError;
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 

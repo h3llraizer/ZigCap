@@ -1,6 +1,6 @@
 const std = @import("std");
 const print = std.debug.print;
-const link_layer_type = @import("ProtocolHelpers.zig").link_layer_type;
+const link_layer_type = @import("ProtocolEnums.zig").link_layer_type;
 
 /// A Packet which is captured from the wire or is to be transmitted on the wire
 pub const WirePacket = struct {

@@ -9,7 +9,7 @@ const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const Allocator = std.mem.Allocator;
 
 const LayerOwner = @import("Layer.zig").LayerOwner;
-const LayerError = @import("ProtocolHelpers.zig").LayerError;
+const LayerError = @import("ProtocolEnums.zig").LayerError;
 const RawData = @import("RawData.zig").RawData;
 
 const LayerIface = @import("LayerIface.zig").LayerIface;

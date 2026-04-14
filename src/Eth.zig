@@ -4,11 +4,13 @@ const Allocator = std.mem.Allocator;
 
 const Packet = @import("Packet.zig");
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
-const LayerError = @import("ProtocolHelpers.zig").LayerError;
+const ProtocolEnums = @import("ProtocolEnums.zig");
+
+const LayerError = ProtocolEnums.LayerError;
 
 const LayerIface = @import("LayerIface.zig").LayerIface;
 
-const IPVersion = @import("ProtocolHelpers.zig").IPVersions;
+const IPVersion = ProtocolEnums.IPVersions;
 
 const IPv4Layer = @import("IPv4.zig").IPv4Layer;
 const IPv4Header = @import("IPv4.zig").IPv4Header;

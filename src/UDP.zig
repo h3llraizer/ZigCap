@@ -7,16 +7,14 @@ const DNS = @import("DNS.zig");
 const IPv4 = @import("IPv4.zig");
 
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
-const LayerError = @import("ProtocolHelpers.zig").LayerError;
-const net_protocol = @import("ProtocolHelpers.zig").net_protocol;
+const ProtocolEnums = @import("ProtocolEnums.zig");
+const LayerError = ProtocolEnums.LayerError;
 
 const Packet = @import("Packet.zig");
 const LayerOwner = @import("Layer.zig").LayerOwner;
 const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
 
 const LayerIface = @import("LayerIface.zig").LayerIface;
-
-const comparePayloads = @import("ProtocolHelpers.zig").comparePayloads;
 
 const nativeToBig = std.mem.nativeToBig;
 const activeTag = std.meta.activeTag;

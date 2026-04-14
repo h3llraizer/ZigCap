@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 
 /// Wrapper around std.ArrayList(u8) with public methods to faciliate easier work on Packet and Layer data
 pub const Buffer = struct {
-    buffer: std.ArrayList(u8),
+    buffer: std.array_list.Aligned(u8, std.mem.Alignment.@"2"),
     allocator: Allocator,
 
     /// creates an empty buffer.

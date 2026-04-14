@@ -21,6 +21,19 @@ pub fn build(b: *std.Build) void {
         .root_module = mod,
     });
 
+    // important line
+    const npcap_path =
+        b.option([]const u8, "npcap-sdk", "Path to Npcap SDK") orelse "third_party/npcap-sdk-1.15";
+
+    const include_path = b.pathJoin(&.{ npcap_path, "Include" });
+    const lib_path = b.pathJoin(&.{ npcap_path, "Lib", "x64" });
+
+    mod.addIncludePath(.{ .cwd_relative = include_path });
+    mod.addLibraryPath(.{ .cwd_relative = lib_path });
+
+    mod.linkSystemLibrary("wpcap", .{});
+    mod.linkSystemLibrary("Packet", .{});
+
     b.installArtifact(lib);
 
     // =========================
@@ -37,6 +50,12 @@ pub fn build(b: *std.Build) void {
 
     // IMPORTANT: give tests access to your library module
     tests.root_module.addImport("zigcap", mod);
+
+    tests.addIncludePath(.{ .cwd_relative = include_path });
+    tests.addLibraryPath(.{ .cwd_relative = lib_path });
+
+    tests.linkSystemLibrary("wpcap");
+    tests.linkSystemLibrary("Packet");
 
     const run_tests = b.addRunArtifact(tests);
 
