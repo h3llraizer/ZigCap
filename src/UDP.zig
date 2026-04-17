@@ -63,9 +63,7 @@ pub const UDPHeader = extern struct {
         return @byteSwap(self.dst_port);
     }
 
-    pub fn set_length(self: *UDPHeader, len: u16) !void {
-        if (len < UDPHeaderSize) return error.UDPLenTooSmall;
-
+    pub fn set_length(self: *UDPHeader, len: u16) void {
         self.length = @byteSwap(len);
     }
 
@@ -80,9 +78,7 @@ pub const UDPHeader = extern struct {
 
         var sum: u32 = 0;
 
-        std.debug.print("\n=== UDP CHECKSUM DEBUG ===\n", .{});
-
-        print("src ip {x}\n", .{src_ip});
+        //        std.debug.print("\n=== UDP CHECKSUM DEBUG ===\n", .{});
 
         // ---- Source IP ----
         const src = std.mem.nativeToBig(u32, src_ip);
@@ -91,11 +87,11 @@ pub const UDPHeader = extern struct {
         const src_w1 = (@as(u16, src_bytes[0]) << 8) | src_bytes[1];
         const src_w2 = (@as(u16, src_bytes[2]) << 8) | src_bytes[3];
 
-        std.debug.print("SRC IP raw: 0x{x}\n", .{src_ip});
-        std.debug.print("SRC bytes: {x} {x} {x} {x}\n", .{
-            src_bytes[0], src_bytes[1], src_bytes[2], src_bytes[3],
-        });
-        std.debug.print("SRC words: 0x{x}, 0x{x}\n", .{ src_w1, src_w2 });
+        //      std.debug.print("SRC IP raw: 0x{x}\n", .{src_ip});
+        //      std.debug.print("SRC bytes: {x} {x} {x} {x}\n", .{
+        //          src_bytes[0], src_bytes[1], src_bytes[2], src_bytes[3],
+        //      });
+        //      std.debug.print("SRC words: 0x{x}, 0x{x}\n", .{ src_w1, src_w2 });
 
         sum += src_w1;
         sum += src_w2;
@@ -107,41 +103,41 @@ pub const UDPHeader = extern struct {
         const dst_w1 = (@as(u16, dst_bytes[0]) << 8) | dst_bytes[1];
         const dst_w2 = (@as(u16, dst_bytes[2]) << 8) | dst_bytes[3];
 
-        std.debug.print("DST IP raw: 0x{x}\n", .{dst_ip});
-        std.debug.print("DST bytes: {x} {x} {x} {x}\n", .{
-            dst_bytes[0], dst_bytes[1], dst_bytes[2], dst_bytes[3],
-        });
-        std.debug.print("DST words: 0x{x}, 0x{x}\n", .{ dst_w1, dst_w2 });
+        //     std.debug.print("DST IP raw: 0x{x}\n", .{dst_ip});
+        //     std.debug.print("DST bytes: {x} {x} {x} {x}\n", .{
+        //         dst_bytes[0], dst_bytes[1], dst_bytes[2], dst_bytes[3],
+        //     });
+        //     std.debug.print("DST words: 0x{x}, 0x{x}\n", .{ dst_w1, dst_w2 });
 
         sum += dst_w1;
         sum += dst_w2;
 
         // ---- Protocol ----
-        std.debug.print("Protocol: 0x0011\n", .{});
+        //     std.debug.print("Protocol: 0x0011\n", .{});
         sum += 0x0011;
 
         // ---- UDP length (raw field) ----
-        std.debug.print("UDP length field (raw): 0x{x}\n", .{self.length});
+        //    std.debug.print("UDP length field (raw): 0x{x}\n", .{self.length});
         sum += @byteSwap(self.length);
 
         // ---- UDP header ----
         const udp_bytes = @as([*]const u8, @ptrCast(self));
 
-        std.debug.print("UDP header bytes: ", .{});
-        for (0..8) |j| {
-            std.debug.print("{x} ", .{udp_bytes[j]});
-        }
-        std.debug.print("\n", .{});
+        //  std.debug.print("UDP header bytes: ", .{});
+        //  for (0..8) |j| {
+        //      std.debug.print("{x} ", .{udp_bytes[j]});
+        //  }
+        //  std.debug.print("\n", .{});
 
         const h_src = (@as(u16, udp_bytes[0]) << 8) | udp_bytes[1];
         const h_dst = (@as(u16, udp_bytes[2]) << 8) | udp_bytes[3];
         const h_len = (@as(u16, udp_bytes[4]) << 8) | udp_bytes[5];
         const h_chk = (@as(u16, udp_bytes[6]) << 8) | udp_bytes[7];
 
-        std.debug.print("HDR src_port: 0x{x}\n", .{h_src});
-        std.debug.print("HDR dst_port: 0x{x}\n", .{h_dst});
-        std.debug.print("HDR length:   0x{x}\n", .{h_len});
-        std.debug.print("HDR checksum: 0x{x}\n", .{h_chk});
+        // std.debug.print("HDR src_port: 0x{x}\n", .{h_src});
+        // std.debug.print("HDR dst_port: 0x{x}\n", .{h_dst});
+        // std.debug.print("HDR length:   0x{x}\n", .{h_len});
+        // std.debug.print("HDR checksum: 0x{x}\n", .{h_chk});
 
         sum += h_src;
         sum += h_dst;
@@ -152,38 +148,38 @@ pub const UDPHeader = extern struct {
         var i: usize = 0;
         while (i + 1 < payload.len) {
             const word = (@as(u16, payload[i]) << 8) | payload[i + 1];
-            std.debug.print("Payload word @{}: 0x{x}\n", .{ i, word });
+            //     std.debug.print("Payload word @{}: 0x{x}\n", .{ i, word });
             sum += word;
             i += 2;
         }
 
         if (i < payload.len) {
             const last = @as(u16, payload[i]) << 8;
-            std.debug.print("Payload last byte @{}: 0x{x}\n", .{ i, last });
+            //    std.debug.print("Payload last byte @{}: 0x{x}\n", .{ i, last });
             sum += last;
         }
 
-        std.debug.print("Sum before fold: 0x{x}\n", .{sum});
+        // std.debug.print("Sum before fold: 0x{x}\n", .{sum});
 
         // ---- Fold ----
         while (sum > 0xFFFF) {
             sum = (sum & 0xFFFF) + (sum >> 16);
-            std.debug.print("Folding... sum = 0x{x}\n", .{sum});
+            //    std.debug.print("Folding... sum = 0x{x}\n", .{sum});
         }
 
-        std.debug.print("Sum after fold: 0x{x}\n", .{sum});
+        // std.debug.print("Sum after fold: 0x{x}\n", .{sum});
 
         // ---- Final checksum ----
         self.checksum = ~@as(u16, @intCast(sum));
 
-        std.debug.print("Final checksum (before zero fix): 0x{x}\n", .{self.checksum});
+        //  std.debug.print("Final checksum (before zero fix): 0x{x}\n", .{self.checksum});
 
         if (self.checksum == 0) {
             self.checksum = 0xFFFF;
         }
 
-        std.debug.print("Stored checksum: 0x{x}\n", .{self.checksum});
-        std.debug.print("=== END DEBUG ===\n\n", .{});
+        // std.debug.print("Stored checksum: 0x{x}\n", .{self.checksum});
+        //  std.debug.print("=== END DEBUG ===\n\n", .{});
     }
 
     /// Validate UDP checksum
@@ -241,9 +237,9 @@ pub const UDPLayer = struct {
                 var self = UDPLayer{ .owner = owner };
                 const buffer_len = self.owner.owned_buffer.buffer.items.len;
                 if (buffer_len < UDPHeaderSize) {
-                    const eth_data = try self.owner.owned_buffer.extend(buffer_len, UDPHeaderSize);
+                    const udp_data = try self.owner.owned_buffer.extend(buffer_len, UDPHeaderSize);
 
-                    @memset(eth_data, 0);
+                    @memset(udp_data, 0);
                 }
 
                 return self;
@@ -279,9 +275,6 @@ pub const UDPLayer = struct {
     pub fn get_data(self: *const UDPLayer) []u8 {
         switch (self.owner) {
             .packet_layer => {
-                //             print("getting data from packet.\n", .{});
-
-                print("{x}\n", .{self.owner.packet_layer.get_data()});
                 return self.owner.packet_layer.get_data(); // Layer in packet - it might be mutable or immutable
             },
             .owned_buffer => {
@@ -292,23 +285,13 @@ pub const UDPLayer = struct {
 
     /// Get the payload (data after UDP header)
     pub fn get_payload(self: *UDPLayer) ?[]const u8 {
-        //const hdr = self.get_header();
-        //const total_len = hdr.get_length();
-        //const payload_start = UDPHeaderSize;
-
         const data = self.get_data();
-
-        //if (total_len < UDPHeaderSize) return data[UDPHeaderSize..];
 
         if (data.len > UDPHeaderSize) {
             return data[UDPHeaderSize..]; // return remaining bytes after the header
         } else {
             return null;
         }
-
-        // Ensure we don't exceed the buffer
-        //        const payload_end = @min(total_len, @as(u16, @intCast(data.len)));
-        //        return data[payload_start..payload_end];
     }
 
     pub fn get_src_port(self: *UDPLayer) u16 {
@@ -336,9 +319,11 @@ pub const UDPLayer = struct {
         return hdr.get_length();
     }
 
-    pub fn set_length(self: *UDPLayer, len: u16) !void {
+    pub fn calculate_length(self: *UDPLayer) void {
+        const data = self.get_data();
         var hdr = self.get_mutable_header();
-        try hdr.set_length(len);
+        const length = @as(u16, @intCast(data.len));
+        hdr.set_length(length);
     }
 
     pub fn get_checksum(self: *UDPLayer) u16 {
@@ -365,18 +350,16 @@ pub const UDPLayer = struct {
 
     pub fn calculate_checksum(self: *UDPLayer) void {
         const hdr = self.get_mutable_header();
+        self.calculate_length();
 
         switch (self.owner) {
             .packet_layer => {
                 if (self.owner.packet_layer.prev_layer) |prev_layer| {
-                    if (prev_layer.protocol == tcp_ip_protocol.ipv4) {
-                        var ipv4_layer: IPv4.IPv4Layer = self.owner.packet_layer.packet.get_layer_of_type(IPv4.IPv4Layer) orelse {
-                            print("failed to get IPv4 layer.\n", .{});
-                            return;
-                        };
+                    if (try prev_layer.layer_iface.get_protocol() == tcp_ip_protocol.ipv4) {
+                        var ipv4_layer: LayerIface = prev_layer.layer_iface;
 
-                        hdr.calculate_checksum(ipv4_layer.get_src_ip().to_u32(), ipv4_layer.get_dst_ip().to_u32(), self.get_data()[UDPHeaderSize..]);
-                    } else if (prev_layer.protocol == tcp_ip_protocol.ipv6) {
+                        hdr.calculate_checksum(ipv4_layer.ipv4Layer.get_src_ip().to_u32(), ipv4_layer.ipv4Layer.get_dst_ip().to_u32(), self.get_data()[UDPHeaderSize..]);
+                    } else if (try prev_layer.layer_iface.get_protocol() == tcp_ip_protocol.ipv6) {
                         return;
                         //prev_protocol = net_protocol.IPv6;
                     }
@@ -386,9 +369,6 @@ pub const UDPLayer = struct {
             },
             else => return,
         }
-
-        //const hdr = self.get_header();
-        //hdr.calculate_checksum(src_ip, dst_ip, payload);
     }
 
     /// caller needs to free

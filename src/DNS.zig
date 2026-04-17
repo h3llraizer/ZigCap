@@ -3,6 +3,9 @@ const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
+const LayerError = @import("ProtocolEnums.zig").LayerError;
+
+const LayerOwner = @import("Layer.zig").LayerOwner;
 
 pub const QueryType = enum(u16) {
     A = 1, // IPv4 address record
@@ -95,28 +98,21 @@ pub const DnsClass = enum(u16) {
     }
 };
 
-pub const DNSHeader = packed struct {
-    id: u16 = 0, // 16 bits
-    rcode: u4 = 0, // 4 bits
-    z: u3 = 0, // 3 bits
-    ra: u1 = 0, // 1 bit
-    rd: u1 = 0, // 1 bit
-    tc: u1 = 0, // 1 bit
-    aa: u1 = 0, // 1 bit
-    opcode: u4 = 0, // 4 bits
-    qr: u1 = 0, // 1 bit
-    qdcount: u16 = 0, // 16 bits
-    ancount: u16 = 0, // 16 bits
-    nscount: u16 = 0, // 16 bits
-    arcount: u16 = 0, // 16 bits
-
-};
-
 const DNSQuery = struct {
     qname: []u8,
     qtype: u16,
     qclass: u16,
     next: ?*DNSQuery,
+
+    pub const QError = error{
+        InvalidPacket, // Generic malformed DNS packet
+        LabelTooLong, // A label length exceeds the remaining buffer
+        UnexpectedEndOfPacket, // Reached end of packet unexpectedly
+        MemoryAllocationFailed, // Allocator failed to create a node
+        TooManyQuestions, // qdcount is unusually large
+        InvalidQType, // QTYPE field invalid
+        InvalidQClass, // QCLASS field invalid
+    };
 };
 
 pub const DNSAnswer = struct {
@@ -130,145 +126,156 @@ pub const DNSAnswer = struct {
 
 const DNSHeaderSize: usize = 12;
 
-fn decode_name(raw: []const u8, offset: *usize) ![]const u8 {
-    const start = offset.*;
-    var end = start;
+pub const DNSHeaderFlags = packed struct {
+    rcode: u4 = 0, // 4 bits
+    z: u3 = 0, // 3 bits
+    ra: u1 = 0, // 1 bit
+    rd: u1 = 0, // 1 bit
+    tc: u1 = 0, // 1 bit
+    aa: u1 = 0, // 1 bit
+    opcode: u4 = 0, // 4 bits
+    qr: u1 = 0, // 1 bit
+};
 
-    // Single-byte pointer compression support
-    if (end >= raw.len)
-        return error.InvalidPacket;
+pub const DNSHeader = extern struct {
+    id: u16, // Identification
+    flags: u16, // QR, Opcode, AA, TC, RD, RA, Z, RCODE packed
+    qdcount: u16, // Number of questions
+    ancount: u16, // Number of answer RRs
+    nscount: u16, // Number of authority RRs
+    arcount: u16, // Number of additional RRs
 
-    if ((raw[end] & 0xC0) == 0xC0) {
-        // pointer: 2 bytes
-        if (end + 1 >= raw.len)
-            return error.InvalidPacket;
-        offset.* += 2;
-        return raw[end .. end + 2]; // just return the pointer slice for now
-    } else {
-        // label sequence
-        while (end < raw.len and raw[end] != 0) : (end += raw[end] + 1) {}
-        if (end >= raw.len)
-            return error.InvalidPacket;
-        offset.* = end + 1; // move past null terminator
-        return raw[start..offset.*];
+    pub fn set_id(self: *DNSHeader, id: u16) void {
+        self.id = @byteSwap(id);
     }
-}
 
-pub const DNSQueryError = error{
-    InvalidPacket, // Generic malformed DNS packet
-    LabelTooLong, // A label length exceeds the remaining buffer
-    UnexpectedEndOfPacket, // Reached end of packet unexpectedly
-    MemoryAllocationFailed, // Allocator failed to create a node
-    TooManyQuestions, // qdcount is suspiciously large
-    InvalidQType, // QTYPE field is invalid
-    InvalidQClass, // QCLASS field is invalid
+    pub fn get_id(self: *DNSHeader) u16 {
+        return @byteSwap(self.id);
+    }
 
+    pub fn set_qdcount(self: *DNSHeader, qdcount: u16) void {
+        self.qdcount = @byteSwap(qdcount);
+    }
+
+    pub fn get_qdcount(self: *DNSHeader) u16 {
+        return @byteSwap(self.qdcount);
+    }
+
+    pub fn set_ancount(self: *DNSHeader, ancount: u16) void {
+        self.ancount = @byteSwap(ancount);
+    }
+
+    pub fn get_ancount(self: *DNSHeader) u16 {
+        return @byteSwap(self.ancount);
+    }
+
+    pub fn set_nscount(self: *DNSHeader, nscount: u16) void {
+        self.nscount = @byteSwap(nscount);
+    }
+
+    pub fn get_nscount(self: *DNSHeader) u16 {
+        return @byteSwap(self.nscount);
+    }
+
+    pub fn set_arcount(self: *DNSHeader, arcount: u16) void {
+        self.arcount = @byteSwap(arcount);
+    }
+
+    pub fn get_arcount(self: *DNSHeader) u16 {
+        return @byteSwap(self.arcount);
+    }
 };
 
 pub const DNSLayer = struct {
-    raw: []u8,
-    DnsHeader: ?*align(1) DNSHeader,
-    queries: ?*DNSQuery,
-    answers: ?*DNSAnswer,
+    owner: LayerOwner,
+    queries: ?*DNSQuery = null,
+    answers: ?*DNSAnswer = null,
 
     const Protocol = tcp_ip_protocol.dns;
 
     //// Creates a DNS layer from an existing buffer // rename this to from_buf
-    pub fn init(raw: []u8, allocator: std.mem.Allocator) !*DNSLayer {
-        if (raw.len < DNSHeaderSize) {
-            return error.InitialBufferSizeTooSmall;
-        }
-
-        var dns_layer = try allocator.create(DNSLayer);
-        dns_layer.raw = raw;
-        const DnsHdr: *align(1) DNSHeader = @ptrCast(&raw[0]);
-        dns_layer.DnsHeader = DnsHdr;
-        dns_layer.queries = null;
-        try DNSLayer.get_queries(dns_layer, allocator);
-        dns_layer.answers = null;
-        try DNSLayer.get_answers(dns_layer, allocator);
-        return dns_layer;
-    }
-
-    //// Creates an empty DNS layer with default initialised dns header values - remove size requirement
-    pub fn create(allocator: std.mem.Allocator, initial_size: usize) !*DNSLayer {
-        if (initial_size < DNSHeaderSize) {
-            return error.InitialBufferSizeTooSmall;
-        }
-
-        var dns_layer = try allocator.create(DNSLayer);
-
-        // Allocate raw packet buffer
-        dns_layer.raw = try allocator.alloc(u8, initial_size);
-
-        // Allocate header struct with defaults
-        dns_layer.DnsHeader = try allocator.create(DNSHeader); // create the struct
-
-        dns_layer.DnsHeader.?.* = std.mem.zeroInit(DNSHeader, DNSHeader{}); // zero the struct members
-
-        dns_layer.queries = null;
-        dns_layer.answers = null;
-
-        return dns_layer;
-    }
-
-    pub fn to_string(self: *DNSLayer, allocator: Allocator) []const u8 {
-        const hdr = self.get_header();
-
-        const id: u16 = std.mem.bigToNative(u16, hdr.id);
-
-        const qr = hdr.qr;
-        const opcode = hdr.opcode;
-        const aa = hdr.aa;
-        const tc = hdr.tc;
-        const rd = hdr.rd;
-        const ra = hdr.ra;
-        const z = hdr.z;
-        const rcode = hdr.rcode;
-
-        const qdcount: u16 = std.mem.bigToNative(u16, hdr.qdcount);
-        const ancount: u16 = std.mem.bigToNative(u16, hdr.ancount);
-        const nscount: u16 = std.mem.bigToNative(u16, hdr.nscount);
-        const arcount: u16 = std.mem.bigToNative(u16, hdr.arcount);
-
-        const result = std.fmt.allocPrint(
-            allocator,
-            \\DNS Layer:
-            \\  id: {}
-            \\  qr: {}
-            \\  opcode: {}
-            \\  aa: {}
-            \\  tc: {}
-            \\  rd: {}
-            \\  ra: {}
-            \\  z: {}
-            \\  rcode: {}
-            \\  qdcount: {}
-            \\  ancount: {}
-            \\  nscount: {}
-            \\  arcount: {}
-        ,
-            .{
-                id,
-                qr,
-                opcode,
-                aa,
-                tc,
-                rd,
-                ra,
-                z,
-                rcode,
-                qdcount,
-                ancount,
-                nscount,
-                arcount,
+    pub fn init(owner: LayerOwner) LayerError!DNSLayer {
+        switch (owner) {
+            .packet_layer => {
+                return DNSLayer{
+                    .owner = owner,
+                };
             },
-        ) catch |err| {
-            std.debug.print("DNS allocPrint failed: {s}\n", .{@errorName(err)});
-            return "";
-        };
+            .owned_buffer => {
+                var self = DNSLayer{ .owner = owner };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < DNSHeaderSize) {
+                    const dns_data = try self.owner.owned_buffer.extend(buffer_len, DNSHeaderSize);
 
-        return result;
+                    @memset(dns_data, 0);
+                }
+
+                return self;
+            },
+        }
+    }
+
+    pub fn get_data(self: *const DNSLayer) []u8 {
+        switch (self.owner) {
+            .packet_layer => {
+                return self.owner.packet_layer.get_data(); // Layer in packet
+            },
+            .owned_buffer => {
+                return self.owner.owned_buffer.buffer.items; // standalone layer
+            },
+        }
+    }
+
+    /// Get the payload (data after DNS header)
+    pub fn get_payload(self: *DNSLayer) ?[]const u8 {
+        const data = self.get_data();
+
+        if (data.len > DNSHeaderSize) {
+            return data[DNSHeaderSize..]; // return remaining bytes after the header
+        } else {
+            return null;
+        }
+    }
+
+    fn get_mutable_header(self: *const DNSLayer) *DNSHeader {
+        const data = self.get_data();
+        const aligned_ptr: [*]align(@alignOf(DNSHeader)) u8 = @alignCast(data.ptr);
+        return @ptrCast(aligned_ptr);
+    }
+
+    fn get_immutable_header(self: *const DNSLayer) *const DNSHeader {
+        const data: []const u8 = self.get_data();
+
+        if (data.len < DNSHeaderSize) {
+            std.debug.panic("DNS data len ({}) less than DNSHeaderSize", .{data.len});
+        }
+
+        const aligned_ptr: [*]align(@alignOf(DNSHeader)) const u8 = @alignCast(data.ptr);
+        return @ptrCast(aligned_ptr);
+    }
+
+    fn decode_name(raw: []const u8, offset: *usize) ![]const u8 {
+        const start = offset.*;
+        var end = start;
+
+        // Single-byte pointer compression support
+        if (end >= raw.len)
+            return error.InvalidPacket;
+
+        if ((raw[end] & 0xC0) == 0xC0) {
+            // pointer: 2 bytes
+            if (end + 1 >= raw.len)
+                return error.InvalidPacket;
+            offset.* += 2;
+            return raw[end .. end + 2]; // just return the pointer slice for now
+        } else {
+            // label sequence
+            while (end < raw.len and raw[end] != 0) : (end += raw[end] + 1) {}
+            if (end >= raw.len)
+                return error.InvalidPacket;
+            offset.* = end + 1; // move past null terminator
+            return raw[start..offset.*];
+        }
     }
 
     pub fn get_remaining(self: *DNSLayer) !usize {
@@ -297,7 +304,7 @@ pub const DNSLayer = struct {
         return self.queries;
     }
 
-    fn get_answers(self: *DNSLayer, allocator: std.mem.Allocator) !void {
+    fn get_answers(self: *DNSLayer, allocator: Allocator) !void {
         var offset: usize = DNSHeaderSize;
 
         const q_sec_size: usize = try self.get_q_section_sz();
@@ -364,7 +371,8 @@ pub const DNSLayer = struct {
         return self.answers;
     }
 
-    pub fn add_query(self: *DNSLayer, domain: []const u8, qtype: QueryType, class: DnsClass, allocator: std.mem.Allocator) !void {
+    //TODO: remove domain, qtype, class and allocator as required params and just pass DNSQuery struct
+    pub fn add_query(self: *DNSLayer, domain: []const u8, qtype: QueryType, class: DnsClass, allocator: Allocator) !void {
         var qdcount = std.mem.bigToNative(u16, self.DnsHeader.?.qdcount);
 
         // Calculate offset to append new query
@@ -424,7 +432,8 @@ pub const DNSLayer = struct {
         }
     }
 
-    fn get_queries(self: *DNSLayer, allocator: std.mem.Allocator) !void {
+    //TODO: don't pass allocator
+    fn get_queries(self: *DNSLayer, allocator: Allocator) !void {
         // Questions parsing / printing loop
         var offset: usize = DNSHeaderSize;
 
@@ -477,17 +486,49 @@ pub const DNSLayer = struct {
         }
     }
 
-    /// get slice of data (hdr+payload)
-    pub fn get_data(self: *DNSLayer) []u8 {
-        return self.raw;
-    }
+    pub fn to_string(self: *DNSLayer, allocator: Allocator) []const u8 {
+        const hdr = self.get_header();
 
-    pub fn get_payload(self: *DNSLayer) []u8 {
-        return self.raw;
-    }
+        const id: u16 = std.mem.bigToNative(u16, hdr.id);
 
-    pub fn set_payload(self: *DNSLayer, data: []u8) void {
-        self.raw = data;
+        const qr = hdr.qr;
+        const opcode = hdr.opcode;
+        const aa = hdr.aa;
+        const tc = hdr.tc;
+        const rd = hdr.rd;
+        const ra = hdr.ra;
+        const z = hdr.z;
+        const rcode = hdr.rcode;
+
+        const qdcount: u16 = std.mem.bigToNative(u16, hdr.qdcount);
+        const ancount: u16 = std.mem.bigToNative(u16, hdr.ancount);
+        const nscount: u16 = std.mem.bigToNative(u16, hdr.nscount);
+        const arcount: u16 = std.mem.bigToNative(u16, hdr.arcount);
+
+        const result = std.fmt.allocPrint(
+            allocator,
+            "DNS Layer: id: {} qr: {} opcode: {}  aa: {} tc: {} rd: {} ra: {} z: {} rcode: {} qdcount: {} ancount: {} nscount: {} arcount: {}",
+            .{
+                id,
+                qr,
+                opcode,
+                aa,
+                tc,
+                rd,
+                ra,
+                z,
+                rcode,
+                qdcount,
+                ancount,
+                nscount,
+                arcount,
+            },
+        ) catch |err| {
+            std.debug.print("DNS allocPrint failed: {s}\n", .{@errorName(err)});
+            return "";
+        };
+
+        return result;
     }
 
     pub fn get_protocol(self: *DNSLayer) tcp_ip_protocol {
@@ -495,11 +536,7 @@ pub const DNSLayer = struct {
         return DNSLayer.Protocol;
     }
 
-    pub fn get_header(self: *DNSLayer) *DNSHeader {
-        return @ptrCast(@alignCast(self.raw[0..12]));
-    }
-
-    pub fn deinit(self: *DNSLayer, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *DNSLayer, allocator: Allocator) void {
         allocator.destroy(self);
     }
 };
@@ -507,7 +544,7 @@ pub const DNSLayer = struct {
 /// Creates a domain name from a DNS label. The allocator creates an ArrayList to store the bytes and returns a mutable slice
 /// The ArrayList is deinit'd before return
 pub fn decodeQname(
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     payload: []const u8,
 ) ![]u8 {
     var list = try std.ArrayList(u8).initCapacity(allocator, payload.len);
@@ -543,7 +580,7 @@ pub fn build_layer() !void {
 
     const dns_layer = try DNSLayer.create(fallocor, 512);
 
-    try dns_layer.add_query("southwest-sites.co.uk", QueryType.A, DnsClass.IN, fallocor);
+    try dns_layer.add_query("ziggit.dev", QueryType.A, DnsClass.IN, fallocor);
 
     var query = dns_layer.get_first_query();
     while (query) |q| {

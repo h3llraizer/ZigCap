@@ -37,13 +37,17 @@ pub const Layer = struct {
 
     pub fn get_data(self: *Layer) []u8 {
         return self.packet.buffer.buffer.items[self.offset..];
+        //return self.packet.buffer.get_mutable_slice(self.offset, self.packet.buffer.get_len());
     }
 
     /// get the Layers payload as a const slice. It's const because it adheres to the API design in that modifications should be made through the layers concrete layer type
     pub fn get_payload(self: *Layer) []const u8 {
-        return self.layer_iface.get_payload() orelse {
+        const payload_start = self.offset + self.length;
+        if (self.packet.buffer.buffer.items.len > payload_start) {
+            return self.packet.buffer.buffer.items[payload_start..];
+        } else {
             return "";
-        };
+        }
     }
 
     pub fn to_string(self: *Layer, allocator: Allocator) void {
@@ -69,7 +73,7 @@ pub const Packet = struct {
     }
 
     /// Packet must be created with .create first. raw_data will be overwritten with the RawData provided
-    pub fn from_raw(self: *Packet, data: []u8, link_type: link_layer_type) !void {
+    pub fn from_raw(self: *Packet, data: []align(2) u8, link_type: link_layer_type) !void {
         self.buffer.buffer.items = data;
 
         const first_layer = try self.layer_allocator.create(Layer); // create layer struct
@@ -268,7 +272,6 @@ pub const Packet = struct {
         var cur = layer.next_layer; // get the layers next layer
         while (cur) |next| {
             next.offset += length; // increase it's offset by the length
-            next.length += length; // increase it's length by the length
             cur = next.next_layer; // set cur to its next layer
         }
 
@@ -277,16 +280,35 @@ pub const Packet = struct {
 
     pub fn shorten_layer(self: *Packet, layer: *Layer, offset: usize, length: usize) !void {
         const shorten_offset = layer.offset + offset;
+
+        print("shorten offset: {} length: {}\n", .{ shorten_offset, length });
+
+        self.print_layers_meta();
+
         try self.buffer.shorten(shorten_offset, length);
 
         layer.length -= length;
 
         var cur = layer.next_layer;
         while (cur) |next| {
+            print("current layer {any} {} {} \n", .{ next.layer_iface.get_protocol(), next.offset, next.length });
             next.offset -= length;
-            next.length -= length;
+            print("layer adjusted {any} {} {} \n", .{ next.layer_iface.get_protocol(), next.offset, next.length });
+            //next.length -= length;
             cur = next.next_layer;
         }
+    }
+
+    pub fn get_layer_count(self: *Packet) usize {
+        var count: usize = 0;
+
+        var cur = self.first_layer;
+        while (cur) |layer| {
+            count += 1;
+            cur = layer.next_layer;
+        }
+
+        return count;
     }
 
     /// Insert a layer after the prev_layer
@@ -407,13 +429,17 @@ pub const Packet = struct {
     }
 
     pub fn print_layers_meta(self: *Packet) void {
+        var count: usize = 0;
         var cur = self.first_layer;
         while (cur) |layer| {
+            count += 1;
             const layer_slice = self.buffer.get_immutable_slice(layer.offset, layer.length);
-            print("{any} offset={} length={} data:{x} ({})\n", .{
+            print("{}. {any} offset={} length={} end: {} data:{x} ({})\n", .{
+                count,
                 layer.layer_iface.get_protocol(),
                 layer.offset,
                 layer.length,
+                layer.offset + layer.length,
                 layer_slice,
                 layer_slice.len,
             });
@@ -427,7 +453,7 @@ pub const Packet = struct {
 
         while (cur) |layer| {
             const next = layer.next_layer;
-            print("destroying: {any}\n", .{layer.layer_iface.get_protocol()});
+            //print("destroying: {any}\n", .{layer.layer_iface.get_protocol()});
             self.layer_allocator.destroy(layer);
             cur = next;
         }

@@ -110,7 +110,7 @@ pub const EthLayer = struct {
                 var self = EthLayer{ .owner = owner };
                 const buffer_len = self.owner.owned_buffer.buffer.items.len;
                 if (buffer_len < EthHeaderSize) {
-                    print("buffer len: {}\n", .{buffer_len});
+                    //print("buffer len: {}\n", .{buffer_len});
                     const eth_data = try self.owner.owned_buffer.extend(buffer_len, EthHeaderSize);
 
                     @memset(eth_data, 0);

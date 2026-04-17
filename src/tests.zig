@@ -6,7 +6,7 @@ const expect = std.testing.expect;
 
 const RawData = zigcap.RawData;
 const Packet = zigcap.Packet.Packet;
-const link_layer_type = zigcap.ProtocolEnums.zig.link_layer_type;
+const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
 const Layer = zigcap.Packet.Layer;
 const LayerOwner = zigcap.Layer.LayerOwner;
 const tcp_ip_protocol = zigcap.tcp_ip_protocol;
@@ -20,6 +20,8 @@ const LayerIface = @import("LayerIface.zig").LayerIface;
 const PcapWrapper = @import("PcapWrapper.zig");
 
 const alignment_check = @import("Helpers.zig").alignment_check;
+
+const DNS = @import("DNS.zig");
 
 test "library version" {
     try std.testing.expect(zigcap.version.major == 0);
@@ -69,25 +71,45 @@ pub fn open_pcap() !?*PcapWrapper.Interface {
     }
 }
 
+test "dns build" {
+    //   var backing_buffer: [1024]u8 = undefined;
+    //
+    //   var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
+    //
+    //   const allocator = fba.allocator();
+    //
+    //   var dns_layer: DNS.DNSLayer = try DNS.DNSLayer.create(allocator, 100);
+    //
+    //   try dns_layer.add_query("ziggit.dev", DNS.QueryType.A, DNS.DnsClass.IN, allocator);
+    //
+    //   var query = dns_layer.get_first_query();
+    //   while (query) |q| {
+    //       print("{s}\n", .{q.qname});
+    //       query = q.next;
+    //   }
+
+    return error.SkipZigTest;
+}
+
 test "sniff with pcap" {
-    //   if (try open_pcap()) |iface| {
-    //       iface.capture();
-    //   }
-    //   const allocator = std.heap.page_allocator;
-    //
-    //   var interfaces = try PcapWrapper.Interfaces.init(allocator);
-    //
-    //   const iface = try interfaces.find_by_ip(try IPv4.IPv4Address.init_from_string("192.168.1.225"));
-    //
-    //   if (iface) |ifc| {
-    //       print("found ifc: {any}\n", .{ifc});
-    //   } else {
-    //       print("failed to find iface.\n", .{});
-    //   }
-    //
-    //   const ifaces: std.ArrayList(PcapWrapper.Interface) = try interfaces.list_all();
-    //
-    //   print("{any}\n", .{ifaces});
+    var backing_buffer: [1024]u8 = undefined;
+
+    var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
+
+    const allocator = fba.allocator();
+
+    if (try open_pcap()) |iface| {
+        const capture_buf: ?[]align(2) u8 = try iface.capture_one_raw(allocator);
+        if (capture_buf) |buf| {
+            //print("Captured: {x}\n", .{buf});
+            //allocator.free(buf);
+            var packet = try Packet.create(allocator, std.heap.page_allocator);
+            try packet.from_raw(buf, link_layer_type.ETHERNET);
+            try packet.to_string(std.heap.page_allocator);
+        } else {
+            print("no capture data.\n", .{});
+        }
+    }
 }
 
 test "build independant eth layer" {
@@ -124,6 +146,69 @@ test "build independant ipv4 layer" {
     //  print("{s}\n", .{ipv4_layer_iface.to_string(std.heap.page_allocator)});
 }
 
+test "ipv4 option parse" {
+    print("========================== START ==========================\n", .{});
+    print("ipv4 option parse\n", .{});
+    var backing_buffer: [1024]u8 = undefined;
+
+    var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
+
+    const allocator = fba.allocator();
+
+    var ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+
+    defer ipv4_layer_owner.owned_buffer.buffer.deinit(allocator);
+
+    var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, ipv4_layer_owner);
+
+    ipv4_layer_iface.ipv4Layer.set_src_ip(try IPv4.IPv4Address.init_from_string("192.168.1.225"));
+
+    ipv4_layer_iface.ipv4Layer.set_dst_ip(try IPv4.IPv4Address.init_from_string("192.168.1.254"));
+
+    ipv4_layer_iface.ipv4Layer.set_ip_proto(IPProtocol.UDP);
+
+    ipv4_layer_iface.ipv4Layer.set_ttl(64);
+
+    var record_route_op: [15]u8 align(2) = [_]u8{
+        0x04, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
+    };
+
+    //   print("record_route_op len: {}\n", .{record_route_op.len});
+
+    var op = try IPv4.IPOption.init(IPv4.IPOptionType.RecordRoute, &record_route_op);
+
+    _ = &op;
+
+    //op.swap_byte(1, 0x0F);
+
+    op.set_len(15);
+
+    //try op.pad_nop(op.data.len, 4, allocator);
+
+    try ipv4_layer_iface.ipv4Layer.add_option(op, allocator);
+
+    try ipv4_layer_iface.ipv4Layer.calculate_checksum();
+
+    //print("{s}\n", .{ipv4_layer_iface.to_string(allocator)});
+
+    const ipv4_data = ipv4_layer_iface.get_data();
+
+    _ = &ipv4_data;
+
+    print("IPv4: ({}) {x}\n", .{ ipv4_data.len, ipv4_data });
+
+    const ipv4_ops = ipv4_layer_iface.ipv4Layer.get_options();
+
+    _ = &ipv4_ops;
+
+    print("IPv4 Record Route Option as bytes: ({}) {x}\n", .{ ipv4_ops.len, ipv4_ops });
+
+    print("========================== END ==========================\n", .{});
+}
+
 test "build udp layer independant" {
     var udp_layer_owner = LayerOwner{ .owned_buffer = .init_empty(std.heap.page_allocator) };
 
@@ -152,30 +237,201 @@ test "build generic layer independant" {
     //    print("app layer data: {s}\n", .{app_layer_iface.to_string(page_allocator)});
 }
 
-test "build eth,ipv4,udp,generic_app packet" {
-    const page_allocator = std.heap.page_allocator;
+test "build ipv4 layer with Router Alert option" {
+    //   print("========================== START ==========================\n", .{});
+    //   print("build ipv4 layer with Router Alert option\n", .{});
+    //   var backing_buffer: [1024]u8 = undefined;
+    //
+    //   var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
+    //
+    //   const allocator = fba.allocator();
+    //
+    //   var ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+    //
+    //   defer ipv4_layer_owner.owned_buffer.buffer.deinit(allocator);
+    //
+    //   var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, ipv4_layer_owner);
+    //
+    //   ipv4_layer_iface.ipv4Layer.set_src_ip(try IPv4.IPv4Address.init_from_string("192.168.1.225"));
+    //
+    //   ipv4_layer_iface.ipv4Layer.set_dst_ip(try IPv4.IPv4Address.init_from_string("192.168.1.254"));
+    //
+    //   ipv4_layer_iface.ipv4Layer.set_ip_proto(IPProtocol.UDP);
+    //
+    //   ipv4_layer_iface.ipv4Layer.set_ttl(1);
+    //
+    //   var router_alert_op = [2]u8{ 0x00, 0x00 };
+    //
+    //   const op = try IPv4.IPOption.init(IPv4.IPOptionType.RouterAlert, &router_alert_op);
+    //
+    //   const op_bytes = try op.toBytes(allocator);
+    //
+    //   try expect(op_bytes[0] == 0x94);
+    //   try expect(op_bytes[1] == 0x04);
+    //   try expect(op_bytes[2] == 0x00);
+    //   try expect(op_bytes[3] == 0x00);
+    //
+    //   try ipv4_layer_iface.ipv4Layer.add_option(op, allocator);
+    //   print("option added.\n", .{});
+    //
+    //   //      const ipv4_hdr: *IPv4.IPv4Header = ipv4_layer_iface.ipv4Layer.get_mutable_header();
+    //
+    //   //ipv4_layer_iface.ipv4Layer.calculate_checksum();
+    //   //       print("ihl: {any}\n", .{ipv4_hdr.get_ihl()});
+    //   //        print("{s}\n", .{ipv4_layer_iface.ipv4Layer.to_string(std.heap.page_allocator)});
+    //
+    //   var ipv4_slice = ipv4_layer_iface.ipv4Layer.get_data();
+    //   print("{x} ({})\n", .{ ipv4_slice, ipv4_slice.len });
+    //
+    //   try expect(ipv4_slice.len == 24);
+    //
+    //   try ipv4_layer_iface.ipv4Layer.remove_all_options();
+    //
+    //   ipv4_slice = ipv4_layer_iface.ipv4Layer.get_data();
+    //   print("{x} ({})\n", .{ ipv4_slice, ipv4_slice.len });
+    //
+    //   print("========================== END ==========================\n", .{});
+}
 
+test "ipv4 layer in complete packet with Router Alert option" {
+    //   print("========================== START ==========================\n", .{});
+    //   print("ipv4 layer in complete packet with Router Alert option\n", .{});
+    //   var backing_buffer: [1024]u8 = undefined;
+    //
+    //   var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
+    //
+    //   const allocator = fba.allocator();
+    //
+    //   var ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+    //
+    //   defer ipv4_layer_owner.owned_buffer.buffer.deinit(allocator);
+    //
+    //   var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, ipv4_layer_owner);
+    //
+    //   ipv4_layer_iface.ipv4Layer.set_src_ip(try IPv4.IPv4Address.init_from_string("192.168.1.225"));
+    //
+    //   ipv4_layer_iface.ipv4Layer.set_dst_ip(try IPv4.IPv4Address.init_from_string("192.168.1.254"));
+    //
+    //   ipv4_layer_iface.ipv4Layer.set_ip_proto(IPProtocol.UDP);
+    //
+    //   ipv4_layer_iface.ipv4Layer.set_ttl(1);
+    //
+    //   var router_alert_op = [2]u8{ 0x00, 0x00 };
+    //
+    //   const op = try IPv4.IPOption.init(IPv4.IPOptionType.RouterAlert, &router_alert_op);
+    //
+    //   const op_bytes = try op.toBytes(allocator);
+    //
+    //   try expect(op_bytes[0] == 0x94);
+    //   try expect(op_bytes[1] == 0x04);
+    //   try expect(op_bytes[2] == 0x00);
+    //   try expect(op_bytes[3] == 0x00);
+    //
+    //   var packet = try Packet.create(allocator, allocator);
+    //
+    //   const eth_layer_owner = LayerOwner{ .owned_buffer = .init_empty(std.heap.page_allocator) };
+    //
+    //   //defer eth_layer_owner.owned_buffer.buffer.deinit(std.heap.page_allocator);
+    //
+    //   var eth_layer_iface: LayerIface = try LayerIface.init(Eth.EthLayer, eth_layer_owner); // making a copy of owner?
+    //
+    //   eth_layer_iface.ethLayer.set_eth_type(Eth.EthType.IP);
+    //
+    //   try expect(try eth_layer_iface.ethLayer.get_eth_type() == Eth.EthType.IP);
+    //
+    //   eth_layer_iface.ethLayer.set_dst_mac(try Eth.MacAddress.init_from_string("38:06:e6:92:63:ac"));
+    //
+    //   eth_layer_iface.ethLayer.set_src_mac(try Eth.MacAddress.init_from_string("14:4f:8a:a4:15:7d"));
+    //
+    //   var udp_layer_owner = LayerOwner{ .owned_buffer = .init_empty(std.heap.page_allocator) };
+    //
+    //   defer udp_layer_owner.owned_buffer.buffer.deinit(std.heap.page_allocator);
+    //
+    //   var udp_layer_iface: LayerIface = try LayerIface.init(UDP.UDPLayer, udp_layer_owner);
+    //
+    //   udp_layer_iface.udpLayer.set_src_port(1024);
+    //   udp_layer_iface.udpLayer.set_dst_port(5005);
+    //
+    //   const page_allocator = std.heap.page_allocator;
+    //   var app_layer_owner = LayerOwner{ .owned_buffer = .init_empty(page_allocator) };
+    //
+    //   defer app_layer_owner.owned_buffer.buffer.deinit(std.heap.page_allocator);
+    //
+    //   var app_layer_iface: LayerIface = try LayerIface.init(ApplicationLayer, app_layer_owner);
+    //
+    //   try app_layer_iface.genericAppLayer.set_payload("hello");
+    //
+    //   try expect(try packet.add_layer(&eth_layer_iface));
+    //
+    //   try expect(try packet.add_layer(&ipv4_layer_iface));
+    //
+    //   try expect(try packet.add_layer(&udp_layer_iface));
+    //
+    //   try expect(try packet.add_layer(&app_layer_iface));
+    //
+    //   print("layer count: {}\n", .{packet.get_layer_count()});
+    //
+    //   var pkt_data = packet.buffer.buffer.items;
+    //
+    //   print("packet: ({}) {x}\n", .{ pkt_data.len, pkt_data });
+    //
+    //   packet.print_layers_meta();
+    //
+    //   if (packet.get_layer_of_type(IPv4.IPv4Layer)) |ipv4_layer| {
+    //       if (ipv4_layer.get_payload()) |payload| {
+    //           print("ipv4 payload: ({}) {x}\n", .{ payload.len, payload });
+    //       }
+    //       print("{s}\n", .{ipv4_layer.to_string(std.heap.page_allocator)});
+    //       try ipv4_layer.add_option(op, allocator);
+    //
+    //       print("option added.\n", .{});
+    //
+    //       packet.print_layers_meta();
+    //
+    //       pkt_data = packet.buffer.buffer.items;
+    //
+    //       print("packet: ({}) {x}\n", .{ pkt_data.len, pkt_data });
+    //
+    //       if (ipv4_layer.get_payload()) |payload| {
+    //           print("ipv4 payload: ({}) {x}\n", .{ payload.len, payload });
+    //       }
+    //
+    //       print("hdr len: {}\n", .{ipv4_layer.get_header_len()});
+    //
+    //       //try ipv4_layer.remove_all_options();
+    //   }
+    //
+    //   pkt_data = packet.buffer.buffer.items;
+    //
+    //   print("packet: ({}) {x}\n", .{ pkt_data.len, pkt_data });
+    //
+    //   packet.print_layers_meta();
+    //
+    //   if (packet.get_layer_of_type(UDP.UDPLayer)) |udp| {
+    //       udp.calculate_checksum();
+    //   }
+    //
+    //   if (packet.get_layer_of_type(IPv4.IPv4Layer)) |ipv4| {
+    //       ipv4.calculate_checksum();
+    //   }
+    //
+    //   try packet.to_string(page_allocator);
+    //
+    //   //    try send_packet(packet.buffer.buffer.items);
+    //
+    //   print("========================== END OF ==========================\n", .{});
+
+    //    try packet.to_string(page_allocator);
+}
+
+test "build ipv4 packet with Record Route option" {
+    print("========================== START ==========================\n", .{});
+    print("build ipv4 packet with Record Route option\n", .{});
     var backing_buffer: [1024]u8 = undefined;
 
     var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
 
     const allocator = fba.allocator();
-
-    var eth_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-
-    defer eth_layer_owner.owned_buffer.buffer.deinit(allocator);
-
-    var eth_layer_iface: LayerIface = try LayerIface.init(Eth.EthLayer, (eth_layer_owner));
-
-    eth_layer_iface.ethLayer.set_eth_type(Eth.EthType.IP);
-
-    try expect(try eth_layer_iface.ethLayer.get_eth_type() == Eth.EthType.IP);
-
-    eth_layer_iface.ethLayer.set_dst_mac(try Eth.MacAddress.init_from_string("1A:2A:3A:4A:5A:6A"));
-
-    eth_layer_iface.ethLayer.set_src_mac(try Eth.MacAddress.init_from_string("1B:2B:3B:4B:5B:6B"));
-
-    //    print("{s}\n", .{eth_layer_iface.ethLayer.to_string(page_allocator)});
 
     var ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
 
@@ -183,131 +439,456 @@ test "build eth,ipv4,udp,generic_app packet" {
 
     var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, ipv4_layer_owner);
 
-    ipv4_layer_iface.ipv4Layer.set_src_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
+    ipv4_layer_iface.ipv4Layer.set_src_ip(try IPv4.IPv4Address.init_from_string("192.168.1.225"));
 
-    ipv4_layer_iface.ipv4Layer.set_dst_ip(try IPv4.IPv4Address.init_from_string("192.168.1.2"));
+    ipv4_layer_iface.ipv4Layer.set_dst_ip(try IPv4.IPv4Address.init_from_string("192.168.1.227"));
 
     ipv4_layer_iface.ipv4Layer.set_ip_proto(IPProtocol.UDP);
 
     ipv4_layer_iface.ipv4Layer.set_ttl(64);
 
-    //    print("{s}\n", .{ipv4_layer_iface.to_string(std.heap.page_allocator)});
+    var record_route_op: [15]u8 align(2) = [_]u8{
+        0x04, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
+    };
 
-    var udp_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+    print("record_route_op len: {}\n", .{record_route_op.len});
 
-    defer udp_layer_owner.owned_buffer.buffer.deinit(allocator);
+    var op = try IPv4.IPOption.init(IPv4.IPOptionType.RecordRoute, &record_route_op);
+
+    _ = &op;
+
+    //op.swap_byte(1, 0x0F);
+
+    op.set_len(15);
+
+    //try op.pad_nop(op.data.len, 4, allocator);
+
+    //try ipv4_layer_iface.ipv4Layer.add_option(op, allocator);
+
+    //var ipv4_layer = ipv4_layer_iface.ipv4Layer; // DO NOT DO THIS - it creates a copy and invalidates the concrete layer which you add later
+
+    var packet = try Packet.create(allocator, allocator);
+
+    const eth_layer_owner = LayerOwner{ .owned_buffer = .init_empty(std.heap.page_allocator) };
+
+    //defer eth_layer_owner.owned_buffer.buffer.deinit(std.heap.page_allocator);
+
+    var eth_layer_iface: LayerIface = try LayerIface.init(Eth.EthLayer, eth_layer_owner); // making a copy of owner?
+
+    eth_layer_iface.ethLayer.set_eth_type(Eth.EthType.IP);
+
+    try expect(try eth_layer_iface.ethLayer.get_eth_type() == Eth.EthType.IP);
+
+    eth_layer_iface.ethLayer.set_dst_mac(try Eth.MacAddress.init_from_string("38:06:e6:92:63:ac"));
+
+    eth_layer_iface.ethLayer.set_src_mac(try Eth.MacAddress.init_from_string("14:4f:8a:a4:15:7d"));
+
+    var udp_layer_owner = LayerOwner{ .owned_buffer = .init_empty(std.heap.page_allocator) };
+
+    defer udp_layer_owner.owned_buffer.buffer.deinit(std.heap.page_allocator);
 
     var udp_layer_iface: LayerIface = try LayerIface.init(UDP.UDPLayer, udp_layer_owner);
 
-    _ = &udp_layer_iface;
-
     udp_layer_iface.udpLayer.set_src_port(1024);
-    udp_layer_iface.udpLayer.set_dst_port(53);
+    udp_layer_iface.udpLayer.set_dst_port(56052);
 
-    //   print("{s}\n", .{udp_layer_iface.to_string(std.heap.page_allocator)});
+    const page_allocator = std.heap.page_allocator;
+    var app_layer_owner = LayerOwner{ .owned_buffer = .init_empty(page_allocator) };
 
-    var app_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-
-    defer app_layer_owner.owned_buffer.buffer.deinit(allocator);
+    defer app_layer_owner.owned_buffer.buffer.deinit(std.heap.page_allocator);
 
     var app_layer_iface: LayerIface = try LayerIface.init(ApplicationLayer, app_layer_owner);
 
     try app_layer_iface.genericAppLayer.set_payload("hello");
 
-    //  print("app layer data: {s}\n", .{app_layer_iface.to_string(page_allocator)});
-
-    try app_layer_iface.genericAppLayer.delete_payload_data();
-
-    var packet = try Packet.create(allocator, allocator);
-
-    defer packet.deinit();
-
     try expect(try packet.add_layer(&eth_layer_iface));
+
     try expect(try packet.add_layer(&ipv4_layer_iface));
+
     try expect(try packet.add_layer(&udp_layer_iface));
+
     try expect(try packet.add_layer(&app_layer_iface));
 
-    try packet.to_string(page_allocator);
+    print("layer count: {}\n", .{packet.get_layer_count()});
 
-    if (packet.get_layer_of_type(Eth.EthLayer)) |eth| {
-        eth.set_eth_type(Eth.EthType.ARP);
-    }
+    var pkt_data = packet.buffer.buffer.items;
+
+    print("packet: ({}) {x}\n", .{ pkt_data.len, pkt_data });
+
+    packet.print_layers_meta();
+
+    //   if (packet.get_layer_of_type(IPv4.IPv4Layer)) |ipv4_layer| {
+    //       if (ipv4_layer.get_payload()) |payload| {
+    //           print("ipv4 payload: ({}) {x}\n", .{ payload.len, payload });
+    //       }
+    //       print("{s}\n", .{ipv4_layer.to_string(std.heap.page_allocator)});
+    //       try ipv4_layer.add_option(op, allocator);
+    //
+    //       print("option added.\n", .{});
+    //
+    //       packet.print_layers_meta();
+    //
+    //       pkt_data = packet.buffer.buffer.items;
+    //
+    //       print("packet: ({}) {x}\n", .{ pkt_data.len, pkt_data });
+    //
+    //       if (ipv4_layer.get_payload()) |payload| {
+    //           print("ipv4 payload: ({}) {x}\n", .{ payload.len, payload });
+    //       }
+    //
+    //       print("hdr len: {}\n", .{ipv4_layer.get_header_len()});
+    //
+    //       //try ipv4_layer.remove_all_options();
+    //   }
+
+    //   if (try packet.search_layers(tcp_ip_protocol.ipv4)) |ipv4| {
+    //       const hdr_len = ipv4.layer_iface.ipv4Layer.get_header_len();
+    //
+    //       const pad_bytes: usize = 4 - (hdr_len % 4);
+    //
+    //       print("hdr len: {}\n", .{hdr_len});
+    //
+    //       print("required padding: {}\n", .{pad_bytes});
+    //
+    //       const pad: []u8 = try packet.extend_layer(ipv4, 3);
+    //       @memset(pad, 0);
+    //   }
+
+    pkt_data = packet.buffer.buffer.items;
+
+    print("packet: ({}) {x}\n", .{ pkt_data.len, pkt_data });
 
     if (packet.get_layer_of_type(IPv4.IPv4Layer)) |ipv4| {
-        ipv4.set_ttl(128);
-        ipv4.calculate_length();
-    }
-
-    if (packet.get_layer_of_type(ApplicationLayer)) |app| {
-        try app.set_payload("hello new world");
-
-        //        print("{s}\n", .{app.to_string(page_allocator)});
-    }
-
-    try packet.to_string(page_allocator);
-
-    if (try packet.search_layers(tcp_ip_protocol.ipv4)) |ipv4| {
-        var new_ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-        defer new_ipv4_layer_owner.owned_buffer.buffer.deinit(allocator);
-        var ip_layer = try packet.extract_layer(ipv4, &new_ipv4_layer_owner) orelse {
-            print("failed to extract ip layer.\n", .{});
-            return;
-        };
-
-        print("extracted ipv4 layer: {x}\n", .{ip_layer.get_data()});
-
-        //       const ipv4_slice = new_ipv4_layer_owner.owned_buffer.buffer.items;
-        //
-        //       //const aligned_slice: []align(2) u8 = try allocator.alignedAlloc(u8, std.mem.Alignment.of(IPv4.IPv4Header), ipv4_slice.len);
-        //
-        //       const aligned_slice: []align(2) u8 = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", ipv4_slice.len);
-        //
-        //       @memmove(aligned_slice, ipv4_slice);
-        //
-        //       print("{x} ({})\n", .{ aligned_slice, aligned_slice.len });
-        //
-        //       const ipv4_hdr_alignment: usize = @alignOf(IPv4.IPv4Header);
-        //
-        //       print("ipv4 hdr alignment: {}\n", .{ipv4_hdr_alignment});
-        //
-        //       print("eth hdr alignment: {}\n", .{@alignOf(Eth.EthHeader)});
-        //
-        //       //        var aligned_ipv4: std.array_list.Aligned(u8, std.mem.Alignment.of(IPv4.IPv4Header)) = .fromOwnedSlice(aligned_slice);
-        //
-        //       var aligned_ipv4: std.array_list.Aligned(u8, std.mem.Alignment.@"2") = .fromOwnedSlice(aligned_slice);
-        //
-        //       _ = &aligned_ipv4;
-        //
-        //       const alignment = alignment_check(aligned_slice, ipv4_hdr_alignment);
-        //
-        //       print("alignment: {}\n", .{alignment});
-        //
-        //       const aligned_ptr: [*]align(@alignOf(IPv4.IPv4Header)) u8 = @alignCast(aligned_ipv4.items.ptr);
-        //       const ipv4_hdr: *IPv4.IPv4Header = @ptrCast(aligned_ptr);
-        //
-        //       print("{any}\n", .{ipv4_hdr});
-
-        //const end_index = fba.end_index;
-
-        //print("Backing buffer: {x}\n", .{backing_buffer[0..end_index]});
-
-        //        _ = ip_layer.ipv4Layer.get_dst_ip();
-
-        ip_layer.ipv4Layer.set_ip_proto(IPProtocol.UDP);
-
-        print("extracted: {s}\n", .{ip_layer.to_string(page_allocator)});
-
-        const eth = try packet.search_layers(tcp_ip_protocol.eth) orelse {
-            print("could not find eth layer.\n", .{});
-            return;
-        };
-        try expect(try eth.layer_iface.get_protocol() == tcp_ip_protocol.eth);
-        try expect(try packet.insert_layer(eth, &ip_layer));
+        //try ipv4.pad_buffer();
+        try ipv4.add_option(op, allocator);
     }
 
     packet.print_layers_meta();
 
-    print("({}) {x}\n", .{ packet.buffer.buffer.items.len, packet.buffer.buffer.items });
+    if (packet.get_layer_of_type(UDP.UDPLayer)) |udp| {
+        udp.calculate_checksum();
+    }
+
+    if (packet.get_layer_of_type(IPv4.IPv4Layer)) |ipv4| {
+        try ipv4.calculate_checksum();
+        print("IPv4 total length: {}\n", .{ipv4.get_length()});
+        const ops = ipv4.get_options();
+        print("ops: ({}) {x}\n", .{ ops.len, ops });
+    }
+
+    packet.print_layers_meta();
+
+    pkt_data = packet.buffer.buffer.items;
+
+    print("packet: ({}) {x}\n", .{ pkt_data.len, pkt_data });
+
+    if (packet.get_layer_of_type(IPv4.IPv4Layer)) |ipv4| {
+        _ = ipv4;
+    }
+
+    //try packet.to_string(page_allocator);
+
+    //try send_packet(packet.buffer.buffer.items);
+
+    //   print("size of Buffer: {}\n", .{@sizeOf(Buffer)});
+    //   print("size of IPOption: {}\n", .{@sizeOf(IPv4.IPOption)});
+    //   print("size of IPOptionType: {}\n", .{@sizeOf(IPv4.IPOptionType)});
+    //   print("size of u8: {}\n", .{@sizeOf(u8)});
+    //   print("size of []u8: {}\n", .{@sizeOf([]u8)});
+
+    if (packet.get_layer_of_type(IPv4.IPv4Layer)) |ipv4| {
+        try ipv4.zero_hdr();
+        print("{s}\n", .{ipv4.to_string(page_allocator)});
+    } else {
+        print("ipv4 layer not found.\n", .{});
+    }
+
+    packet.print_layers_meta();
+
+    pkt_data = packet.buffer.buffer.items;
+
+    print("packet: ({}) {x}\n", .{ pkt_data.len, pkt_data });
+
+    print("========================== END ==========================\n", .{});
+}
+
+test "build ipv4 layer with Record Route option" {
+    //   print("========================== START ==========================\n", .{});
+    //   var backing_buffer: [1024]u8 = undefined;
+    //
+    //   var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
+    //
+    //   const allocator = fba.allocator();
+    //
+    //   var ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+    //
+    //   defer ipv4_layer_owner.owned_buffer.buffer.deinit(allocator);
+    //
+    //   var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, ipv4_layer_owner);
+    //
+    //   ipv4_layer_iface.ipv4Layer.set_src_ip(try IPv4.IPv4Address.init_from_string("192.168.1.225"));
+    //
+    //   ipv4_layer_iface.ipv4Layer.set_dst_ip(try IPv4.IPv4Address.init_from_string("192.168.1.254"));
+    //
+    //   ipv4_layer_iface.ipv4Layer.set_ip_proto(IPProtocol.UDP);
+    //
+    //   ipv4_layer_iface.ipv4Layer.set_ttl(64);
+    //
+    //   var record_route_op = [_]u8{ 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+    //
+    //   //    print("record_route_op len: {}\n", .{record_route_op.len});
+    //
+    //   const op = try IPv4.IPOption.init(IPv4.IPOptionType.RecordRoute, &record_route_op);
+    //
+    //   const op_bytes = try op.toBytes(allocator);
+    //
+    //   _ = op_bytes;
+    //
+    //   //var ipv4_layer = ipv4_layer_iface.ipv4Layer; // DO NOT DO THIS - it creates a copy and invalidates the concrete layer which you add later
+    //
+    //   //    try ipv4_layer.add_option(op, allocator); // bug here causes packet add_layer to use stale ptr
+    //
+    //   const ipv4_hdr: *IPv4.IPv4Header = ipv4_layer_iface.ipv4Layer.get_mutable_header();
+    //
+    //   _ = ipv4_hdr;
+    //
+    //   //    print("ihl: {any}\n", .{ipv4_hdr.get_ihl()});
+    //   //    print("{s}\n", .{ipv4_layer_iface.ipv4Layer.to_string(std.heap.page_allocator)});
+    //   const ipv4_slice = ipv4_layer_iface.ipv4Layer.get_data();
+    //
+    //   _ = ipv4_slice;
+    //   //    print("{x} ({})\n", .{ ipv4_slice, ipv4_slice.len });
+    //
+    //   //    print("ihl: {}\n", .{ipv4_hdr.get_ihl()});
+    //
+    //   //    try ipv4_layer_iface.ipv4Layer.remove_all_options();
+    //
+    //   //    print("ihl: {any}\n", .{ipv4_hdr.get_ihl()});
+    //   //    print("{s}\n", .{ipv4_layer_iface.ipv4Layer.to_string(std.heap.page_allocator)});
+    //   const trimmed = ipv4_layer_iface.ipv4Layer.get_data();
+    //   _ = trimmed;
+    //   //    print("{x} ({})\n", .{ trimmed, trimmed.len });
+    //
+    //   var packet = try Packet.create(allocator, allocator);
+    //
+    //   try expect(try packet.add_layer(&ipv4_layer_iface));
+    //
+    //   //    print("added IPv4 layer to packet.\n", .{});
+    //
+    //   //packet.print_layers_meta();
+    //
+    //   if (packet.get_layer_of_type(IPv4.IPv4Layer)) |ip_layer| {
+    //       _ = ip_layer;
+    //       //try ip_layer.add_option(op, allocator);
+    //       //
+    //       //const ipv4_hdr: *IPv4.IPv4Header = ipv4_layer.get_mutable_header();
+    //       //
+    //       //       ipv4_layer.calculate_checksum();
+    //       //print("ihl: {any}\n", .{ipv4_hdr.get_ihl()});
+    //       //       print("{s}\n", .{ipv4_layer.to_string(std.heap.page_allocator)});
+    //       //       const ip_slice = ip_layer.get_data();
+    //       //       print("{x} ({})\n", .{ ip_slice, ip_slice.len });
+    //       //
+    //       //       //        print("ihl: {}\n", .{ipv4_hdr.get_ihl()});
+    //       //
+    //       //try ip_layer.remove_all_options();
+    //       //
+    //       //       //        print("current hdr length: {}\n", .{ipv4_layer.get_header_len()});
+    //       //
+    //       //       //        try expect(ipv4_slice.len == 24);
+    //   }
+    //
+    //   //packet.print_layers_meta();
+    print("========================== END ==========================\n", .{});
+}
+
+test "add IPv4 layer after mutation" {
+    //  var backing_buffer: [1024]u8 = undefined;
+
+    //  var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
+
+    //  const allocator = fba.allocator();
+
+    //  var ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+
+    //  defer ipv4_layer_owner.owned_buffer.buffer.deinit(allocator);
+
+    //  var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, ipv4_layer_owner);
+
+    //  ipv4_layer_iface.ipv4Layer.set_src_ip(try IPv4.IPv4Address.init_from_string("192.168.1.225"));
+
+    //  ipv4_layer_iface.ipv4Layer.set_dst_ip(try IPv4.IPv4Address.init_from_string("192.168.1.254"));
+
+    //  ipv4_layer_iface.ipv4Layer.set_ip_proto(IPProtocol.UDP);
+
+    //  ipv4_layer_iface.ipv4Layer.set_ttl(64);
+
+    //  var record_route_op = [_]u8{ 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
+    //  //   print("record_route_op len: {}\n", .{record_route_op.len});
+
+    //  const op = try IPv4.IPOption.init(IPv4.IPOptionType.RecordRoute, &record_route_op);
+
+    //  const op_bytes = try op.toBytes(allocator);
+
+    //  _ = op_bytes;
+
+    //  try ipv4_layer_iface.ipv4Layer.add_option(op, allocator);
+
+    //  var packet = try Packet.create(allocator, allocator);
+
+    //  try expect(try packet.add_layer(&ipv4_layer_iface));
+
+    //  //    packet.print_layers_meta();
+
+    //  if (packet.get_layer_of_type(IPv4.IPv4Layer)) |ip_layer| {
+    //      const ip_slice = ip_layer.get_data();
+    //      _ = ip_slice;
+    //      try ip_layer.remove_all_options();
+    //  }
+
+    //    packet.print_layers_meta();
+}
+
+test "build eth,ipv4,udp,generic_app packet" {
+    //   //const page_allocator = std.heap.page_allocator;
+    //
+    //   var backing_buffer: [1024]u8 = undefined;
+    //
+    //   var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
+    //
+    //   const allocator = fba.allocator();
+    //
+    //   var eth_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+    //
+    //   defer eth_layer_owner.owned_buffer.buffer.deinit(allocator);
+    //
+    //   var eth_layer_iface: LayerIface = try LayerIface.init(Eth.EthLayer, (eth_layer_owner));
+    //
+    //   eth_layer_iface.ethLayer.set_eth_type(Eth.EthType.IP);
+    //
+    //   try expect(try eth_layer_iface.ethLayer.get_eth_type() == Eth.EthType.IP);
+    //
+    //   eth_layer_iface.ethLayer.set_dst_mac(try Eth.MacAddress.init_from_string("38:06:e6:92:63:ac"));
+    //
+    //   eth_layer_iface.ethLayer.set_src_mac(try Eth.MacAddress.init_from_string("14:4f:8a:a4:15:7d"));
+    //
+    //   //    print("{s}\n", .{eth_layer_iface.ethLayer.to_string(page_allocator)});
+    //
+    //   var ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+    //
+    //   defer ipv4_layer_owner.owned_buffer.buffer.deinit(allocator);
+    //
+    //   var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, eth_layer_owner);
+    //
+    //   ipv4_layer_iface.ipv4Layer.set_src_ip(try IPv4.IPv4Address.init_from_string("192.168.1.225"));
+    //
+    //   ipv4_layer_iface.ipv4Layer.set_dst_ip(try IPv4.IPv4Address.init_from_string("192.168.1.254"));
+    //
+    //   ipv4_layer_iface.ipv4Layer.set_ip_proto(IPProtocol.UDP);
+    //
+    //   ipv4_layer_iface.ipv4Layer.set_ttl(64);
+    //
+    //   //    print("{s}\n", .{ipv4_layer_iface.to_string(std.heap.page_allocator)});
+    //
+    //   var udp_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+    //
+    //   defer udp_layer_owner.owned_buffer.buffer.deinit(allocator);
+    //
+    //   var udp_layer_iface: LayerIface = try LayerIface.init(UDP.UDPLayer, eth_layer_owner);
+    //
+    //   _ = &udp_layer_iface;
+    //
+    //   udp_layer_iface.udpLayer.set_src_port(1024);
+    //   udp_layer_iface.udpLayer.set_dst_port(5005);
+    //
+    //   //   print("{s}\n", .{udp_layer_iface.to_string(std.heap.page_allocator)});
+    //
+    //   var app_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+    //
+    //   defer app_layer_owner.owned_buffer.buffer.deinit(allocator);
+    //
+    //   var app_layer_iface: LayerIface = try LayerIface.init(ApplicationLayer, eth_layer_owner);
+    //
+    //   try app_layer_iface.genericAppLayer.set_payload("hello");
+    //
+    //   //  print("app layer data: {s}\n", .{app_layer_iface.to_string(page_allocator)});
+    //
+    //   try app_layer_iface.genericAppLayer.delete_payload_data();
+    //
+    //   var packet = try Packet.create(allocator, allocator);
+    //
+    //   defer packet.deinit();
+    //
+    //   try expect(try packet.add_layer(&eth_layer_iface));
+    //   try expect(try packet.add_layer(&ipv4_layer_iface));
+    //   try expect(try packet.add_layer(&udp_layer_iface));
+    //   try expect(try packet.add_layer(&app_layer_iface));
+    //
+    //   //try packet.to_string(page_allocator);
+    //
+    //   if (packet.get_layer_of_type(Eth.EthLayer)) |eth| {
+    //       eth.set_eth_type(Eth.EthType.ARP);
+    //   }
+    //
+    //   if (packet.get_layer_of_type(IPv4.IPv4Layer)) |ipv4| {
+    //       ipv4.set_ttl(128);
+    //       ipv4.calculate_length();
+    //   }
+    //
+    //   if (packet.get_layer_of_type(ApplicationLayer)) |app| {
+    //       try app.set_payload("hello new world");
+    //
+    //       //        print("{s}\n", .{app.to_string(page_allocator)});
+    //   }
+    //
+    //   //try packet.to_string(page_allocator);
+    //
+    //   if (try packet.search_layers(tcp_ip_protocol.ipv4)) |ipv4| {
+    //       var new_ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+    //       defer new_ipv4_layer_owner.owned_buffer.buffer.deinit(allocator);
+    //       var ip_layer = try packet.extract_layer(ipv4, &eth_layer_owner) orelse {
+    //           print("failed to extract ip layer.\n", .{});
+    //           return;
+    //       };
+    //
+    //       ip_layer.ipv4Layer.set_ip_proto(IPProtocol.UDP);
+    //
+    //       const eth = try packet.search_layers(tcp_ip_protocol.eth) orelse {
+    //           print("could not find eth layer.\n", .{});
+    //           return;
+    //       };
+    //       try expect(try eth.layer_iface.get_protocol() == tcp_ip_protocol.eth);
+    //       try expect(try packet.insert_layer(eth, &ip_layer));
+    //   }
+    //
+    //   if (packet.get_layer_of_type(Eth.EthLayer)) |eth| {
+    //       eth.set_eth_type(Eth.EthType.IP);
+    //   }
+    //
+    //   if (packet.get_layer_of_type(UDP.UDPLayer)) |udp| {
+    //       udp.calculate_checksum();
+    //   }
+    //
+    //   if (packet.get_layer_of_type(IPv4.IPv4Layer)) |ipv4| {
+    //       ipv4.calculate_checksum();
+    //       //print("ipv4 length: {}\n", .{ipv4.get_length()});
+    //   }
+
+    //try packet.to_string(page_allocator);
+
+    //packet.print_layers_meta();
+
+    //print("({}) {x}\n", .{ packet.buffer.buffer.items.len, packet.buffer.buffer.items });
+
+    //    try send_packet(packet.buffer.buffer.items);
+
+    //const end_index = fba.end_index;
+    //
+    //print("Backing buffer: {x} ({})\n", .{ backing_buffer[0..end_index], end_index });
 }
 
 test "build packet" {
@@ -362,7 +943,7 @@ test "build packet" {
 
     //  print("{s}\n", .{ethlayer.to_string(page_allocator)});
 
-    packet.print_layers_meta();
+    //packet.print_layers_meta();
 
     //    print("packet: {x}\n", .{packet.buffer.buffer.items});
 }

@@ -28,6 +28,19 @@ pub const TCPHeader = extern struct {
     window: u16,
     checksum: u16,
     urgent_ptr: u16,
+
+    pub fn init_default() TCPHeader {
+        return .{
+            .src_port = 0,
+            .dst_port = 0,
+            .seq_num = [_]u8{0} ** 4,
+            .ack_num = [_]u8{0} ** 4,
+            .data_offset_reserved_flags = 0,
+            .window = 0,
+            .checksum = 0,
+            .urgent_ptr = 0,
+        };
+    }
 };
 
 pub const TCPLayer = struct {
@@ -42,19 +55,20 @@ pub const TCPLayer = struct {
                     .owner = owner,
                 };
             },
-            .allocator_owned => {
+            .owned_buffer => {
                 var self = TCPLayer{ .owner = owner };
-                // Allocate directly into the struct's data field
-                if (self.owner.allocator_owned.data.len < TCPHeaderMinSize) {
-                    self.owner.allocator_owned.data = try self.owner.allocator_owned.allocator.alloc(u8, TCPHeaderMinSize);
-                    //var header = TCPHeader.init_default(); // need to implement this
-                    //@memcpy(self.owner.allocator_owned.data[0..TCPHeaderMinSize], std.mem.asBytes(&header));
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < TCPHeaderMinSize) {
+                    const tcp_data = try self.owner.owned_buffer.extend(buffer_len, TCPHeaderMinSize);
+
+                    @memset(tcp_data, 0);
+
+                    var header = TCPHeader.init_default();
+
+                    @memcpy(tcp_data[0..TCPHeaderMinSize], std.mem.asBytes(&header));
                 }
 
                 return self;
-            },
-            .immutable_layer => return {
-                return TCPLayer{ .owner = owner };
             },
         }
     }
@@ -104,6 +118,7 @@ pub const TCPLayer = struct {
         return;
     }
 
+    /// at the moment, this will always return a generic application layer because no application layer protocols have been fully implemented
     pub fn get_next_layer_type(self: *TCPLayer, layer: *Packet.Layer) !?LayerIface {
         const data = self.get_data().get_immutable();
 
@@ -111,11 +126,11 @@ pub const TCPLayer = struct {
             return LayerError.BufferTooSmall;
         }
 
-        const alignment = @alignOf(TCPHeader);
-        const addr = @intFromPtr(data.ptr);
-        if (addr % alignment != 0) {
-            return LayerError.MisalignedBuffer;
-        }
+        //       const alignment = @alignOf(TCPHeader);
+        //       const addr = @intFromPtr(data.ptr);
+        //       if (addr % alignment != 0) {
+        //           return LayerError.MisalignedBuffer;
+        //       }
 
         return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
     }

@@ -1,5 +1,6 @@
 const std = @import("std");
 const print = std.debug.print;
+const Allocator = std.mem.Allocator;
 const MAX_PATH = std.os.windows.MAX_PATH;
 const allocPrint = std.fmt.allocPrint;
 const WirePacket = @import("WirePacket.zig").WirePacket;
@@ -9,8 +10,6 @@ const pcap = @cImport({
     @cDefine("WIN32", "1"); // needed on Windows
     @cInclude("pcap.h");
 });
-
-const Allocator = std.mem.Allocator;
 
 const ver = pcap.pcap_lib_version();
 
@@ -46,8 +45,8 @@ const sockaddr_in6 = extern struct {
 };
 
 pub const Interface = struct {
-    name: []u8,
-    desc: []u8,
+    name: []const u8,
+    desc: []const u8,
     ipv4: std.ArrayList(IPv4Address),
     handle: ?*pcap.pcap_t = null,
     link_type: ?c_int,
@@ -91,7 +90,6 @@ pub const Interface = struct {
     }
 
     pub fn isOpened(self: Interface) bool {
-        print("Checking {s}\n", .{self.desc});
         if (self.handle != null) {
             return true;
         }
@@ -110,11 +108,28 @@ pub const Interface = struct {
         print("{s}\n", .{self.desc});
     }
 
-    pub fn capture(
-        self: Interface,
-        callback_fn: fn (*WirePacket, Allocator) void,
-        allocator: std.mem.Allocator,
-    ) !void {
+    pub fn capture_one_raw(self: Interface, allocator: Allocator) !?[]align(2) u8 {
+        var header: [*c]pcap.struct_pcap_pkthdr = null;
+        var pkt_ptr: [*c]const u8 = null;
+
+        if (self.handle) |handle| {
+            const res = pcap.pcap_next_ex(handle, &header, &pkt_ptr);
+            if (res <= 0) {
+                std.debug.print("[ERR] Timeout or no packet.\n", .{});
+                return null;
+            }
+
+            if (header) |h| {
+                const captured: []align(2) u8 = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", h.*.len);
+                @memmove(captured, pkt_ptr);
+                return captured;
+            }
+        }
+
+        return null;
+    }
+
+    pub fn capture(self: Interface, callback_fn: fn (*WirePacket, Allocator) void, allocator: std.mem.Allocator) !void {
         var captured: usize = 0;
 
         var total: usize = 0;
@@ -263,7 +278,7 @@ pub const Interfaces = struct {
     pub fn find_by_ip(self: Interfaces, ip: IPv4Address) !?*Interface {
         for (self.list.items) |*iface| {
             for (iface.ipv4.items) |ip_address| {
-                print("{s}\n", .{try ip_address.to_string(self.allocator)});
+                //print("{s}\n", .{try ip_address.to_string(self.allocator)});
                 if (ip.to_u32() == ip_address.to_u32()) {
                     return iface;
                 }

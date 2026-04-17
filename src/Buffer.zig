@@ -12,7 +12,7 @@ pub const Buffer = struct {
     }
 
     /// creates a buffer by taking and existing slice and takes ownership of that slice
-    pub fn init(raw: []u8, allocator: Allocator) !Buffer {
+    pub fn init(raw: []align(2) u8, allocator: Allocator) !Buffer {
         const self = Buffer{ .buffer = .fromOwnedSlice(raw), .allocator = allocator };
 
         return self;
@@ -36,7 +36,7 @@ pub const Buffer = struct {
         const end = start + len;
         std.debug.assert(end <= src.buffer.items.len);
 
-        const slice: []u8 = try src.buffer.toOwnedSlice(src.allocator);
+        const slice: []align(2) u8 = try src.buffer.toOwnedSlice(src.allocator);
 
         try self.buffer.insertSlice(self.allocator, offset, slice);
 
@@ -50,9 +50,11 @@ pub const Buffer = struct {
         return slice;
     }
 
-    /// shortens the buffer at the offset by length
+    /// shortens the buffer at the offset by length.
+    /// e.g. start at offset 10 and length 4 decreases by 4
     pub fn shorten(self: *Buffer, offset: usize, length: usize) !void {
         const end = offset + length;
+        std.debug.print("shortening at: {}\n", .{end});
         std.debug.assert(end <= self.buffer.items.len);
 
         const dest = self.buffer.items[offset..];
@@ -63,7 +65,11 @@ pub const Buffer = struct {
         const new_len = self.buffer.items.len - length;
 
         self.buffer.shrinkAndFree(self.allocator, new_len); // shrink to avoid any leftover memory
-        //self.buffer.items.len -= length;
+        //self.buffer.items.len -= length; // no need for this
+    }
+
+    pub fn get_len(self: *Buffer) usize {
+        return self.buffer.items.len;
     }
 
     /// returns non owning slice from the current buffer using offset and length
