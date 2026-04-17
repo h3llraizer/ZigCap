@@ -49,7 +49,7 @@ pub const IPv4Header = extern struct {
         return .{
             .version_ihl = 0x45,
             .dscp_ecn = 0,
-            .total_length = 20,
+            .total_length = std.mem.nativeToBig(u16, MinHeaderLength),
             .identification = 0,
             .flags_fragment = 0,
             .ttl = 64,
@@ -103,7 +103,7 @@ pub const IPv4Header = extern struct {
     }
 };
 
-// TODO: implement helpers for all of these
+// TODO: implement helpers for all of these and unit test them
 // Security (130) - length 11 bytes (type + len + 9 data)
 // Example data: all zeros (unclassified)
 //&[_]u8{130, 11, 0,0,0,0,0,0,0,0,0}
@@ -555,6 +555,11 @@ pub const IPv4Layer = struct {
 
     pub fn get_mutable_header(self: *const IPv4Layer) *IPv4Header {
         const data = self.get_data();
+
+        if (data.len < MinHeaderLength) { // this is reasonably recoverable so shouldn't panic. Perhaps just revert the layer to an ApplicationLayer
+            panic("IPv4 data len ({}) less than IPv4HeaderSize", .{data.len});
+        }
+
         const aligned_ptr: [*]align(@alignOf(IPv4Header)) u8 = @alignCast(data.ptr);
         return @ptrCast(aligned_ptr);
     }

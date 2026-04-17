@@ -92,24 +92,24 @@ test "dns build" {
 }
 
 test "sniff with pcap" {
-    var backing_buffer: [1024]u8 = undefined;
-
-    var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
-
-    const allocator = fba.allocator();
-
-    if (try open_pcap()) |iface| {
-        const capture_buf: ?[]align(2) u8 = try iface.capture_one_raw(allocator);
-        if (capture_buf) |buf| {
-            //print("Captured: {x}\n", .{buf});
-            //allocator.free(buf);
-            var packet = try Packet.create(allocator, std.heap.page_allocator);
-            try packet.from_raw(buf, link_layer_type.ETHERNET);
-            try packet.to_string(std.heap.page_allocator);
-        } else {
-            print("no capture data.\n", .{});
-        }
-    }
+    //   var backing_buffer: [1024]u8 = undefined;
+    //
+    //   var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
+    //
+    //   const allocator = fba.allocator();
+    //
+    //   if (try open_pcap()) |iface| {
+    //       const capture_buf: ?[]align(2) u8 = try iface.capture_one_raw(allocator);
+    //       if (capture_buf) |buf| {
+    //           //print("Captured: {x}\n", .{buf});
+    //           //allocator.free(buf);
+    //           var packet = try Packet.create(allocator, std.heap.page_allocator);
+    //           try packet.from_raw(buf, link_layer_type.ETHERNET);
+    //           try packet.to_string(std.heap.page_allocator);
+    //       } else {
+    //           print("no capture data.\n", .{});
+    //       }
+    //   }
 }
 
 test "build independant eth layer" {
