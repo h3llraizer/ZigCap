@@ -17,9 +17,13 @@ const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
 
 const DNSRecordTypes = @import("DNSRecordTypes.zig");
+const GenericRecord = DNSRecordTypes.GenericRecord;
 const ARecord = DNSRecordTypes.ARecord;
 const AAAARecord = DNSRecordTypes.AAAARecord;
 const CNAMERecord = DNSRecordTypes.CNAMERecord;
+const TXTRecord = DNSRecordTypes.TXTRecord;
+const MXRecord = DNSRecordTypes.MXRecord;
+const PTRRecord = DNSRecordTypes.PTRRecord;
 
 pub const QueryType = enum(u16) {
     A = 1, // IPv4 address record
@@ -74,11 +78,12 @@ pub const QueryType = enum(u16) {
     NSEC3 = 50, // NSEC record version 3
     NSEC3PARAM = 51, // NSEC3 parameters
     ALL = 255, // All cached records
+    GENERIC = 256,
 
-    _,
-
-    pub fn get(value: u16) ?QueryType {
-        return std.enums.fromInt(QueryType, value);
+    pub fn from_u16(value: u16) QueryType {
+        return std.enums.fromInt(QueryType, value) orelse {
+            return .GENERIC;
+        };
     }
 };
 
@@ -418,17 +423,28 @@ pub const Query = struct {
     pub fn get_data(self: *Query) []const u8 {
         return self.layer.get_data()[self.offset .. self.offset + self.length];
     }
+
+    pub fn decode_qname(self: *Query, allocator: Allocator) ![]const u8 {
+        return try decodeQname(allocator, self.get_data());
+    }
 };
 
-/// This tagged union is an interface over the concrete Answer Record Types
-/// currently implemented record types:
+/// This tagged union is an interface over the concrete Answer Record Types.
+/// currently implemented record types are:
 ///     A,
 ///     AAAA,
-///
+///     CNAME,
+///     TXT,
+///     MX,
+///     Generic,
 pub const AnswerRecord = union(enum) {
     a: ARecord,
     aaaa: AAAARecord,
     cname: CNAMERecord,
+    txt: TXTRecord,
+    mx: MXRecord,
+    ptr: PTRRecord,
+    generic: GenericRecord,
 
     pub fn init(offset: usize, length: usize, qtype: QueryType, qclass: DnsClass, layer: *DNSLayer) ?AnswerRecord {
         switch (qtype) {
@@ -442,6 +458,22 @@ pub const AnswerRecord = union(enum) {
 
             .CNAME => {
                 return AnswerRecord{ .cname = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
+            },
+
+            .TXT => {
+                return AnswerRecord{ .txt = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
+            },
+
+            .MX => {
+                return AnswerRecord{ .mx = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
+            },
+
+            .PTR => {
+                return AnswerRecord{ .ptr = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
+            },
+
+            .GENERIC => {
+                return AnswerRecord{ .generic = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
             },
 
             else => return null,
@@ -614,19 +646,6 @@ pub const DNSLayer = struct {
 
         const aligned_ptr: [*]align(@alignOf(DNSHeader)) const u8 = @alignCast(data.ptr);
         return @ptrCast(aligned_ptr);
-    }
-
-    fn get_last_query(self: *DNSLayer) ?*Query {
-        var cur = self.first_query;
-        while (cur) |query| {
-            if (query.next_query) |next| {
-                cur = next;
-            } else {
-                return query;
-            }
-        }
-
-        return null;
     }
 
     pub fn print_queries_meta(self: *DNSLayer) void {
@@ -848,6 +867,19 @@ pub const DNSLayer = struct {
         return self.first_query;
     }
 
+    fn get_last_query(self: *DNSLayer) ?*Query {
+        var cur = self.first_query;
+        while (cur) |query| {
+            if (query.next_query) |next| {
+                cur = next;
+            } else {
+                return query;
+            }
+        }
+
+        return null;
+    }
+
     pub fn get_first_answer(self: *DNSLayer) ?*AnswerRecord {
         return self.first_answer;
     }
@@ -914,26 +946,15 @@ pub const DNSLayer = struct {
                 return error.InvalidPacket;
             }
 
-            const ans_offset = offset;
-            print("ans_offset: {}\n", .{ans_offset});
-            const rdata = data[offset .. offset + rdlength];
             offset += rdlength;
 
-            print("rdata: {any}\n", .{rdata});
-
-            print("name offset: {}\n", .{name_offset});
-            print("offset: {}\n", .{offset});
-
             const whole_record = data[name_offset..offset];
-
-            print("whole_record: ({}) {x}\n", .{ whole_record.len, whole_record });
 
             // Create a DNSAnswer node
             const answer = try allocator.create(AnswerRecord);
 
-            const rtype_e: QueryType = @enumFromInt(rtype);
+            const rtype_e: QueryType = QueryType.from_u16(rtype);
             const class_e: DnsClass = @enumFromInt(rclass);
-            //node.ttl = ttl;
 
             answer.* = AnswerRecord.init(name_offset, whole_record.len, rtype_e, class_e, self) orelse {
                 continue;
@@ -1035,8 +1056,8 @@ pub const DNSLayer = struct {
     }
 
     pub fn deinit(self: *DNSLayer) void {
-        self.destroy_queries(); // always destroy the queries
-        self.destroy_answers();
+        self.destroy_queries(); // always destroy the query structs
+        self.destroy_answers(); // always destroy the answer structs
         switch (self.owner) {
             .packet_layer => {
                 return; // Layer in packet - don't free
@@ -1061,10 +1082,6 @@ pub fn decodeQname(allocator: Allocator, payload: []const u8) ![]u8 {
         const len = payload[offset];
         offset += 1;
 
-        print("offset: {} len: {}\n", .{ offset, len });
-        print("offset + len: {}\n", .{offset + len});
-        print("payload: {x}\n", .{payload[offset..]});
-        print("payload str: {s}\n", .{payload[offset..]});
         if (offset + len > payload.len) return error.InvalidPacket;
 
         if (!first) try list.append(allocator, '.');
@@ -1080,118 +1097,7 @@ pub fn decodeQname(allocator: Allocator, payload: []const u8) ![]u8 {
     return list.toOwnedSlice(allocator);
 }
 
-pub fn build_layer() !void {
-    var buffer: [1024]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    const fallocor = fba.allocator();
-
-    const dns_layer = try DNSLayer.create(fallocor, 512);
-
-    try dns_layer.add_query("ziggit.dev", QueryType.A, DnsClass.IN, fallocor);
-
-    var query = dns_layer.get_first_query();
-    while (query) |q| {
-        const qname = try decodeQname(fallocor, q.qname);
-
-        std.debug.print("{s} : {s}\n", .{ qname, q.qtype });
-        query = q.next;
-    }
-
-    try dns_layer.to_string();
-}
-
-const dns_packet: [36]u8 = .{ 0xb8, 0x2e, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x74, 0x69, 0x6d, 0x65, 0x0a, 0x63, 0x6c, 0x6f, 0x75, 0x64, 0x66, 0x6c, 0x61, 0x72, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00, 0x00, 0x01, 0x00, 0x01 };
-
-const test_response: [69]u8 = .{
-    0xb8, 0x2e, 0x81, 0x80, 0x00, 0x01, 0x00, 0x02,
-    0x00, 0x00, 0x00, 0x00, 0x04, 0x74, 0x69, 0x6d,
-    0x65, 0x0a, 0x63, 0x6c, 0x6f, 0x75, 0x64, 0x66,
-    0x6c, 0x61, 0x72, 0x65, 0x03, 0x63, 0x6f, 0x6d,
-    0x00, 0x00, 0x01, 0x00, 0x01, 0xc0, 0x0c, 0x00,
-    0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0xd1, 0x00,
-    0x04, 0xa2, 0x9f, 0xc8, 0x7b, 0xc0, 0x0c, 0x00,
-    0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0xd1, 0x00,
-    0x04, 0xa2, 0x9f, 0xc8, 0x01,
-};
-
-//   test "DNS parser with Cloudflare response" {
-//       var buffer: [1024]u8 = undefined;
-//       var fba = std.heap.FixedBufferAllocator.init(&buffer);
-//       const fallocor = fba.allocator();
-//
-//       const response_pkt = try fallocor.alloc(u8, test_response.len);
-//       std.mem.copyForwards(u8, response_pkt, &test_response);
-//
-//       const dns_layer = try DNSLayer.init(response_pkt, fallocor);
-//
-//       // Expect header values
-//       try std.testing.expectEqual(0xb82e, std.mem.bigToNative(u16, dns_layer.DnsHeader.?.id));
-//       try std.testing.expectEqual(1, std.mem.bigToNative(u16, dns_layer.DnsHeader.?.qdcount));
-//       try std.testing.expectEqual(2, std.mem.bigToNative(u16, dns_layer.DnsHeader.?.ancount));
-//
-//       // Expect query name
-//       const query = dns_layer.get_first_query();
-//       try std.testing.expect(query != null);
-//       if (query) |q| {
-//           const qname = try decodeQname(fallocor, q.qname);
-//           try std.testing.expectEqualStrings("time.cloudflare.com", qname);
-//           try std.testing.expectEqual(1, q.qtype); // TYPE A
-//       }
-//
-//       // Expect answer IPs
-//       var answer = dns_layer.get_first_answer();
-//       try std.testing.expect(answer != null);
-//       if (answer) |ans| {
-//           if (ans.rtype == 1 and ans.rdata.len == 4) {
-//               try std.testing.expectEqual(162, ans.rdata[0]);
-//               try std.testing.expectEqual(159, ans.rdata[1]);
-//               try std.testing.expectEqual(200, ans.rdata[2]);
-//               try std.testing.expectEqual(123, ans.rdata[3]);
-//           }
-//
-//           answer = ans.next;
-//           try std.testing.expect(answer != null);
-//           if (answer) |anss| {
-//               if (anss.rtype == 1 and anss.rdata.len == 4) {
-//                   try std.testing.expectEqual(162, anss.rdata[0]);
-//                   try std.testing.expectEqual(159, anss.rdata[1]);
-//                   try std.testing.expectEqual(200, anss.rdata[2]);
-//                   try std.testing.expectEqual(1, anss.rdata[3]);
-//               }
-//           }
-//       }
-//
-//       // Query section size and remaining
-//       const qsize = try dns_layer.get_q_section_sz();
-//       try std.testing.expectEqual(25, qsize);
-//
-//       const rem = try dns_layer.get_remaining();
-//       try std.testing.expectEqual(37, rem);
-//
-//       try std.testing.expectEqual(69, dns_layer.raw.len);
-//   }
-
 comptime {
     if (@bitSizeOf(DNSHeader) != 96)
         @compileError("DNSHeaderBits must be exactly 96 bits (12 bytes)");
 }
-
-//pub fn parseHeader(payload: []const u8) !void {
-//    if (payload.len < 12) {
-//        return error.InvalidPacket;
-//    }
-//
-//    // DNS fields are big-endian (network byte order)
-//    const transaction_id = std.mem.readInt(u16, payload[0..2], .big);
-//    const flags = getFlags(std.mem.readInt(u16, payload[2..4], .big));
-//    const qdcount = std.mem.readInt(u16, payload[4..6], .big);
-//    const ancount = std.mem.readInt(u16, payload[6..8], .big);
-//    const nscount = std.mem.readInt(u16, payload[8..10], .big);
-//    const arcount = std.mem.readInt(u16, payload[10..12], .big);
-//
-//    std.debug.print("DNS Header:\n", .{});
-//    std.debug.print("Transaction ID: {d}\n", .{transaction_id});
-//    //std.debug.print("Flags: {x}\n", .{flags});
-//    std.debug.print("QR Type: {s}\n", .{if (flags.QR == 0) "query" else "response"});
-//    std.debug.print("Questions: {d}, Answers: {d}, Authority: {d}, Additional: {d}\n", .{ qdcount, ancount, nscount, arcount });
-//}

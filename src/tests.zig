@@ -105,7 +105,7 @@ test "dns build" {
 
     try expect(dns_layer.first_query != null);
     if (dns_layer.first_query) |first| {
-        const qname = try DNS.decodeQname(allocator, first.get_data());
+        const qname = try first.decode_qname(allocator);
         defer allocator.free(qname);
         try expect(std.mem.eql(u8, qname, ziggit_dev_domain));
     }
@@ -117,17 +117,11 @@ test "dns build" {
 
     try expect(dns_layer.get_query_count() == 2);
 
-    //    print("{x}\n", .{dns_layer.get_data()});
-
     var query = dns_layer.first_query;
     while (query) |q| {
-        const q_data = q.get_data();
-        //       print("q_data: {x}\n", .{q_data});
-
-        const qname = try DNS.decodeQname(allocator, q_data);
+        const qname = try q.decode_qname(allocator);
         defer allocator.free(qname);
 
-        //      print("{s}\n", .{qname});
         query = q.next_query;
     }
 }
@@ -142,30 +136,18 @@ test "parse dns query raw" {
 
     const dns_buf = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", ziggit_dev_a_q.len);
     @memmove(dns_buf, ziggit_dev_a_q[0..]);
-    //    defer allocator.free(dns_buf);
 
     const dns_owner: LayerOwner = LayerOwner{ .owned_buffer = try .init(dns_buf, allocator) };
-    //defer dns_owner.owned_buffer.deinit();
 
     var dns_layer = try LayerIface.init(DNS.DNSLayer, dns_owner);
     defer dns_layer.deinit();
     try dns_layer.dnsLayer.get_queries();
-    //    try dns_layer.dnsLayer.get_answers();
-
-    //   print("dns layer init'd.\n", .{});
-    //
-    //   print("dns_layer_iface: {x}\n", .{dns_layer.get_data()});
-    //   print("dns_layer: {x}\n", .{dns_layer.dnsLayer.get_data()});
 
     const query_count = dns_layer.dnsLayer.get_query_count();
 
     try expect(query_count == 1);
 
-    //   print("query count: {}\n", .{query_count});
-
     var query = dns_layer.dnsLayer.first_query;
-
-    // dns_layer.dnsLayer.print_queries_meta();
 
     if (query) |q| {
         const data = dns_layer.get_data();
@@ -266,10 +248,6 @@ test "parse dns AAAA response raw" {
     try dns_layer.dnsLayer.get_queries();
     try dns_layer.dnsLayer.get_answers();
 
-    //  const query_count = dns_layer.dnsLayer.get_query_count();
-
-    //   try expect(query_count == 1);
-
     var query = dns_layer.dnsLayer.first_query;
 
     while (query) |q| {
@@ -281,8 +259,6 @@ test "parse dns AAAA response raw" {
         print("{s}\n", .{qname});
         query = q.next_query;
     }
-
-    //    try expect(dns_layer.dnsLayer.get_answer_count() == 6);
 
     try expect(dns_layer.dnsLayer.first_answer != null);
 
@@ -321,10 +297,6 @@ test "parse ebay CNAME response" {
     try dns_layer.dnsLayer.get_queries();
     try dns_layer.dnsLayer.get_answers();
 
-    //  const query_count = dns_layer.dnsLayer.get_query_count();
-
-    //   try expect(query_count == 1);
-
     var query = dns_layer.dnsLayer.first_query;
 
     while (query) |q| {
@@ -341,10 +313,11 @@ test "parse ebay CNAME response" {
 
     try expect(dns_layer.dnsLayer.first_answer != null);
 
-    // www.ebay.co.uk.ebaycdn.net
-    // slot348525.ebay.com.edgekey.net
-    // e348525.a.akamaiedge.net
+    // www.ebay.co.uk.ebaycdn.net - cname.1
+    // slot348525.ebay.com.edgekey.net cname.2
+    // e348525.a.akamaiedge.net - cname.3
 
+    var cname_count: usize = 0;
     var answer = dns_layer.dnsLayer.first_answer;
     while (answer) |ans| {
         print("answer: offset={} length={} {any} {any}\n", .{
@@ -357,9 +330,209 @@ test "parse ebay CNAME response" {
         print("ttl: {}\n", .{ans.get_ttl()});
 
         if (ans.get_rr_type() == DNS.QueryType.CNAME) {
+            cname_count += 1;
             const cname = try ans.cname.decode_cname(allocator);
             defer allocator.free(cname);
             print("cname decoded: {s}\n", .{cname});
+            if (cname_count == 1) {
+                try expect(std.mem.eql(u8, cname, "www.ebay.co.uk.ebaycdn.net"));
+            }
+
+            if (cname_count == 2) {
+                try expect(std.mem.eql(u8, cname, "slot348525.ebay.com.edgekey.net"));
+            }
+
+            if (cname_count == 3) {
+                try expect(std.mem.eql(u8, cname, "e348525.a.akamaiedge.net"));
+            }
+        }
+
+        if (ans.get_rr_type() == DNS.QueryType.A) {
+            if (ans.a.get_ip()) |ipv4_address| {
+                const ip_addr_str = try ipv4_address.to_string(allocator);
+                defer allocator.free(ip_addr_str);
+                print("{s}\n", .{ip_addr_str});
+            }
+        }
+
+        answer = ans.get_next_record();
+    }
+}
+
+test "parse dns txt record response" {
+    const random_org_txt_resp: [217]u8 align(2) = [_]u8{ 0xbd, 0x6c, 0x81, 0x80, 0x0, 0x1, 0x0, 0x2, 0x0, 0x0, 0x0, 0x1, 0x6, 0x72, 0x61, 0x6e, 0x64, 0x6f, 0x6d, 0x3, 0x6f, 0x72, 0x67, 0x0, 0x0, 0x10, 0x0, 0x1, 0xc0, 0xc, 0x0, 0x10, 0x0, 0x1, 0x0, 0x0, 0x1, 0x2c, 0x0, 0x55, 0x54, 0x76, 0x3d, 0x73, 0x70, 0x66, 0x31, 0x20, 0x69, 0x6e, 0x63, 0x6c, 0x75, 0x64, 0x65, 0x3a, 0x5f, 0x73, 0x70, 0x66, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x63, 0x6f, 0x6d, 0x20, 0x69, 0x6e, 0x63, 0x6c, 0x75, 0x64, 0x65, 0x3a, 0x73, 0x70, 0x66, 0x2e, 0x6d, 0x74, 0x61, 0x73, 0x76, 0x2e, 0x6e, 0x65, 0x74, 0x20, 0x69, 0x6e, 0x63, 0x6c, 0x75, 0x64, 0x65, 0x3a, 0x5f, 0x73, 0x70, 0x66, 0x2e, 0x72, 0x61, 0x6e, 0x64, 0x6f, 0x6d, 0x2e, 0x6f, 0x72, 0x67, 0x20, 0x6d, 0x78, 0x20, 0x2d, 0x61, 0x6c, 0x6c, 0xc0, 0xc, 0x0, 0x10, 0x0, 0x1, 0x0, 0x0, 0x1, 0x2c, 0x0, 0x45, 0x44, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2d, 0x73, 0x69, 0x74, 0x65, 0x2d, 0x76, 0x65, 0x72, 0x69, 0x66, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x3d, 0x48, 0x75, 0x49, 0x47, 0x43, 0x4e, 0x6b, 0x76, 0x58, 0x4c, 0x6f, 0x4a, 0x45, 0x65, 0x5f, 0x6c, 0x68, 0x35, 0x4a, 0x36, 0x35, 0x4b, 0x72, 0x6f, 0x32, 0x48, 0x74, 0x7a, 0x59, 0x78, 0x65, 0x71, 0x36, 0x62, 0x4d, 0x57, 0x47, 0x2d, 0x78, 0x4d, 0x51, 0x78, 0x49, 0x0, 0x0, 0x29, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
+
+    print("parsing random.org txt request response.\n", .{});
+
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+
+    const allocator = debug_allocator.allocator();
+
+    const dns_buf = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", random_org_txt_resp.len);
+    @memmove(dns_buf, random_org_txt_resp[0..]);
+
+    const dns_owner: LayerOwner = LayerOwner{ .owned_buffer = try .init(dns_buf, allocator) };
+
+    var dns_layer = try LayerIface.init(DNS.DNSLayer, dns_owner);
+    defer dns_layer.deinit();
+
+    try dns_layer.dnsLayer.get_queries();
+    try dns_layer.dnsLayer.get_answers();
+
+    var query = dns_layer.dnsLayer.first_query;
+
+    while (query) |q| {
+        const qname = try q.decode_qname(allocator);
+        defer allocator.free(qname);
+
+        print("{s}\n", .{qname});
+        query = q.next_query;
+    }
+
+    //    try expect(dns_layer.dnsLayer.get_answer_count() == 5);
+
+    try expect(dns_layer.dnsLayer.first_answer != null);
+
+    var answer = dns_layer.dnsLayer.first_answer;
+    while (answer) |ans| {
+        print("answer: offset={} length={} {any} {any}\n", .{
+            ans.get_offset(),
+            ans.get_length(),
+            ans.get_rr_type(),
+            ans.get_class_type(),
+        });
+
+        try expect(ans.get_ttl() == 300);
+
+        if (ans.get_rr_type() == DNS.QueryType.TXT) {
+            print("txt record: {s} \n", .{ans.txt.get_record_str()});
+        }
+
+        answer = ans.get_next_record();
+    }
+}
+
+test "parse MX record response" {
+    const google_mx_resp: [60]u8 align(2) = [_]u8{ 0x3a, 0x98, 0x81, 0x80, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x1, 0x6, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x3, 0x63, 0x6f, 0x6d, 0x0, 0x0, 0xf, 0x0, 0x1, 0xc0, 0xc, 0x0, 0xf, 0x0, 0x1, 0x0, 0x0, 0x1, 0x2c, 0x0, 0x9, 0x0, 0xa, 0x4, 0x73, 0x6d, 0x74, 0x70, 0xc0, 0xc, 0x0, 0x0, 0x29, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
+
+    print("parsing google mx request response.\n", .{});
+
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+
+    const allocator = debug_allocator.allocator();
+
+    const dns_buf = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", google_mx_resp.len);
+    @memmove(dns_buf, google_mx_resp[0..]);
+
+    const dns_owner: LayerOwner = LayerOwner{ .owned_buffer = try .init(dns_buf, allocator) };
+
+    var dns_layer = try LayerIface.init(DNS.DNSLayer, dns_owner);
+    defer dns_layer.deinit();
+
+    try dns_layer.dnsLayer.get_queries();
+    try dns_layer.dnsLayer.get_answers();
+
+    const query_count = dns_layer.dnsLayer.get_query_count();
+
+    try expect(query_count == 1);
+
+    var query = dns_layer.dnsLayer.first_query;
+
+    while (query) |q| {
+        const qname = try q.decode_qname(allocator);
+        defer allocator.free(qname);
+
+        print("{s}\n", .{qname});
+        query = q.next_query;
+    }
+
+    try expect(dns_layer.dnsLayer.get_answer_count() == 1);
+
+    try expect(dns_layer.dnsLayer.first_answer != null);
+
+    var answer = dns_layer.dnsLayer.first_answer;
+    while (answer) |ans| {
+        print("answer: offset={} length={} {any} {any}\n", .{
+            ans.get_offset(),
+            ans.get_length(),
+            ans.get_rr_type(),
+            ans.get_class_type(),
+        });
+
+        try expect(ans.get_ttl() == 300);
+
+        if (ans.get_rr_type() == DNS.QueryType.MX) {
+            const mx_domain = try ans.mx.get_mx_domain(allocator);
+            defer allocator.free(mx_domain);
+
+            try expect(std.mem.eql(u8, mx_domain, "smtp.google.com"));
+
+            print("mx domain: {s} \n", .{mx_domain});
+        }
+
+        answer = ans.get_next_record();
+    }
+}
+
+test "parse PTR record response" {
+    const google_ip_ptr_resp: [95]u8 align(2) = [_]u8{ 0x24, 0x7, 0x81, 0x80, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x1, 0x3, 0x31, 0x33, 0x39, 0x3, 0x32, 0x32, 0x33, 0x3, 0x31, 0x37, 0x38, 0x3, 0x31, 0x39, 0x32, 0x7, 0x69, 0x6e, 0x2d, 0x61, 0x64, 0x64, 0x72, 0x4, 0x61, 0x72, 0x70, 0x61, 0x0, 0x0, 0xc, 0x0, 0x1, 0xc0, 0xc, 0x0, 0xc, 0x0, 0x1, 0x0, 0x0, 0x3, 0x98, 0x0, 0x1a, 0xe, 0x79, 0x75, 0x6c, 0x68, 0x72, 0x73, 0x2d, 0x69, 0x6e, 0x2d, 0x66, 0x31, 0x33, 0x39, 0x5, 0x31, 0x65, 0x31, 0x30, 0x30, 0x3, 0x6e, 0x65, 0x74, 0x0, 0x0, 0x0, 0x29, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
+
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+
+    const allocator = debug_allocator.allocator();
+
+    const dns_buf = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", google_ip_ptr_resp.len);
+    @memmove(dns_buf, google_ip_ptr_resp[0..]);
+
+    const dns_owner: LayerOwner = LayerOwner{ .owned_buffer = try .init(dns_buf, allocator) };
+
+    var dns_layer = try LayerIface.init(DNS.DNSLayer, dns_owner);
+    defer dns_layer.deinit();
+
+    try dns_layer.dnsLayer.get_queries();
+    try dns_layer.dnsLayer.get_answers();
+
+    const query_count = dns_layer.dnsLayer.get_query_count();
+
+    try expect(query_count == 1);
+
+    var query = dns_layer.dnsLayer.first_query;
+
+    while (query) |q| {
+        const qname = try q.decode_qname(allocator);
+        defer allocator.free(qname);
+
+        print("{s}\n", .{qname});
+        query = q.next_query;
+    }
+
+    try expect(dns_layer.dnsLayer.get_answer_count() == 1);
+
+    try expect(dns_layer.dnsLayer.first_answer != null);
+
+    var answer = dns_layer.dnsLayer.first_answer;
+    while (answer) |ans| {
+        print("answer: offset={} length={} {any} {any}\n", .{
+            ans.get_offset(),
+            ans.get_length(),
+            ans.get_rr_type(),
+            ans.get_class_type(),
+        });
+
+        const ttl = ans.get_ttl();
+        print("ttl : {}\n", .{ttl});
+        try expect(ans.get_ttl() == 920);
+
+        if (ans.get_rr_type() == DNS.QueryType.PTR) {
+            const domain = try ans.ptr.get_name(allocator);
+            defer allocator.free(domain);
+
+            try expect(std.mem.eql(u8, domain, "yulhrs-in-f139.1e100.net"));
+
+            print("domain: {s} \n", .{domain});
         }
 
         answer = ans.get_next_record();
