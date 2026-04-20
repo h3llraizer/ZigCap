@@ -214,7 +214,6 @@ test "parse dns A response raw" {
 
     while (query) |q| {
         const q_data = q.get_data();
-        //        print("q_data: {x}\n", .{q_data});
 
         const qname = try DNS.decodeQname(allocator, q_data);
         defer allocator.free(qname);
@@ -229,8 +228,8 @@ test "parse dns A response raw" {
 
     var answer = dns_layer.dnsLayer.first_answer;
     while (answer) |ans| {
-        print("first ans: offset={} length={} {any} {any}\n", .{ ans.offset, ans.length, ans.qtype, ans.qclass });
-        if (ans.get_ip()) |ip| {
+        print("answer: offset={} length={} {any} {any}\n", .{ ans.get_offset(), ans.get_length(), ans.get_rr_type(), ans.get_class_type() });
+        if (ans.a.get_ip()) |ip| {
             const ip_str = try ip.to_string(allocator);
             defer allocator.free(ip_str);
             print("{s}\n", .{ip_str});
@@ -244,7 +243,60 @@ test "parse dns A response raw" {
 
         try expect(ans.get_ttl() == 128);
 
-        answer = ans.next_answer;
+        answer = ans.get_next_record();
+    }
+}
+
+test "parse dns AAAA response raw" {
+    const cloudflare_aaaa_resp: [99]u8 align(2) = [_]u8{ 0xd5, 0xf5, 0x81, 0x80, 0x0, 0x1, 0x0, 0x2, 0x0, 0x0, 0x0, 0x1, 0xa, 0x63, 0x6c, 0x6f, 0x75, 0x64, 0x66, 0x6c, 0x61, 0x72, 0x65, 0x3, 0x63, 0x6f, 0x6d, 0x0, 0x0, 0x1c, 0x0, 0x1, 0xc0, 0xc, 0x0, 0x1c, 0x0, 0x1, 0x0, 0x0, 0x0, 0xad, 0x0, 0x10, 0x26, 0x6, 0x47, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x68, 0x10, 0x85, 0xe5, 0xc0, 0xc, 0x0, 0x1c, 0x0, 0x1, 0x0, 0x0, 0x0, 0xad, 0x0, 0x10, 0x26, 0x6, 0x47, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x68, 0x10, 0x84, 0xe5, 0x0, 0x0, 0x29, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
+
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+
+    const allocator = debug_allocator.allocator();
+
+    const dns_buf = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", cloudflare_aaaa_resp.len);
+    @memmove(dns_buf, cloudflare_aaaa_resp[0..]);
+
+    const dns_owner: LayerOwner = LayerOwner{ .owned_buffer = try .init(dns_buf, allocator) };
+
+    var dns_layer = try LayerIface.init(DNS.DNSLayer, dns_owner);
+    defer dns_layer.deinit();
+
+    try dns_layer.dnsLayer.get_queries();
+    try dns_layer.dnsLayer.get_answers();
+
+    //  const query_count = dns_layer.dnsLayer.get_query_count();
+
+    //   try expect(query_count == 1);
+
+    var query = dns_layer.dnsLayer.first_query;
+
+    while (query) |q| {
+        const q_data = q.get_data();
+
+        const qname = try DNS.decodeQname(allocator, q_data);
+        defer allocator.free(qname);
+
+        print("{s}\n", .{qname});
+        query = q.next_query;
+    }
+
+    //    try expect(dns_layer.dnsLayer.get_answer_count() == 6);
+
+    try expect(dns_layer.dnsLayer.first_answer != null);
+
+    var answer = dns_layer.dnsLayer.first_answer;
+    while (answer) |ans| {
+        print("answer: offset={} length={} {any} {any}\n", .{ ans.get_offset(), ans.get_length(), ans.get_rr_type(), ans.get_class_type() });
+
+        if (ans.aaaa.get_ipv6()) |ipv6| {
+            const ip_str = try ipv6.to_string(allocator);
+            defer allocator.free(ip_str);
+            print("{s}\n", .{ip_str});
+        }
+
+        answer = ans.get_next_record();
     }
 }
 

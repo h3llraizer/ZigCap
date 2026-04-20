@@ -14,6 +14,7 @@ const LayerIface = @import("LayerIface.zig").LayerIface;
 const Buffer = @import("Buffer.zig").Buffer;
 
 const IPv4 = @import("IPv4.zig");
+const IPv6 = @import("IPv6.zig");
 
 pub const QueryType = enum(u16) {
     A = 1, // IPv4 address record
@@ -387,9 +388,12 @@ pub const DNSHeader = extern struct {
         return @byteSwap(self.arcount);
     }
 
+    //TODO: implement get_flags_mutable
     pub fn get_flags(self: *DNSHeader) *DNSHeaderFlags {
         return @ptrCast(&self.flags);
     }
+
+    //TODO: implement get_flags_immutable
 };
 
 /// Different to the DNSQuery struct which you create a query from scratch with (see DNSQuery)
@@ -411,30 +415,25 @@ pub const Query = struct {
     }
 };
 
-/// Different to the DNSAnswer struct which you create a query from scratch with (see DNSAnswer)
-/// Answer struct stores offset and length of the raw answer so the DNSLayer can manage it (similar to Packet.Layer)
-pub const Answer = struct {
+/// A Record - IPv4 Responses
+pub const ARecord = struct {
     offset: usize,
     length: usize,
     qtype: QueryType,
     qclass: DnsClass,
     layer: *DNSLayer,
-    next_answer: ?*Answer = null,
-    prev_answer: ?*Answer = null,
+    next_answer: ?*AnswerRecord = null,
+    prev_answer: ?*AnswerRecord = null,
 
-    pub fn init(offset: usize, length: usize, qtype: QueryType, qclass: DnsClass, layer: *DNSLayer) Answer {
-        return Answer{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer };
-    }
-
-    pub fn get_data(self: *Answer) []const u8 {
+    pub fn get_data(self: *ARecord) []const u8 {
         return self.layer.get_data()[self.offset .. self.offset + self.length];
     }
 
-    fn get_data_mut(self: *Answer) []u8 {
+    fn get_data_mut(self: *ARecord) []u8 {
         return self.layer.get_data()[self.offset .. self.offset + self.length];
     }
 
-    pub fn get_ip(self: *Answer) ?IPv4.IPv4Address {
+    pub fn get_ip(self: *ARecord) ?IPv4.IPv4Address {
         if (self.qtype == QueryType.A) {
             const data = self.get_data();
             if (data.len >= 16) {
@@ -447,16 +446,140 @@ pub const Answer = struct {
         return null;
     }
 
-    pub fn get_ttl(self: *Answer) u32 {
+    pub fn get_rr_type(self: ARecord) QueryType {
+        return self.qtype;
+    }
+};
+
+/// AAAA Record - IPv6 responses
+pub const AAAARecord = struct {
+    offset: usize,
+    length: usize,
+    qtype: QueryType,
+    qclass: DnsClass,
+    layer: *DNSLayer,
+    next_answer: ?*AnswerRecord = null,
+    prev_answer: ?*AnswerRecord = null,
+
+    pub fn get_data(self: *AAAARecord) []const u8 {
+        return self.layer.get_data()[self.offset .. self.offset + self.length];
+    }
+
+    fn get_data_mut(self: *AAAARecord) []u8 {
+        return self.layer.get_data()[self.offset .. self.offset + self.length];
+    }
+
+    pub fn get_ipv6(self: *AAAARecord) ?IPv6.IPv6Address {
+        if (self.qtype == QueryType.AAAA) {
+            const data = self.get_data();
+            if (data.len >= 28) {
+                //                const ip_u64: u64 = std.mem.readInt(u64, data[12..28], .big);
+                var ipv6_arr: [16]u8 = undefined;
+                @memmove(ipv6_arr[0..], data[12..28]);
+
+                const ip = IPv6.IPv6Address.init_from_array(ipv6_arr);
+                return ip;
+            }
+        }
+
+        return null;
+    }
+
+    pub fn get_rr_type(self: AAAARecord) QueryType {
+        return self.qtype;
+    }
+};
+
+/// Different to the DNSAnswer struct which you create a query from scratch with (see DNSAnswer)
+/// This tagged union is an interface over the concrete Answer Record Types
+/// Answer struct stores offset and length of the raw answer so the DNSLayer can manage it (similar to Packet.Layer)
+pub const AnswerRecord = union(enum) {
+    a: ARecord,
+    aaaa: AAAARecord,
+
+    pub fn init(offset: usize, length: usize, qtype: QueryType, qclass: DnsClass, layer: *DNSLayer) ?AnswerRecord {
+        switch (qtype) {
+            .A => {
+                return AnswerRecord{ .a = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
+            },
+
+            .AAAA => {
+                return AnswerRecord{ .aaaa = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
+            },
+
+            else => return null,
+        }
+    }
+
+    pub fn get_offset(self: *AnswerRecord) usize {
+        return switch (self.*) {
+            inline else => |*rr| rr.offset,
+        };
+    }
+
+    pub fn get_length(self: *AnswerRecord) usize {
+        return switch (self.*) {
+            inline else => |*rr| rr.length,
+        };
+    }
+
+    pub fn get_data(self: *AnswerRecord) []const u8 {
+        return switch (self.*) {
+            inline else => |*rr| rr.get_data(),
+        };
+    }
+
+    pub fn get_data_mut(self: *AnswerRecord) []u8 {
+        return switch (self.*) {
+            inline else => |*rr| rr.get_data_mut(),
+        };
+    }
+
+    pub fn set_next_record(self: *AnswerRecord, next: *AnswerRecord) void {
+        return switch (self.*) {
+            inline else => |*rr| rr.next_answer = next,
+        };
+    }
+
+    pub fn set_prev_record(self: *AnswerRecord, prev: *AnswerRecord) void {
+        return switch (self.*) {
+            inline else => |*rr| rr.prev_answer = prev,
+        };
+    }
+
+    pub fn get_next_record(self: *AnswerRecord) ?*AnswerRecord {
+        return switch (self.*) {
+            inline else => |*rr| rr.next_answer,
+        };
+    }
+
+    pub fn get_prev_record(self: *AnswerRecord) ?*AnswerRecord {
+        return switch (self.*) {
+            inline else => |*rr| rr.prev_answer,
+        };
+    }
+
+    pub fn get_ttl(self: *AnswerRecord) u32 {
         const data = self.get_data();
         const ttl: u32 = std.mem.readInt(u32, data[6..10], .big);
         return ttl;
     }
 
-    pub fn set_ttl(self: *Answer, ttl: u32) void {
+    pub fn set_ttl(self: *AnswerRecord, ttl: u32) void {
         const data = self.get_data_mut();
-        //const ttl_be = @byteSwap(ttl);
         std.mem.writeInt(u32, data[6..10], ttl, .big);
+    }
+
+    pub fn get_rr_type(self: *AnswerRecord) QueryType {
+        return switch (self.*) {
+            inline else => |*rr| rr.qtype,
+        };
+    }
+
+    pub fn get_class_type(self: *AnswerRecord) DnsClass {
+        return switch (self.*) {
+            inline else => |*rr| rr.qclass,
+        };
     }
 };
 
@@ -466,8 +589,8 @@ pub const Answer = struct {
 pub const DNSLayer = struct {
     owner: LayerOwner,
     first_query: ?*Query = null,
-    first_answer: ?*Answer = null,
-    last_answer: ?*Answer = null,
+    first_answer: ?*AnswerRecord = null,
+    last_answer: ?*AnswerRecord = null,
 
     const Protocol = tcp_ip_protocol.dns;
 
@@ -788,11 +911,11 @@ pub const DNSLayer = struct {
         return self.first_query;
     }
 
-    pub fn get_first_answer(self: *DNSLayer) ?*Answer {
+    pub fn get_first_answer(self: *DNSLayer) ?*AnswerRecord {
         return self.first_answer;
     }
 
-    pub fn get_last_answer(self: *DNSLayer) ?*Answer {
+    pub fn get_last_answer(self: *DNSLayer) ?*AnswerRecord {
         return self.last_answer;
     }
 
@@ -801,7 +924,7 @@ pub const DNSLayer = struct {
         var cur = self.first_answer;
         while (cur) |ans| {
             count += 1;
-            cur = ans.next_answer;
+            cur = ans.get_next_record();
         }
 
         return count;
@@ -869,20 +992,22 @@ pub const DNSLayer = struct {
             print("whole_record: ({}) {x}\n", .{ whole_record.len, whole_record });
 
             // Create a DNSAnswer node
-            const answer = try allocator.create(Answer);
+            const answer = try allocator.create(AnswerRecord);
 
             const rtype_e: QueryType = @enumFromInt(rtype);
             const class_e: DnsClass = @enumFromInt(rclass);
             //node.ttl = ttl;
 
-            answer.* = Answer.init(name_offset, whole_record.len, rtype_e, class_e, self);
+            answer.* = AnswerRecord.init(name_offset, whole_record.len, rtype_e, class_e, self) orelse {
+                continue;
+            };
 
             const last_answer = self.last_answer;
 
             // append to linkedlist
             if (last_answer) |last| { // if the last answer is not null
-                last.next_answer = answer; // set the last answer next answer to the answer created (answer being added)
-                answer.prev_answer = last; // set the answer created (answer being added)'s prev answer to the last answer
+                last.set_next_record(answer); // set the last answer next answer to the answer created (answer being added)
+                answer.set_prev_record(last); // set the answer created (answer being added)'s prev answer to the last answer
                 self.last_answer = answer; // the last answer is now the answer that's being added
                 //answer.offset = last.offset + last.length; // set answer added offset to the last offset + last length
             } else { // there was no last answer
@@ -960,7 +1085,7 @@ pub const DNSLayer = struct {
         var cur = self.first_answer;
 
         while (cur) |answer| {
-            const next = answer.next_answer;
+            const next = answer.get_next_record();
             allocator.destroy(answer);
             cur = next;
         }
