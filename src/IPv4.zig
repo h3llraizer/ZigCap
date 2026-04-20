@@ -26,6 +26,19 @@ const RawData = @import("RawData.zig").RawData;
 pub const MaxHeaderLength = 60; //IPv4MinHeader Length
 pub const MinHeaderLength = 20;
 
+const default_hdr = IPv4Header{
+    .version_ihl = 0x45,
+    .dscp_ecn = 0,
+    .total_length = std.mem.nativeToBig(u16, MinHeaderLength),
+    .identification = 0,
+    .flags_fragment = 0,
+    .ttl = 64,
+    .protocol = 0,
+    .checksum = 0,
+    .src_ip = [_]u8{0} ** 4,
+    .dst_ip = [_]u8{0} ** 4,
+};
+
 // Use extern struct for exact 20-byte layout (standard IPv4 header)
 pub const IPv4Header = extern struct {
     version_ihl: u8 = 0x45, // Default to version 4, IHL 5
@@ -46,18 +59,7 @@ pub const IPv4Header = extern struct {
     }
 
     pub fn init_default() IPv4Header {
-        return .{
-            .version_ihl = 0x45,
-            .dscp_ecn = 0,
-            .total_length = std.mem.nativeToBig(u16, MinHeaderLength),
-            .identification = 0,
-            .flags_fragment = 0,
-            .ttl = 64,
-            .protocol = 0,
-            .checksum = 0,
-            .src_ip = [_]u8{0} ** 4,
-            .dst_ip = [_]u8{0} ** 4,
-        };
+        return default_hdr;
     }
 
     pub fn get_ihl(self: *const IPv4Header) u8 {
@@ -71,6 +73,45 @@ pub const IPv4Header = extern struct {
         const ihl_value = len / 4; // Convert to 32-bit word count
         // Preserve the high 4 bits (version), replace low 4 bits with IHLself
         self.version_ihl = (self.version_ihl & 0xF0) | (ihl_value & 0x0F);
+    }
+
+    pub fn get_dst_ip(self: *const IPv4Header) IPv4Address {
+        return IPv4Address.init_from_array(self.dst_ip);
+    }
+
+    pub fn set_dst_ip(self: *IPv4Header, dst_ip: IPv4Address) void {
+        self.dst_ip = dst_ip.array;
+    }
+
+    pub fn get_src_ip(self: *const IPv4Header) IPv4Address {
+        return IPv4Address.init_from_array(self.src_ip);
+    }
+
+    pub fn set_src_ip(self: *IPv4Header, src_ip: IPv4Address) void {
+        self.src_ip = src_ip.array;
+    }
+
+    /// gets length from the IPv4 header - not gaurenteed to be accurate (malformed packet / incomplete layers etc)
+    pub fn get_length(self: *const IPv4Header) u16 {
+        const total_length = self.total_length;
+        return std.mem.nativeToBig(u16, @as(u16, @intCast(total_length)));
+    }
+
+    pub fn set_length(self: *IPv4Header, length: u16) void {
+        self.total_length = @byteSwap(length);
+    }
+
+    pub fn get_ttl(self: *const IPv4Header) u8 {
+        return self.ttl;
+    }
+
+    pub fn set_ttl(self: *IPv4Header, ttl: u8) void {
+        self.ttl = ttl;
+    }
+
+    /// returns the checksum of the IPv4 header in native endian.
+    pub fn get_checksum(self: *IPv4Header) u16 {
+        return std.mem.bigToNative(u16, self.checksum);
     }
 
     pub fn calculate_checksum(self: *IPv4Header) void {
@@ -100,6 +141,343 @@ pub const IPv4Header = extern struct {
         }
 
         _ = old_checksum;
+    }
+};
+
+/// IPv4 options can be added one at a time and removed all at once.
+pub const IPv4Layer = struct {
+    owner: LayerOwner,
+    const Protocol = tcp_ip_protocol.ipv4;
+
+    pub fn init(owner: LayerOwner) LayerError!IPv4Layer {
+        switch (owner) {
+            .packet_layer => {
+                return IPv4Layer{
+                    .owner = owner,
+                };
+            },
+            .owned_buffer => {
+                var self = IPv4Layer{ .owner = owner };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < MinHeaderLength) {
+                    const ipv4_data = try self.owner.owned_buffer.extend(buffer_len, MinHeaderLength);
+
+                    @memset(ipv4_data, 0);
+
+                    var header = IPv4Header.init_default();
+
+                    @memcpy(ipv4_data[0..MinHeaderLength], std.mem.asBytes(&header));
+                }
+
+                return self;
+            },
+        }
+    }
+
+    /// use this when you want to zero the header to default values.
+    /// see IPv4Header.init_default() to check what the default values will be
+    pub fn zero_hdr(self: *IPv4Layer) !void {
+        var header = IPv4Header.init_default();
+        try self.remove_all_options();
+        const data = self.get_data();
+        const hdr_len = self.get_header_len();
+        const hdr_data = data[0..hdr_len];
+        @memcpy(hdr_data[0..MinHeaderLength], std.mem.asBytes(&header));
+    }
+
+    /// returns mutable slice of data (hdr+payload).
+    /// this will likely be made private in future to avoid accidental mutations
+    pub fn get_data(self: *const IPv4Layer) []u8 {
+        switch (self.owner) {
+            .packet_layer => |layer| {
+                return layer.get_data(); // Layer in packet - it might be mutable or immutable
+            },
+            .owned_buffer => {
+                return self.owner.owned_buffer.buffer.items; // standalone layer - it is mutable by default
+            },
+        }
+    }
+
+    /// return immutable slice of the payload
+    pub fn get_payload(self: *IPv4Layer) ?[]const u8 {
+        switch (self.owner) {
+            .packet_layer => |layer| {
+                return layer.get_data()[self.get_header_len()..]; // Layer in packet payload
+            },
+            .owned_buffer => {
+                return null;
+            },
+        }
+    }
+
+    /// calls get_payload and returns the length.
+    /// owned_buffer IPv4 layer will always return 0
+    pub fn get_payload_len(self: *IPv4Layer) usize {
+        if (self.get_payload()) |payload| {
+            return payload.len;
+        } else {
+            return 0;
+        }
+    }
+
+    pub fn get_options(self: *IPv4Layer) []const u8 {
+        const header_len = self.get_header_len();
+        //        const ops_start = header_len - MinHeaderLength;
+        return self.get_data()[MinHeaderLength..header_len];
+    }
+
+    /// not yet fully implemented - ideally pass a buffer instead of IPOption and Allocator - the allocator in this case is the one which the caller created for the IPOption
+    pub fn add_option(self: *IPv4Layer, option: IPOption, allocator: Allocator) !void {
+        const hdr = self.get_mutable_header();
+        const current_ihl: u8 = hdr.get_ihl();
+        const current_options_len: u8 = (current_ihl - 5) * 4;
+
+        const new_option_bytes: []u8 = try option.toBytes(allocator); // owned slice copy
+        defer allocator.free(new_option_bytes);
+
+        const new_options_len = current_options_len + new_option_bytes.len;
+        const new_ihl: usize = 5 + (new_options_len + 3) / 4;
+        const new_header_len = new_ihl * 4;
+
+        if (new_header_len > MaxHeaderLength) {
+            return error.OptionsTooLong;
+        }
+
+        const data = self.get_data();
+        var ops_buf: []u8 = undefined;
+
+        const current_header_len = self.get_header_len();
+
+        const extend_len = new_header_len - current_header_len;
+
+        if (current_header_len < new_header_len) {
+            switch (self.owner) {
+                .packet_layer => |layer| {
+                    ops_buf = try layer.packet.extend_layer(layer, extend_len);
+                },
+                .owned_buffer => |*buffer| {
+                    ops_buf = try buffer.extend(MinHeaderLength, extend_len); // temp - needs to extend from current ihl length not base header length
+                },
+            }
+        } else { // bad
+            ops_buf = data; //use existing buffer - not good
+            // TODO: refactor to avoid this
+        }
+
+        // the option type and data are not being returned in option.toBytes()
+        @memmove(ops_buf[0..new_options_len], new_option_bytes);
+
+        @memset(ops_buf[new_options_len..], 0); // zero the remaining bytes
+
+        const new_hdr = self.get_mutable_header(); // get header again because ptr to last initialised one got mutated
+
+        const new_header_length = self.get_header_len(); // data.len - payload.len
+        new_hdr.set_ihl(@intCast(new_header_length));
+    }
+
+    /// removes all IPv4 options by either calling the owning Packets shorten_layer method
+    /// or shorting the owned_buffer
+    /// in both cases, the IHL is set to default (5 / 20 bytes)
+    pub fn remove_all_options(self: *IPv4Layer) !void {
+        const current_ihl: usize = @intCast(self.get_header_len());
+
+        const ops_len = current_ihl - MinHeaderLength;
+
+        switch (self.owner) {
+            .packet_layer => |layer| {
+                try layer.packet.shorten_layer(layer, MinHeaderLength, ops_len);
+            },
+            .owned_buffer => |*buffer| {
+                try buffer.shorten(MinHeaderLength, ops_len);
+            },
+        }
+
+        const new_hdr = self.get_mutable_header(); // get header again because ptr to to last initialised one got mutated
+        const new_data = self.get_header_len(); // data.len - payload.len
+        new_hdr.set_ihl(@intCast(new_data));
+    }
+
+    /// for internal use when the IPv4 header doesn't round to 4 byte
+    /// e.g. when an option is added
+    fn pad_buffer(self: *IPv4Layer) !void {
+        const hdr_len = self.get_header_len();
+
+        const pad_bytes_required: usize = 4 - (hdr_len % 4);
+
+        //print("pad_bytes_required: {}\n", .{pad_bytes_required});
+
+        if (pad_bytes_required > 0) {
+            var pad_buf: []u8 = undefined;
+
+            switch (self.owner) {
+                .packet_layer => |layer| {
+                    pad_buf = try layer.packet.extend_layer(layer, pad_bytes_required);
+                },
+                .owned_buffer => |*buffer| {
+                    pad_buf = try buffer.extend(MinHeaderLength, pad_bytes_required); // temp - needs to extend from current ihl length not base header length
+                },
+            }
+
+            @memset(pad_buf, 0);
+
+            const new_hdr_len: usize = self.get_header_len();
+
+            var hdr = self.get_mutable_header();
+
+            hdr.set_ihl(@intCast(new_hdr_len));
+        }
+    }
+
+    /// calculates checksum by setting ihl (version bit) to header len
+    /// calculates total length (ipv4.total_length)
+    /// calls the checksum calculation function in the IPv4 header (see IPv4Header.calculate_checksum())
+    pub fn calculate_checksum(self: *IPv4Layer) !void {
+        var hdr = self.get_mutable_header();
+
+        const hdr_len = self.get_header_len(); // temp - need to compute data.len - payload.len
+        hdr.set_ihl(@intCast(hdr_len));
+        self.calculate_length();
+        hdr.calculate_checksum();
+    }
+
+    /// takes total data (hdr+payload) length and sets the IPv4 header's total length field to that result
+    pub fn calculate_length(self: *IPv4Layer) void {
+        var hdr = self.get_mutable_header();
+        const data = self.get_data();
+        const total_length = @as(u16, @intCast(data.len));
+        hdr.set_length(total_length);
+    }
+
+    /// for Packet owned IPv4Layer: gets length of total data (hdr+payload) and subtracts the payload
+    /// for self owned layer: takes total length of data (payload not included because it doesnt't have one)
+    pub fn get_header_len(self: *IPv4Layer) usize {
+        const hdr = self.get_immutable_header();
+        const hdr_length: usize = @intCast(hdr.get_ihl() * 4);
+        const data = self.get_data();
+
+        std.debug.assert(data.len >= hdr_length);
+
+        return hdr_length;
+    }
+
+    pub fn get_mutable_header(self: *const IPv4Layer) *IPv4Header {
+        const data = self.get_data();
+
+        if (data.len < MinHeaderLength) { // this is reasonably recoverable so shouldn't panic. Perhaps just revert the layer to an ApplicationLayer
+            panic("IPv4 data len ({}) less than IPv4HeaderSize", .{data.len});
+        }
+
+        const aligned_ptr: [*]align(@alignOf(IPv4Header)) u8 = @alignCast(data.ptr);
+        return @ptrCast(aligned_ptr);
+    }
+
+    pub fn get_immutable_header(self: *const IPv4Layer) *const IPv4Header {
+        const data: []const u8 = self.get_data();
+
+        if (data.len < MinHeaderLength) { // this is reasonably recoverable in the sense it could be resolved at runtime
+            // so shouldn't be a panic. just convert the layer to an ApplicationLayer or zero the header
+            panic("IPv4 data len ({}) less than IPv4HeaderSize", .{data.len});
+        }
+
+        const aligned_ptr: [*]align(@alignOf(IPv4Header)) const u8 = @alignCast(data.ptr);
+        return @ptrCast(aligned_ptr);
+    }
+
+    pub fn get_next_layer_type(self: *const IPv4Layer, layer: *Packet.Layer) !?LayerIface {
+        const data = self.get_data();
+
+        if (data.len < @sizeOf(IPv4Header)) return error.BufferTooSmall;
+
+        const hdr = self.get_immutable_header();
+
+        const ip_protocol = std.meta.intToEnum(IPProtocol, hdr.protocol) catch {
+            print("unknown protocol: {x}\n", .{hdr.protocol});
+            return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
+        };
+
+        switch (ip_protocol) {
+            IPProtocol.ICMP => {
+                return try LayerIface.init(ICMP.ICMPLayer, LayerOwner{ .packet_layer = layer });
+            },
+
+            IPProtocol.TCP => {
+                return try LayerIface.init(TCP.TCPLayer, LayerOwner{ .packet_layer = layer });
+            },
+            IPProtocol.UDP => {
+                return try LayerIface.init(UDP.UDPLayer, LayerOwner{ .packet_layer = layer });
+            },
+        }
+    }
+
+    /// caller must free the memory
+    pub fn to_string(self: *IPv4Layer, allocator: Allocator) []const u8 {
+        const hdr = self.get_immutable_header();
+
+        const src_ip_str = hdr.get_src_ip().to_string(allocator) catch return "";
+        defer allocator.free(src_ip_str);
+
+        const dst_ip_str = hdr.get_dst_ip().to_string(allocator) catch return "";
+        defer allocator.free(dst_ip_str);
+
+        const version = (hdr.version_ihl >> 4);
+        const ihl = (hdr.version_ihl & 0x0F);
+        const dscp_ecn: u8 = hdr.dscp_ecn;
+
+        const identification: u16 = std.mem.bigToNative(u16, hdr.identification);
+        const flags_fragment: u16 = std.mem.bigToNative(u16, hdr.flags_fragment);
+        const total_length: u16 = std.mem.bigToNative(u16, hdr.total_length);
+        const checksum: u16 = std.mem.bigToNative(u16, hdr.checksum);
+
+        const ttl: u8 = hdr.ttl;
+        const protocol: u8 = hdr.protocol;
+
+        return std.fmt.allocPrint(
+            allocator,
+            "IP : ver: {} ihl: {} src: {s} dst: {s} dscp_ecn: {} total_length: {} id: {} flags_frag: {} ttl: {} protocol: {} checksum: 0x{x:0>4}",
+            .{
+                version,
+                ihl,
+                src_ip_str,
+                dst_ip_str,
+                dscp_ecn,
+                total_length,
+                identification,
+                flags_fragment,
+                ttl,
+                protocol,
+                checksum,
+            },
+        ) catch {
+            return "";
+        };
+    }
+
+    /// get the IP protocol. E.g. TCP, UDP, ICMP
+    pub fn get_ip_proto(self: *IPv4Layer) !IPProtocol {
+        const hdr = self.get_immutable_header();
+        return try std.meta.intToEnum(IPProtocol, hdr.protocol);
+    }
+
+    // set the IP protocol. E.g. TCP, UDP, ICMP
+    pub fn set_ip_proto(self: *IPv4Layer, protocol: IPProtocol) void {
+        var hdr = self.get_mutable_header();
+        hdr.protocol = @intFromEnum(protocol);
+    }
+
+    pub fn get_protocol(self: *IPv4Layer) tcp_ip_protocol {
+        _ = self;
+        return IPv4Layer.Protocol;
+    }
+
+    pub fn deinit(self: *IPv4Layer) void {
+        switch (self.owner) {
+            .packet_layer => {
+                return; // Layer in packet - don't free
+            },
+            .owned_buffer => |*buffer| {
+                return buffer.deinit(); // standalone layer - it is mutable by default
+            },
+        }
     }
 };
 
@@ -262,408 +640,6 @@ pub const IPOption = struct {
     }
 };
 
-/// IPv4 options can be added one at a time and removed all at once.
-pub const IPv4Layer = struct {
-    owner: LayerOwner,
-    const Protocol = tcp_ip_protocol.ipv4;
-
-    pub fn init(owner: LayerOwner) LayerError!IPv4Layer {
-        switch (owner) {
-            .packet_layer => {
-                return IPv4Layer{
-                    .owner = owner,
-                };
-            },
-            .owned_buffer => {
-                var self = IPv4Layer{ .owner = owner };
-                const buffer_len = self.owner.owned_buffer.buffer.items.len;
-                if (buffer_len < MinHeaderLength) {
-                    const ipv4_data = try self.owner.owned_buffer.extend(buffer_len, MinHeaderLength);
-
-                    @memset(ipv4_data, 0);
-
-                    var header = IPv4Header.init_default();
-
-                    @memcpy(ipv4_data[0..MinHeaderLength], std.mem.asBytes(&header));
-                }
-
-                return self;
-            },
-        }
-    }
-
-    /// use this when you want to zero the header to default values.
-    /// see IPv4Header.init_default()
-    pub fn zero_hdr(self: *IPv4Layer) !void {
-        var header = IPv4Header.init_default();
-        try self.remove_all_options();
-        const data = self.get_data();
-        const hdr_len = self.get_header_len();
-        const hdr_data = data[0..hdr_len];
-        @memcpy(hdr_data[0..MinHeaderLength], std.mem.asBytes(&header));
-    }
-
-    pub fn set_src_ip(self: *IPv4Layer, src_ip: IPv4Address) void {
-        var hdr = self.get_mutable_header();
-        hdr.src_ip = src_ip.array;
-    }
-
-    pub fn set_dst_ip(self: *IPv4Layer, dst_ip: IPv4Address) void {
-        var hdr = self.get_mutable_header();
-        hdr.dst_ip = dst_ip.array;
-    }
-
-    pub fn get_src_ip(self: *IPv4Layer) IPv4Address {
-        const hdr = self.get_immutable_header();
-        return IPv4Address.init_from_array(hdr.src_ip);
-    }
-
-    pub fn get_dst_ip(self: *IPv4Layer) IPv4Address {
-        const hdr = self.get_immutable_header();
-        return IPv4Address.init_from_array(hdr.dst_ip);
-    }
-
-    /// returns mutable slice of data (hdr+payload).
-    /// this will likely be made private in future to avoid accidental mutations
-    pub fn get_data(self: *const IPv4Layer) []u8 {
-        switch (self.owner) {
-            .packet_layer => |layer| {
-                return layer.get_data(); // Layer in packet - it might be mutable or immutable
-            },
-            .owned_buffer => {
-                return self.owner.owned_buffer.buffer.items; // standalone layer - it is mutable by default
-            },
-        }
-    }
-
-    /// return immutable slice of the payload
-    pub fn get_payload(self: *IPv4Layer) ?[]const u8 {
-        switch (self.owner) {
-            .packet_layer => |layer| {
-                return layer.get_payload(); // Layer in packet payload
-            },
-            .owned_buffer => {
-                return null;
-            },
-        }
-    }
-
-    /// calls get_payload and returns the length.
-    /// owned_buffer IPv4 layer will always return 0
-    pub fn get_payload_len(self: *IPv4Layer) usize {
-        if (self.get_payload()) |payload| {
-            return payload.len;
-        } else {
-            return 0;
-        }
-    }
-
-    //   pub fn get_first_option(self: *IPv4Layer) ?IPOption {
-    //       const ops_buf = self.get_options();
-    //       if (ops_buf.len > 0) {
-    //           // type
-    //           // len
-    //           // data
-    //           const end = ops_buf[2];
-    //           if (ops_buf.len <= end) {
-    //               const IPOpType: IPOptionType = @enumFromInt(ops_buf[0]);
-    //               const IPOp = IPOption.initNoData(IPOpType);
-    //               IPOp.length = end;
-    //               IPOp.data = ops_buf[3..@intCast(end)];
-    //               return IPOp;
-    //           } else {
-    //               return null;
-    //           }
-    //       } else {
-    //           return null;
-    //       }
-    //   }
-
-    pub fn get_options(self: *IPv4Layer) []const u8 {
-        const header_len = self.get_header_len();
-        //        const ops_start = header_len - MinHeaderLength;
-        return self.get_data()[MinHeaderLength..header_len];
-    }
-
-    /// not yet fully implemented - ideally pass a buffer instead of IPOption and Allocator - the allocator in this case is the one which the caller created for the IPOption
-    pub fn add_option(self: *IPv4Layer, option: IPOption, allocator: Allocator) !void {
-        const hdr = self.get_mutable_header();
-        const current_ihl: u8 = hdr.get_ihl();
-        const current_options_len: u8 = (current_ihl - 5) * 4;
-
-        const new_option_bytes: []u8 = try option.toBytes(allocator);
-        print("new options as bytes: ({}) {x}\n", .{ new_option_bytes.len, new_option_bytes });
-        defer allocator.free(new_option_bytes);
-
-        const new_options_len = current_options_len + new_option_bytes.len;
-        const new_ihl: usize = 5 + (new_options_len + 3) / 4;
-        const new_header_len = new_ihl * 4;
-        print("new header len: {}\n", .{new_header_len});
-
-        if (new_header_len > MaxHeaderLength) {
-            return error.OptionsTooLong;
-        }
-
-        const data = self.get_data();
-        var ops_buf: []u8 = undefined;
-
-        print("current data: {x}\n", .{data});
-
-        const current_header_len = self.get_header_len();
-
-        print("current header len: {}\n", .{current_header_len});
-
-        const extend_len = new_header_len - current_header_len;
-
-        print("extend len: {}\n", .{extend_len});
-
-        if (current_header_len < new_header_len) {
-            switch (self.owner) {
-                .packet_layer => |layer| {
-                    print("extending packet layer.\n", .{});
-                    print("new_options_len: {}\n", .{new_options_len});
-                    ops_buf = try layer.packet.extend_layer(layer, extend_len);
-                },
-                .owned_buffer => |*buffer| {
-                    print("extending from buffer.\n", .{});
-                    ops_buf = try buffer.extend(MinHeaderLength, extend_len); // temp - needs to extend from current ihl length not base header length
-                },
-            }
-        } else { // bad
-            print("data len was less than new_header_len. using data as ops_buf\n", .{});
-            ops_buf = data; //use existing buffer - not good
-            // TODO: refactor to avoid this
-        }
-
-        print("ops buf len: {} new_option_bytes len: {}\n", .{ ops_buf.len, new_option_bytes.len });
-
-        // the option type and data are not being returned in option.toBytes()
-        @memmove(ops_buf[0..new_options_len], new_option_bytes);
-
-        @memset(ops_buf[new_options_len..], 0); // zero the remaining bytes
-
-        const new_hdr = self.get_mutable_header(); // get header again because ptr to last initialised one got mutated
-
-        const new_header_length = self.get_header_len(); // data.len - payload.len
-        new_hdr.set_ihl(@intCast(new_header_length));
-    }
-
-    /// removes all IPv4 options by either calling the owning Packets shorten_layer method
-    /// or shorting the owned_buffer
-    /// in both cases, the IHL is set to default (5 / 20 bytes)
-    pub fn remove_all_options(self: *IPv4Layer) !void {
-        const current_ihl: usize = @intCast(self.get_header_len());
-
-        const ops_len = current_ihl - MinHeaderLength;
-
-        switch (self.owner) {
-            .packet_layer => |layer| {
-                try layer.packet.shorten_layer(layer, MinHeaderLength, ops_len);
-            },
-            .owned_buffer => |*buffer| {
-                try buffer.shorten(MinHeaderLength, ops_len);
-            },
-        }
-
-        const new_hdr = self.get_mutable_header(); // get header again because ptr to to last initialised one got mutated
-        const new_data = self.get_header_len(); // data.len - payload.len
-        new_hdr.set_ihl(@intCast(new_data));
-    }
-
-    /// returns the checksum of the IPv4 header in native endian.
-    pub fn get_checksum(self: *IPv4Layer) u16 {
-        const hdr = self.get_immutable_header();
-        return std.mem.bigToNative(u16, hdr.checksum);
-    }
-
-    /// for internal use when the IPv4 header doesn't round to 4 byte
-    /// e.g. when an option is added
-    fn pad_buffer(self: *IPv4Layer) !void {
-        const hdr_len = self.get_header_len();
-
-        const pad_bytes_required: usize = 4 - (hdr_len % 4);
-
-        print("pad_bytes_required: {}\n", .{pad_bytes_required});
-
-        if (pad_bytes_required > 0) {
-            var pad_buf: []u8 = undefined;
-
-            switch (self.owner) {
-                .packet_layer => |layer| {
-                    pad_buf = try layer.packet.extend_layer(layer, pad_bytes_required);
-                },
-                .owned_buffer => |*buffer| {
-                    pad_buf = try buffer.extend(MinHeaderLength, pad_bytes_required); // temp - needs to extend from current ihl length not base header length
-                },
-            }
-
-            @memset(pad_buf, 0);
-
-            const new_hdr_len: usize = self.get_header_len();
-
-            var hdr = self.get_mutable_header();
-
-            hdr.set_ihl(@intCast(new_hdr_len));
-        }
-    }
-
-    /// calculates checksum by setting ihl (version bit) to header len
-    /// calculates total length (ipv4.total_length)
-    /// calls the checksum calculation function in the IPv4 header (see IPv4Header.calculate_checksum())
-    pub fn calculate_checksum(self: *IPv4Layer) !void {
-        var hdr = self.get_mutable_header();
-
-        const new_data = self.get_header_len(); // temp - need to compute data.len - payload.len
-        hdr.set_ihl(@intCast(new_data));
-        self.calculate_length();
-        hdr.calculate_checksum();
-    }
-
-    /// takes total data (hdr+payload) length and sets the IPv4 header's total length field to that result
-    pub fn calculate_length(self: *IPv4Layer) void {
-        var hdr = self.get_mutable_header();
-        const data = self.get_data();
-        hdr.total_length = std.mem.nativeToBig(u16, @as(u16, @intCast(data.len)));
-    }
-
-    /// gets length from the IPv4 header - not gaurenteed to be accurate (malformed, incomplete layers etc)
-    pub fn get_length(self: *IPv4Layer) u16 {
-        const hdr = self.get_immutable_header();
-        const total_length = hdr.total_length;
-        return std.mem.nativeToBig(u16, @as(u16, @intCast(total_length)));
-    }
-
-    /// for Packet owned IPv4Layer: gets length of total data (hdr+payload) and subtracts the payload
-    /// for self owned layer: takes total length of data (payload not included because it doesnt't have one)
-    pub fn get_header_len(self: *IPv4Layer) usize {
-        const payload_len = self.get_payload_len();
-        print("payload len: {}\n", .{payload_len});
-        const data = self.get_data();
-        print("data len: {}\n", .{data.len});
-        return data.len - payload_len;
-    }
-
-    pub fn get_ttl(self: *IPv4Layer) u8 {
-        const hdr = self.get_mutable_header();
-        return hdr.ttl;
-    }
-
-    pub fn set_ttl(self: *IPv4Layer, ttl: u8) void {
-        const hdr = self.get_mutable_header();
-        hdr.ttl = ttl;
-    }
-
-    pub fn get_mutable_header(self: *const IPv4Layer) *IPv4Header {
-        const data = self.get_data();
-
-        if (data.len < MinHeaderLength) { // this is reasonably recoverable so shouldn't panic. Perhaps just revert the layer to an ApplicationLayer
-            panic("IPv4 data len ({}) less than IPv4HeaderSize", .{data.len});
-        }
-
-        const aligned_ptr: [*]align(@alignOf(IPv4Header)) u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
-    }
-
-    pub fn get_immutable_header(self: *const IPv4Layer) *const IPv4Header {
-        const data: []const u8 = self.get_data();
-
-        if (data.len < MinHeaderLength) { // this is reasonably recoverable so shouldn't panic. Perhaps just revert the layer to an ApplicationLayer
-            panic("IPv4 data len ({}) less than IPv4HeaderSize", .{data.len});
-        }
-
-        const aligned_ptr: [*]align(@alignOf(IPv4Header)) const u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
-    }
-
-    pub fn get_next_layer_type(self: *const IPv4Layer, layer: *Packet.Layer) !?LayerIface {
-        const data = self.get_data();
-
-        if (data.len < @sizeOf(IPv4Header)) return error.BufferTooSmall;
-
-        const hdr = self.get_immutable_header();
-
-        const ip_protocol = std.meta.intToEnum(IPProtocol, hdr.protocol) catch {
-            return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
-        };
-
-        switch (ip_protocol) {
-            IPProtocol.ICMP => {
-                return try LayerIface.init(ICMP.ICMPLayer, LayerOwner{ .packet_layer = layer });
-            },
-
-            IPProtocol.TCP => {
-                return try LayerIface.init(TCP.TCPLayer, LayerOwner{ .packet_layer = layer });
-            },
-            IPProtocol.UDP => {
-                return try LayerIface.init(UDP.UDPLayer, LayerOwner{ .packet_layer = layer });
-            },
-        }
-    }
-
-    /// caller must free the memory
-    pub fn to_string(self: *IPv4Layer, allocator: Allocator) []const u8 {
-        const hdr = self.get_immutable_header();
-
-        const src_ip_str = self.get_src_ip().to_string(allocator) catch return "";
-        defer allocator.free(src_ip_str);
-
-        const dst_ip_str = self.get_dst_ip().to_string(allocator) catch return "";
-        defer allocator.free(dst_ip_str);
-
-        const version = (hdr.version_ihl >> 4);
-        const ihl = (hdr.version_ihl & 0x0F);
-        const dscp_ecn: u8 = hdr.dscp_ecn;
-
-        const identification: u16 = std.mem.bigToNative(u16, hdr.identification);
-        const flags_fragment: u16 = std.mem.bigToNative(u16, hdr.flags_fragment);
-        const total_length: u16 = std.mem.bigToNative(u16, hdr.total_length);
-        const checksum: u16 = std.mem.bigToNative(u16, hdr.checksum);
-
-        const ttl: u8 = hdr.ttl;
-        const protocol: u8 = hdr.protocol;
-
-        return std.fmt.allocPrint(
-            allocator,
-            "IP : ver: {} ihl: {} src: {s} dst: {s} dscp_ecn: {} total_length: {} id: {} flags_frag: {} ttl: {} protocol: {} checksum: 0x{x:0>4}",
-            .{
-                version,
-                ihl,
-                src_ip_str,
-                dst_ip_str,
-                dscp_ecn,
-                total_length,
-                identification,
-                flags_fragment,
-                ttl,
-                protocol,
-                checksum,
-            },
-        ) catch return "";
-    }
-
-    /// get the IP protocol. E.g. TCP, UDP, ICMP
-    pub fn get_ip_proto(self: *IPv4Layer) !IPProtocol {
-        const hdr = self.get_immutable_header();
-        return try std.meta.intToEnum(IPProtocol, hdr.protocol);
-    }
-
-    // set the IP protocol. E.g. TCP, UDP, ICMP
-    pub fn set_ip_proto(self: *IPv4Layer, protocol: IPProtocol) void {
-        var hdr = self.get_mutable_header();
-        hdr.protocol = @intFromEnum(protocol);
-    }
-
-    pub fn get_protocol(self: *IPv4Layer) tcp_ip_protocol {
-        _ = self;
-        return IPv4Layer.Protocol;
-    }
-
-    pub fn deinit(self: *IPv4Layer, allocator: std.mem.Allocator) void {
-        allocator.free(self.data);
-        allocator.destroy(self);
-    }
-};
-
 pub const IPv4Address = struct {
     array: [4]u8,
 
@@ -735,7 +711,7 @@ pub const IPv4Address = struct {
         return .{ .array = octets };
     }
 
-    pub fn to_string(self: IPv4Address, allocator: std.mem.Allocator) ![]u8 {
+    pub fn to_string(self: IPv4Address, allocator: Allocator) ![]u8 {
         return std.fmt.allocPrint(
             allocator,
             "{d}.{d}.{d}.{d}",

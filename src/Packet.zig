@@ -37,7 +37,6 @@ pub const Layer = struct {
 
     pub fn get_data(self: *Layer) []u8 {
         return self.packet.buffer.buffer.items[self.offset..];
-        //return self.packet.buffer.get_mutable_slice(self.offset, self.packet.buffer.get_len());
     }
 
     /// get the Layers payload as a const slice. It's const because it adheres to the API design in that modifications should be made through the layers concrete layer type
@@ -50,8 +49,10 @@ pub const Layer = struct {
         }
     }
 
-    pub fn to_string(self: *Layer, allocator: Allocator) void {
-        print("{s}\n", .{self.layer_iface.to_string(allocator)});
+    pub fn to_string(self: *Layer, allocator: Allocator) []const u8 {
+        const str = self.layer_iface.to_string(allocator);
+        //print("{s}\n", .{self.layer_iface.to_string(allocator)});
+        return str;
     }
 };
 
@@ -62,7 +63,8 @@ pub const Packet = struct {
     last_layer: ?*Layer,
     // *Packet // encapsulation? e.g. VPN packets etc
 
-    /// Creates an empty Packet - alloc's zero bytes to aligned buffer initially
+    /// Creates an empty Packet by creating it's internal buffer using the first (buffer allocator) passed
+    /// the second allocator is used to create the layer structs (you can pass the same allocator if you want)
     pub fn create(buffer_allocator: Allocator, layer_allocator: Allocator) !Packet {
         return Packet{
             .layer_allocator = layer_allocator,
@@ -73,8 +75,10 @@ pub const Packet = struct {
     }
 
     /// Packet must be created with .create first. raw_data will be overwritten with the RawData provided
-    pub fn from_raw(self: *Packet, data: []align(2) u8, link_type: link_layer_type) !void {
-        self.buffer.buffer.items = data;
+    pub fn from_raw(self: *Packet, data: []u8, link_type: link_layer_type) !void {
+        //        self.buffer.buffer.items = data;
+
+        try self.buffer.buffer.appendSlice(self.buffer.allocator, data);
 
         const first_layer = try self.layer_allocator.create(Layer); // create layer struct
 
@@ -82,7 +86,7 @@ pub const Packet = struct {
             return error.LinkLayerCreationFailed;
         };
 
-        first_layer.* = Layer.init(0, self.buffer.buffer.items.len, link_layer, self);
+        first_layer.* = Layer.init(0, first_layer.length, link_layer, self);
 
         self.first_layer = first_layer;
 
@@ -102,6 +106,7 @@ pub const Packet = struct {
                 return try LayerIface.init(GenericLayer.ApplicationLayer, LayerOwner{ .packet_layer = layer });
             }
 
+            layer.length = IPv4.MinHeaderLength; // TODO: use actual header length
             return try LayerIface.init(IPv4.IPv4Layer, LayerOwner{ .packet_layer = layer });
         }
 
@@ -109,6 +114,7 @@ pub const Packet = struct {
             if (raw.len < IPv6.IPv6HeaderSize) {
                 return error.HeaderTooSmall;
             }
+            layer.length = IPv6.IPv6HeaderSize;
             return try LayerIface.init(IPv6.IPv6Layer, LayerOwner{ .packet_layer = layer });
         } else {
             print("Unknown link type.\n", .{});
@@ -119,6 +125,7 @@ pub const Packet = struct {
     fn create_first_layer(raw: []const u8, link_type: link_layer_type, layer: *Layer) !?LayerIface {
         switch (link_type) {
             .ETHERNET => {
+                layer.length = Eth.EthHeaderSize;
                 return try LayerIface.init(Eth.EthLayer, LayerOwner{ .packet_layer = layer });
             },
             .RAW => {
@@ -139,8 +146,6 @@ pub const Packet = struct {
         while (cur) |current_layer| {
             const next_layer: *Layer = try self.layer_allocator.create(Layer);
 
-            print("current layer: {any}\n", .{current_layer.layer_iface.get_protocol()});
-
             const impl_layer = blk: {
                 const result = current_layer.layer_iface.get_next_layer(next_layer) catch |err| {
                     print("error getting next layer: {}\n", .{err});
@@ -158,15 +163,16 @@ pub const Packet = struct {
                 }
             };
 
-            const current_layer_len = current_layer.length;
-
             const next_layer_len = current_layer.get_payload().len;
 
-            next_layer.* = Layer.init(current_layer_len, next_layer_len, impl_layer, self);
+            next_layer.* = Layer.init(current_layer.length, next_layer_len, impl_layer, self);
 
-            current_layer.length = current_layer_len - next_layer_len;
+            var next_layer_payload_len: usize = 0;
+            if (next_layer.layer_iface.get_payload()) |payload| {
+                next_layer_payload_len = payload.len;
+            }
 
-            next_layer.offset = current_layer.length + current_layer.offset;
+            next_layer.offset = current_layer.length;
 
             // Set up the linked list pointers
             next_layer.prev_layer = current_layer;
@@ -211,18 +217,6 @@ pub const Packet = struct {
         @memmove(layer_buffer, data);
 
         return true; // tbh it probably shouldn't even need to return a true, just void with error union
-    }
-
-    pub fn to_string(self: *Packet, allocator: Allocator) !void {
-        var cur = self.first_layer;
-        while (cur) |layer| {
-            const str: []const u8 = layer.layer_iface.to_string(allocator);
-
-            print("{s}\n", .{str});
-
-            // TODO: add the defer free of the returned slice - why is it causing double free?
-            cur = layer.next_layer;
-        }
     }
 
     pub fn get_layer_of_type(self: *Packet, layer_type: anytype) ?*layer_type {
@@ -281,20 +275,13 @@ pub const Packet = struct {
     pub fn shorten_layer(self: *Packet, layer: *Layer, offset: usize, length: usize) !void {
         const shorten_offset = layer.offset + offset;
 
-        print("shorten offset: {} length: {}\n", .{ shorten_offset, length });
-
-        self.print_layers_meta();
-
         try self.buffer.shorten(shorten_offset, length);
 
         layer.length -= length;
 
         var cur = layer.next_layer;
         while (cur) |next| {
-            print("current layer {any} {} {} \n", .{ next.layer_iface.get_protocol(), next.offset, next.length });
             next.offset -= length;
-            print("layer adjusted {any} {} {} \n", .{ next.layer_iface.get_protocol(), next.offset, next.length });
-            //next.length -= length;
             cur = next.next_layer;
         }
     }
@@ -447,17 +434,32 @@ pub const Packet = struct {
         }
     }
 
-    /// destroys protocol layers linkedlist. The buffer is not freed.
+    /// calls each layers to_string method and appends to an ArrayList, returning an ownedSlice of that ArrayList
+    pub fn to_string(self: *Packet, allocator: Allocator) ![]const u8 {
+        var buffer: std.ArrayList(u8) = .empty;
+        var cur = self.first_layer;
+        while (cur) |layer| {
+            const returned_str = layer.layer_iface.to_string(allocator);
+            defer allocator.free(returned_str);
+            try buffer.appendSlice(allocator, returned_str);
+
+            // TODO: add the defer free of the returned slice - why is it causing double free?
+            cur = layer.next_layer;
+        }
+
+        return buffer.toOwnedSlice(allocator);
+    }
+
+    /// deinits by destroying layer structs and deiniting (freeing) the packets Buffer
     pub fn deinit(self: *Packet) void {
         var cur = self.first_layer;
 
         while (cur) |layer| {
             const next = layer.next_layer;
-            //print("destroying: {any}\n", .{layer.layer_iface.get_protocol()});
             self.layer_allocator.destroy(layer);
             cur = next;
         }
 
-        // free buffer?
+        self.buffer.deinit();
     }
 };

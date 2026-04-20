@@ -128,13 +128,13 @@ pub const EthLayer = struct {
         return data;
     }
 
-    fn get_mutable_header(self: *const EthLayer) *EthHeader {
+    pub fn get_mutable_header(self: *const EthLayer) *EthHeader {
         const data = self.get_data();
         const aligned_ptr: [*]align(@alignOf(EthHeader)) u8 = @alignCast(data.ptr);
         return @ptrCast(aligned_ptr);
     }
 
-    fn get_immutable_header(self: *const EthLayer) *const EthHeader {
+    pub fn get_immutable_header(self: *const EthLayer) *const EthHeader {
         const data: []const u8 = self.get_data();
 
         if (data.len < EthHeaderSize) {
@@ -146,22 +146,21 @@ pub const EthLayer = struct {
     }
 
     pub fn to_string(self: *const EthLayer, allocator: Allocator) []const u8 {
-        const src_mac = self.get_src_mac().to_string(allocator) catch |err| blk: {
+        const hdr = self.get_immutable_header();
+        const src_mac = hdr.get_src_mac().to_string(allocator) catch |err| blk: {
             std.debug.print("src_mac to_string failed: {s}\n", .{@errorName(err)});
             break :blk "";
         };
         defer if (src_mac.len != 0) allocator.free(src_mac);
 
-        const dst_mac = self.get_dst_mac().to_string(allocator) catch |err| blk: {
+        const dst_mac = hdr.get_dst_mac().to_string(allocator) catch |err| blk: {
             std.debug.print("dst_mac to_string failed: {s}\n", .{@errorName(err)});
             break :blk "";
         };
         defer if (dst_mac.len != 0) allocator.free(dst_mac);
 
-        const eth_type = self.get_eth_type() catch {
-            print("ethtype {any} is invalid.\n", .{});
-            return;
-        };
+        const eth_type = hdr.get_eth_type();
+
         const eth_type_str = @tagName(eth_type);
 
         const result = std.fmt.allocPrint(
@@ -191,13 +190,14 @@ pub const EthLayer = struct {
     }
 
     /// return mutable slice of the payload
-    pub fn get_payload(self: *const EthLayer) ?[]const u8 { // needs to return RawData
-        const data: []const u8 = self.get_data();
-        //    print("data {x}\n", .{data});
-        if (data.len > EthHeaderSize) {
-            return data[EthHeaderSize..];
-        } else {
-            return null;
+    pub fn get_payload(self: *EthLayer) ?[]const u8 {
+        switch (self.owner) {
+            .packet_layer => |layer| {
+                return layer.get_payload(); // Layer in packet payload
+            },
+            .owned_buffer => {
+                return null;
+            },
         }
     }
 
@@ -249,43 +249,20 @@ pub const EthLayer = struct {
         }
     }
 
-    pub fn get_src_mac(self: *const EthLayer) MacAddress {
-        const hdr = self.get_immutable_header();
-        return hdr.get_src_mac();
-    }
-
-    pub fn get_dst_mac(self: *const EthLayer) MacAddress {
-        const hdr = self.get_immutable_header();
-        return hdr.get_dst_mac();
-    }
-
-    pub fn set_src_mac(self: *EthLayer, src_mac: MacAddress) void {
-        var hdr = self.get_mutable_header();
-        hdr.set_src_mac(src_mac);
-    }
-
-    pub fn set_dst_mac(self: *EthLayer, dst_mac: MacAddress) void {
-        var hdr = self.get_mutable_header();
-        hdr.set_dst_mac(dst_mac);
-    }
-
-    pub fn get_eth_type(self: *const EthLayer) !EthType {
-        const hdr = self.get_immutable_header();
-        return hdr.get_eth_type();
-    }
-
-    pub fn set_eth_type(self: *EthLayer, eth_type: EthType) void {
-        var hdr = self.get_mutable_header();
-        hdr.set_eth_type(eth_type);
-    }
-
     pub fn get_protocol(self: *EthLayer) tcp_ip_protocol {
         _ = self;
         return EthLayer.Protocol;
     }
 
-    pub fn deinit(self: *EthLayer, allocator: std.mem.Allocator) void {
-        allocator.destroy(self);
+    pub fn deinit(self: *EthLayer) void {
+        switch (self.owner) {
+            .packet_layer => {
+                return; // Layer in packet - don't free
+            },
+            .owned_buffer => |*buffer| {
+                return buffer.deinit(); // standalone layer - it is mutable by default
+            },
+        }
     }
 };
 

@@ -10,18 +10,18 @@ const UDP = @import("UDP.zig");
 const TCP = @import("TCP.zig");
 const ARP = @import("ARP.zig");
 const ICMP = @import("ICMP.zig");
+const DNS = @import("DNS.zig");
 const GenericLayer = @import("GenericLayer.zig");
 
 const LayerOwner = @import("Layer.zig").LayerOwner;
 
 const Allocator = std.mem.Allocator;
 
-const RawData = @import("RawData.zig").RawData;
-
 const LayerError = @import("ProtocolEnums.zig").LayerError;
 
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 
+/// soon to be converted to a vtable style polymorphic interface to handle protocol plugins
 pub const LayerIface = union(enum) {
     ethLayer: Eth.EthLayer,
     //  loopbackLayer: LoopBack.LoopBackLayer,
@@ -29,10 +29,13 @@ pub const LayerIface = union(enum) {
     //  ipv6Layer: IPv6.IPv6Layer,
     udpLayer: UDP.UDPLayer,
     //  tcpLayer: TCP.TCPLayer,
-    //  arpLayer: ARP.ARPLayer,
-    //  icmpLayer: ICMP.ICMPLayer,
+    arpLayer: ARP.ARPLayer,
+    icmpLayer: ICMP.ICMPLayer,
+    dnsLayer: DNS.DNSLayer,
     genericAppLayer: GenericLayer.ApplicationLayer,
 
+    /// inits the layer
+    /// copies the owner struct - dont try to get the layer buffer from your original owner struct
     pub fn init(choice: type, owner: LayerOwner) LayerError!LayerIface {
         switch (choice) {
             Eth.EthLayer => return LayerIface{ .ethLayer = try Eth.EthLayer.init(owner) },
@@ -41,8 +44,9 @@ pub const LayerIface = union(enum) {
             //         IPv6.IPv6Layer => return LayerIface{ .ipv6Layer = try IPv6.IPv6Layer.init(owner) },
             UDP.UDPLayer => return LayerIface{ .udpLayer = try UDP.UDPLayer.init(owner) },
             //         TCP.TCPLayer => return LayerIface{ .tcpLayer = try TCP.TCPLayer.init(owner) },
-            //         ARP.ARPLayer => return LayerIface{ .arpLayer = try ARP.ARPLayer.init(owner) },
-            //         ICMP.ICMPLayer => return LayerIface{ .icmpLayer = try ICMP.ICMPLayer.init(owner) },
+            ARP.ARPLayer => return LayerIface{ .arpLayer = try ARP.ARPLayer.init(owner) },
+            ICMP.ICMPLayer => return LayerIface{ .icmpLayer = try ICMP.ICMPLayer.init(owner) },
+            DNS.DNSLayer => return LayerIface{ .dnsLayer = try DNS.DNSLayer.init(owner) },
             GenericLayer.ApplicationLayer => return LayerIface{ .genericAppLayer = try GenericLayer.ApplicationLayer.init(owner) },
             else => return LayerError.LayerInvalid,
         }
@@ -56,46 +60,70 @@ pub const LayerIface = union(enum) {
             //        .ipv6Layer => LayerIface{ .ipv6Layer = try IPv6.IPv6Layer.init(owner) },
             .udpLayer => LayerIface{ .udpLayer = try UDP.UDPLayer.init(owner) },
             //        .tcpLayer => LayerIface{ .tcpLayer = try TCP.TCPLayer.init(owner) },
-            //        .arpLayer => LayerIface{ .arpLayer = try ARP.ARPLayer.init(owner) },
-            //        .icmpLayer => LayerIface{ .icmpLayer = try ICMP.ICMPLayer.init(owner) },
+            .arpLayer => LayerIface{ .arpLayer = try ARP.ARPLayer.init(owner) },
+            .icmpLayer => LayerIface{ .icmpLayer = try ICMP.ICMPLayer.init(owner) },
+            .dnsLayer => LayerIface{ .dnsLayer = try DNS.DNSLayer.init(owner) },
             .genericAppLayer => LayerIface{ .genericAppLayer = try GenericLayer.ApplicationLayer.init(owner) },
         };
         self.* = new_instance;
     }
 
+    /// calls the concrete layers get_next_layer method.
+    /// mostly used for Packet to accumulate all layers from slices
+    /// can be used when a layer is standalone but isn't recommended
     pub fn get_next_layer(self: *LayerIface, next_layer: *Packet.Layer) !?LayerIface {
         return switch (self.*) {
             inline else => |*layer| try layer.get_next_layer_type(next_layer),
         };
     }
 
+    /// returns the protocol of the concrete layer which it's interfacing over
+    /// e.g. TCPLayer is tcp_ip_protocol.tcp
     pub fn get_protocol(self: *LayerIface) !tcp_ip_protocol {
         return switch (self.*) {
             inline else => |*layer| layer.get_protocol(),
         };
     }
 
+    /// returns the ptr to the concrete layer
     pub fn ptr(self: *LayerIface) *anyopaque {
         return switch (self.*) {
             inline else => |*layer| @ptrCast(layer),
         };
     }
 
+    /// calls the concrete layers to_string method
+    /// caller needs to free
     pub fn to_string(self: *LayerIface, allocator: Allocator) []const u8 {
         return switch (self.*) {
             inline else => |*layer| layer.to_string(allocator),
         };
     }
 
+    /// return the data (header+payload) from the layer.
+    /// depending on if the layer is owned by a Packet then the Packet will get the layers data using it's offset in the packet buffer
+    /// if the layer is standalone (with owned_buffer owner) then the data from the buffer is just returned
     pub fn get_data(self: *LayerIface) []u8 {
         return switch (self.*) {
             inline else => |*layer| layer.get_data(),
         };
     }
 
+    /// return the payload (data[hdr_len..]) from the layer.
+    /// depending on if the layer is owned by a Packet then the Packet will get the layers payload using it's offset+length in the packet buffer
+    /// if the layer is standalone (with owned_buffer owner) then it will always return null
     pub fn get_payload(self: *LayerIface) ?[]const u8 {
         return switch (self.*) {
             inline else => |*layer| layer.get_payload(),
+        };
+    }
+
+    /// calls the concrete layers deinit method.
+    /// only deinit's standalone layers
+    /// does nothing for Packet owned layers
+    pub fn deinit(self: *LayerIface) void {
+        return switch (self.*) {
+            inline else => |*layer| layer.deinit(),
         };
     }
 };

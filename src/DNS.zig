@@ -7,6 +7,14 @@ const LayerError = @import("ProtocolEnums.zig").LayerError;
 
 const LayerOwner = @import("Layer.zig").LayerOwner;
 
+const Layer = @import("Packet.zig").Layer;
+
+const LayerIface = @import("LayerIface.zig").LayerIface;
+
+const Buffer = @import("Buffer.zig").Buffer;
+
+const IPv4 = @import("IPv4.zig");
+
 pub const QueryType = enum(u16) {
     A = 1, // IPv4 address record
     NS = 2, // Name Server record
@@ -98,44 +106,236 @@ pub const DnsClass = enum(u16) {
     }
 };
 
-const DNSQuery = struct {
-    qname: []u8,
-    qtype: u16,
-    qclass: u16,
-    next: ?*DNSQuery,
+pub const QueryOwner = union(enum) {
+    dns_layer: *DNSLayer,
+    buffer: Buffer,
+};
+
+pub const DNSQuery = struct {
+    qtype: QueryType,
+    qclass: DnsClass,
+    buffer: Buffer,
+
+    pub fn init(qname: []const u8, qtype: QueryType, qclass: DnsClass, allocator: Allocator) !DNSQuery {
+        var self = DNSQuery{ .qtype = undefined, .qclass = undefined, .buffer = .init_empty(allocator) };
+        const extend_len = qname.len + 6;
+
+        var query_buf = try self.extend_query_buf(extend_len);
+
+        // Slice buffer starting at offset
+        var qbuffer = query_buf[0..];
+
+        // Write QNAME (labels)
+        var buf_offset: usize = 0;
+        var it = std.mem.splitScalar(u8, qname, '.');
+        while (it.next()) |label| {
+            qbuffer[buf_offset] = @intCast(label.len);
+            buf_offset += 1;
+            std.mem.copyForwards(u8, qbuffer[buf_offset .. buf_offset + label.len], label);
+            buf_offset += label.len;
+        }
+        qbuffer[buf_offset] = 0; // null terminator
+        buf_offset += 1;
+
+        // Write QTYPE
+        std.mem.writeInt(u16, @ptrCast(qbuffer[buf_offset .. buf_offset + 2]), @intCast(@intFromEnum(qtype)), .big);
+        buf_offset += 2;
+
+        // Write QCLASS
+        std.mem.writeInt(u16, @ptrCast(qbuffer[buf_offset .. buf_offset + 2]), @intCast(@intFromEnum(qclass)), .big);
+        buf_offset += 2;
+
+        self.qtype = qtype;
+        self.qclass = qclass;
+
+        return self;
+    }
+
+    pub fn get_data(self: *DNSQuery) []u8 {
+        return self.buffer.buffer.items;
+    }
+
+    /// doesn't work yet
+    pub fn decode_name(self: *DNSQuery) ![]const u8 {
+        var offset: usize = 0;
+        const raw = self.get_data();
+        const start = offset;
+        var end = start;
+
+        // Single-byte pointer compression support
+        if (end >= raw.len)
+            return error.InvalidPacket;
+
+        if ((raw[end] & 0xC0) == 0xC0) {
+            // pointer: 2 bytes
+            if (end + 1 >= raw.len)
+                return error.InvalidPacket;
+            offset += 2;
+            return raw[end .. end + 2]; // just return the pointer slice for now
+        } else {
+            // label sequence
+            while (end < raw.len and raw[end] != 0) : (end += raw[end] + 1) {}
+            if (end >= raw.len)
+                return error.InvalidPacket;
+            offset = end + 1; // move past null terminator
+            return raw[start..offset];
+        }
+    }
+
+    pub fn extend_query_buf(self: *DNSQuery, length: usize) ![]u8 {
+        return try self.buffer.extend(0, length);
+    }
+
+    pub fn deinit(self: *DNSQuery) void {
+        self.buffer.deinit();
+    }
 
     pub const QError = error{
-        InvalidPacket, // Generic malformed DNS packet
+        //        InvalidPacket, // Generic malformed DNS packet
         LabelTooLong, // A label length exceeds the remaining buffer
-        UnexpectedEndOfPacket, // Reached end of packet unexpectedly
+        //        UnexpectedEndOfPacket, // Reached end of packet unexpectedly
         MemoryAllocationFailed, // Allocator failed to create a node
-        TooManyQuestions, // qdcount is unusually large
+        //        TooManyQuestions, // qdcount is unusually large
         InvalidQType, // QTYPE field invalid
         InvalidQClass, // QCLASS field invalid
     };
 };
 
 pub const DNSAnswer = struct {
-    rtype: u16,
-    class: u16,
+    qtype: QueryType,
+    qclass: DnsClass,
     ttl: u32,
     rdlength: u16,
-    rdata: []u8,
-    next: ?*DNSAnswer,
+    buffer: Buffer,
+
+    pub fn init(qtype: QueryType, qclass: DnsClass, ttl: u32, rdlength: u16, allocator: Allocator) DNSAnswer {
+        const self = DNSAnswer{ .qtype = qtype, .qclass = qclass, .ttl = ttl, .rdlength = rdlength, .buffer = .init_empty(allocator) };
+        return self;
+    }
+};
+
+const DNSRcode = enum(u4) {
+    NoError = 0,
+    FormatError = 1,
+    ServerFailure = 2,
+    NameError = 3,
+    NotImplemented = 4,
+    Refused = 5,
+    YXDomain = 6,
+    YXRRSet = 7,
+    NXRRSet = 8,
+    NotAuth = 9,
+    NotZone = 10,
+    Reserved11 = 11,
+    Reserved12 = 12,
+    Reserved13 = 13,
+    Reserved14 = 14,
+    Reserved15 = 15,
+    _,
+
+    pub fn name(self: DNSRcode) []const u8 {
+        return switch (self) {
+            .NoError => "NOERROR",
+            .FormatError => "FORMERR",
+            .ServerFailure => "SERVFAIL",
+            .NameError => "NXDOMAIN",
+            .NotImplemented => "NOTIMP",
+            .Refused => "REFUSED",
+            .YXDomain => "YXDOMAIN",
+            .YXRRSet => "YXRRSET",
+            .NXRRSet => "NXRRSET",
+            .NotAuth => "NOTAUTH",
+            .NotZone => "NOTZONE",
+            else => "RESERVED",
+        };
+    }
+};
+
+const DNSOpcode = enum(u4) {
+    Query = 0,
+    IQuery = 1,
+    Status = 2,
+    Reserved3 = 3,
+    Notify = 4,
+    Update = 5,
+    Dso = 6,
+    // 7-15 are reserved
+
+    pub fn name(self: DNSOpcode) []const u8 {
+        return switch (self) {
+            .Query => "QUERY",
+            .IQuery => "IQUERY",
+            .Status => "STATUS",
+            .Notify => "NOTIFY",
+            .Update => "UPDATE",
+            .Dso => "DSO",
+            else => "RESERVED",
+        };
+    }
+
+    pub fn description(self: DNSOpcode) []const u8 {
+        return switch (self) {
+            .Query => "Standard query",
+            .IQuery => "Inverse query (obsolete)",
+            .Status => "Server status request",
+            .Notify => "Zone change notification",
+            .Update => "Dynamic update",
+            .Dso => "DNS Stateful Operations",
+            else => "Reserved for future use",
+        };
+    }
+};
+
+pub const DNSHeaderFlags = packed struct {
+    rcode: u4 = 0, // Response Code
+    z: u3 = 0, // Reserved (must be 0)
+    ra: u1 = 0, // Recursion Available
+    rd: u1 = 0, // Recursion Desired
+    tc: u1 = 0, // Truncation
+    aa: u1 = 0, // Authoritative Answer
+    opcode: u4 = 0, // Operaiton Code
+    qr: u1 = 0, // Query/Response
+
+    /// Set the Response Code of the DNSHeader
+    /// Common resonse codes can be found in DNS.DNSRcode
+    /// the enum isn't explicitly required here but @intFromEnum can be used for convenience
+    pub fn set_rcode(self: *DNSHeaderFlags, rcode: u4) void {
+        self.rcode = rcode;
+    }
+
+    /// Set Recursion Available
+    /// can be either 1 for "true"/yes and 0 for "false"/no
+    pub fn set_ra(self: *DNSHeaderFlags, ra: u1) void {
+        self.ra = ra;
+    }
+
+    /// Set Recursion Desired
+    /// can be either 1 for "true"/yes and 0 for "false"/no
+    pub fn set_rd(self: *DNSHeaderFlags, rd: u1) void {
+        self.rd = rd;
+    }
+
+    /// Set Truncation
+    /// can be either 1 for "true"/yes and 0 for "false"/no
+    pub fn set_tc(self: *DNSHeaderFlags, rc: u1) void {
+        self.rc = rc;
+    }
+
+    /// Set Authoritative Answer
+    /// can be either 1 for "true"/yes and 0 for "false"/no
+    pub fn set_aa(self: *DNSHeaderFlags, aa: u1) void {
+        self.aa = aa;
+    }
+
+    /// Set Operation Code
+    /// Common operation codes can be found in DNS.DNSOpcode
+    /// the enum isn't explicitly required here but @intFromEnum can be used for convenience
+    pub fn set_opcode(self: *DNSHeaderFlags, opcode: u4) void {
+        self.opcode = opcode;
+    }
 };
 
 const DNSHeaderSize: usize = 12;
-
-pub const DNSHeaderFlags = packed struct {
-    rcode: u4 = 0, // 4 bits
-    z: u3 = 0, // 3 bits
-    ra: u1 = 0, // 1 bit
-    rd: u1 = 0, // 1 bit
-    tc: u1 = 0, // 1 bit
-    aa: u1 = 0, // 1 bit
-    opcode: u4 = 0, // 4 bits
-    qr: u1 = 0, // 1 bit
-};
 
 pub const DNSHeader = extern struct {
     id: u16, // Identification
@@ -153,11 +353,13 @@ pub const DNSHeader = extern struct {
         return @byteSwap(self.id);
     }
 
+    /// sets qdcount to the value provided as BE
     pub fn set_qdcount(self: *DNSHeader, qdcount: u16) void {
         self.qdcount = @byteSwap(qdcount);
     }
 
-    pub fn get_qdcount(self: *DNSHeader) u16 {
+    /// returns the qdcount as LE
+    pub fn get_qdcount(self: *const DNSHeader) u16 {
         return @byteSwap(self.qdcount);
     }
 
@@ -165,7 +367,7 @@ pub const DNSHeader = extern struct {
         self.ancount = @byteSwap(ancount);
     }
 
-    pub fn get_ancount(self: *DNSHeader) u16 {
+    pub fn get_ancount(self: *const DNSHeader) u16 {
         return @byteSwap(self.ancount);
     }
 
@@ -184,30 +386,112 @@ pub const DNSHeader = extern struct {
     pub fn get_arcount(self: *DNSHeader) u16 {
         return @byteSwap(self.arcount);
     }
+
+    pub fn get_flags(self: *DNSHeader) *DNSHeaderFlags {
+        return @ptrCast(&self.flags);
+    }
 };
 
+/// Different to the DNSQuery struct which you create a query from scratch with (see DNSQuery)
+/// Query struct stores offset and length of the raw query so the DNSLayer can manage it (similar to Packet.Layer)
+pub const Query = struct {
+    offset: usize,
+    length: usize,
+    qtype: QueryType,
+    qclass: DnsClass,
+    layer: *DNSLayer,
+    next_query: ?*Query = null,
+
+    pub fn init(offset: usize, length: usize, qtype: QueryType, qclass: DnsClass, layer: *DNSLayer) Query {
+        return Query{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer };
+    }
+
+    pub fn get_data(self: *Query) []const u8 {
+        return self.layer.get_data()[self.offset .. self.offset + self.length];
+    }
+};
+
+/// Different to the DNSAnswer struct which you create a query from scratch with (see DNSAnswer)
+/// Answer struct stores offset and length of the raw answer so the DNSLayer can manage it (similar to Packet.Layer)
+pub const Answer = struct {
+    offset: usize,
+    length: usize,
+    qtype: QueryType,
+    qclass: DnsClass,
+    layer: *DNSLayer,
+    next_answer: ?*Answer = null,
+    prev_answer: ?*Answer = null,
+
+    pub fn init(offset: usize, length: usize, qtype: QueryType, qclass: DnsClass, layer: *DNSLayer) Answer {
+        return Answer{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer };
+    }
+
+    pub fn get_data(self: *Answer) []const u8 {
+        return self.layer.get_data()[self.offset .. self.offset + self.length];
+    }
+
+    fn get_data_mut(self: *Answer) []u8 {
+        return self.layer.get_data()[self.offset .. self.offset + self.length];
+    }
+
+    pub fn get_ip(self: *Answer) ?IPv4.IPv4Address {
+        if (self.qtype == QueryType.A) {
+            const data = self.get_data();
+            if (data.len >= 16) {
+                const ip_u32: u32 = std.mem.readInt(u32, data[12..16], .big);
+                const ip = IPv4.IPv4Address.init_from_u32(ip_u32);
+                return ip;
+            }
+        }
+
+        return null;
+    }
+
+    pub fn get_ttl(self: *Answer) u32 {
+        const data = self.get_data();
+        const ttl: u32 = std.mem.readInt(u32, data[6..10], .big);
+        return ttl;
+    }
+
+    pub fn set_ttl(self: *Answer, ttl: u32) void {
+        const data = self.get_data_mut();
+        //const ttl_be = @byteSwap(ttl);
+        std.mem.writeInt(u32, data[6..10], ttl, .big);
+    }
+};
+
+/// DNSLayer represents the DNSHeader and it's queries and answers (if there are any)
+/// Queries are stored as a singly linked list as most DNS packets usually contain only one query
+/// Answers are stored as a doubly linked list as there is commonly more than one answer
 pub const DNSLayer = struct {
     owner: LayerOwner,
-    queries: ?*DNSQuery = null,
-    answers: ?*DNSAnswer = null,
+    first_query: ?*Query = null,
+    first_answer: ?*Answer = null,
+    last_answer: ?*Answer = null,
 
     const Protocol = tcp_ip_protocol.dns;
 
-    //// Creates a DNS layer from an existing buffer // rename this to from_buf
     pub fn init(owner: LayerOwner) LayerError!DNSLayer {
         switch (owner) {
             .packet_layer => {
-                return DNSLayer{
+                const self = DNSLayer{
                     .owner = owner,
                 };
+
+                //try self.get_queries();
+
+                return self;
             },
             .owned_buffer => {
                 var self = DNSLayer{ .owner = owner };
+                //              print("DNSLayer (self) on init: {*}\n", .{&self});
                 const buffer_len = self.owner.owned_buffer.buffer.items.len;
                 if (buffer_len < DNSHeaderSize) {
                     const dns_data = try self.owner.owned_buffer.extend(buffer_len, DNSHeaderSize);
 
                     @memset(dns_data, 0);
+                } else {
+                    //try self.get_queries(); // calling this here causes
                 }
 
                 return self;
@@ -215,13 +499,26 @@ pub const DNSLayer = struct {
         }
     }
 
+    fn get_allocator(self: *DNSLayer) Allocator {
+        switch (self.owner) {
+            .packet_layer => |layer| {
+                return layer.packet.layer_allocator;
+            },
+            .owned_buffer => |*buffer| {
+                return buffer.allocator;
+            },
+        }
+    }
+
     pub fn get_data(self: *const DNSLayer) []u8 {
         switch (self.owner) {
             .packet_layer => {
+                //               print("getting data from packet.\n", .{});
                 return self.owner.packet_layer.get_data(); // Layer in packet
             },
-            .owned_buffer => {
-                return self.owner.owned_buffer.buffer.items; // standalone layer
+            .owned_buffer => |*buffer| {
+                //                print("DNSLayer (self) in get_data: {*}\n", .{self});
+                return buffer.buffer.items; // standalone layer
             },
         }
     }
@@ -237,13 +534,18 @@ pub const DNSLayer = struct {
         }
     }
 
-    fn get_mutable_header(self: *const DNSLayer) *DNSHeader {
+    pub fn get_mutable_header(self: *const DNSLayer) *DNSHeader {
         const data = self.get_data();
+
+        if (data.len < DNSHeaderSize) {
+            std.debug.panic("DNS data len ({}) less than DNSHeaderSize", .{data.len});
+        }
+
         const aligned_ptr: [*]align(@alignOf(DNSHeader)) u8 = @alignCast(data.ptr);
         return @ptrCast(aligned_ptr);
     }
 
-    fn get_immutable_header(self: *const DNSLayer) *const DNSHeader {
+    pub fn get_immutable_header(self: *const DNSLayer) *const DNSHeader {
         const data: []const u8 = self.get_data();
 
         if (data.len < DNSHeaderSize) {
@@ -253,6 +555,78 @@ pub const DNSLayer = struct {
         const aligned_ptr: [*]align(@alignOf(DNSHeader)) const u8 = @alignCast(data.ptr);
         return @ptrCast(aligned_ptr);
     }
+
+    fn get_last_query(self: *DNSLayer) ?*Query {
+        var cur = self.first_query;
+        while (cur) |query| {
+            if (query.next_query) |next| {
+                cur = next;
+            } else {
+                return query;
+            }
+        }
+
+        return null;
+    }
+
+    pub fn print_queries_meta(self: *DNSLayer) void {
+        var count: usize = 0;
+        var cur = self.first_query;
+        while (cur) |query| {
+            count += 1;
+            print("count: {} offset: {} length: {}\n", .{ count, query.offset, query.length });
+            cur = query.next_query;
+        }
+    }
+
+    pub fn get_query_count(self: *DNSLayer) usize {
+        var count: usize = 0;
+        var cur = self.first_query;
+        while (cur) |query| {
+            count += 1;
+            cur = query.next_query;
+        }
+
+        return count;
+    }
+
+    pub fn addQuery(self: *DNSLayer, query: *DNSQuery) !void {
+        var allocator = self.get_allocator();
+        const q = try allocator.create(Query);
+        const last_query = self.get_last_query();
+
+        var start_offset = DNSHeaderSize;
+
+        if (last_query) |last| {
+            last.next_query = q;
+            start_offset += last.length;
+        } else {
+            self.first_query = q;
+        }
+
+        const length = query.get_data().len;
+        const offset = self.get_data().len;
+
+        q.* = Query.init(offset, length, query.qtype, query.qclass, self);
+
+        const qbuf = try self.extend_payload(start_offset, q.length);
+        @memmove(qbuf, query.get_data());
+
+        var hdr = self.get_mutable_header();
+        var qdcount = hdr.get_qdcount();
+
+        qdcount += 1;
+        hdr.set_qdcount(qdcount);
+    }
+
+    //pub fn extract_query(self: *DNSLayer, query: *Query, allocator: Allocator) ?DNSQuery {
+    //    var cur = self.first_query;
+    //    while (cur) |q| {
+    //        if (query == q) {
+    //
+    //        }
+    //    }
+    //}
 
     fn decode_name(raw: []const u8, offset: *usize) ![]const u8 {
         const start = offset.*;
@@ -278,115 +652,32 @@ pub const DNSLayer = struct {
         }
     }
 
-    pub fn get_remaining(self: *DNSLayer) !usize {
-        var offset: usize = DNSHeaderSize;
-
-        const q_sec_size: usize = try self.get_q_section_sz();
-        offset += q_sec_size;
-
-        return offset;
-    }
-
-    pub fn get_q_section_sz(self: *DNSLayer) !usize {
-        var size: usize = 0;
-        var query = self.get_first_query();
-
-        while (query) |q| {
-            size += q.qname.len;
-            size += 4;
-            query = q.next;
+    fn extend_payload(self: *DNSLayer, offset: usize, extend_len: usize) ![]u8 {
+        var buf: []u8 = undefined;
+        switch (self.owner) {
+            .packet_layer => |layer| {
+                buf = try layer.packet.extend_layer(layer, extend_len);
+            },
+            .owned_buffer => |*buffer| {
+                buf = try buffer.extend(offset, extend_len); // temp - needs to extend from current ihl length not base header length
+            },
         }
 
-        return size;
-    }
-
-    pub fn get_first_query(self: DNSLayer) ?*DNSQuery {
-        return self.queries;
-    }
-
-    fn get_answers(self: *DNSLayer, allocator: Allocator) !void {
-        var offset: usize = DNSHeaderSize;
-
-        const q_sec_size: usize = try self.get_q_section_sz();
-        offset += q_sec_size;
-
-        const ancount = @as(u32, std.mem.bigToNative(u16, self.DnsHeader.?.ancount));
-
-        var i: u32 = 0;
-        while (i < ancount) : (i += 1) {
-            if (offset + 12 > self.raw.len) // minimum RR header size: NAME(2) + TYPE(2) + CLASS(2) + TTL(4) + RDLENGTH(2)
-                return error.InvalidPacket;
-
-            // Parse NAME
-            const name_offset = offset;
-            _ = name_offset;
-            // This can be a pointer/offset compression (0xC0..) or raw labels
-            // decode_name function to handle pointers and labels
-            const name_slice = try decode_name(self.raw, &offset);
-            _ = name_slice;
-
-            // Parse TYPE
-            const rtype = std.mem.readInt(u16, @ptrCast(self.raw[offset .. offset + 2].ptr), .big);
-            offset += 2;
-
-            // Parse CLASS
-            const rclass = std.mem.readInt(u16, @ptrCast(self.raw[offset .. offset + 2].ptr), .big);
-            offset += 2;
-
-            // Parse TTL
-            const ttl = std.mem.readInt(u32, @ptrCast(self.raw[offset .. offset + 4].ptr), .big);
-            offset += 4;
-
-            // Parse RDLENGTH
-            const rdlength = std.mem.readInt(u16, @ptrCast(self.raw[offset .. offset + 2].ptr), .big);
-            offset += 2;
-
-            if (offset + rdlength > self.raw.len) {
-                return error.InvalidPacket;
-            }
-
-            const rdata = self.raw[offset .. offset + rdlength];
-            offset += rdlength;
-
-            // Create a DNSAnswer node
-            var node = try allocator.create(DNSAnswer);
-            node.rdata = rdata;
-            node.rtype = rtype;
-            node.class = rclass;
-            node.ttl = ttl;
-            node.next = null;
-
-            // Append to linked list
-            if (self.answers) |ans| {
-                var tail = ans;
-                while (tail.next) |n| tail = n;
-                tail.next = node;
-            } else {
-                self.answers = node;
-            }
-        }
-    }
-
-    pub fn get_first_answer(self: *DNSLayer) ?*DNSAnswer {
-        return self.answers;
+        return buf;
     }
 
     //TODO: remove domain, qtype, class and allocator as required params and just pass DNSQuery struct
-    pub fn add_query(self: *DNSLayer, domain: []const u8, qtype: QueryType, class: DnsClass, allocator: Allocator) !void {
-        var qdcount = std.mem.bigToNative(u16, self.DnsHeader.?.qdcount);
+    pub fn add_query(self: *DNSLayer, domain: []const u8, qtype: QueryType, class: DnsClass) !void {
+        var hdr = self.get_mutable_header();
 
-        // Calculate offset to append new query
-        var offset: usize = DNSHeaderSize; // DNS header is 12 bytes
-        if (qdcount != 0) {
-            var query = self.queries;
-            while (query) |q| {
-                offset += q.qname.len + 1 + 4; // +1 for null terminator, +4 for QTYPE+QCLASS
-                query = q.next;
-            }
-        }
+        var qdcount = hdr.get_qdcount();
+
+        const extend_len = domain.len + 6;
+
+        var query_buf = try self.extend_payload(self.get_data().len, extend_len);
 
         // Slice buffer starting at offset
-        var qbuffer = self.raw[offset..];
+        var qbuffer = query_buf[0..];
 
         // Write QNAME (labels)
         var buf_offset: usize = 0;
@@ -394,7 +685,7 @@ pub const DNSLayer = struct {
         while (it.next()) |label| {
             qbuffer[buf_offset] = @intCast(label.len);
             buf_offset += 1;
-            std.mem.copyForwards(u8, qbuffer[buf_offset .. buf_offset + label.len], label);
+            @memmove(qbuffer[buf_offset .. buf_offset + label.len], label);
             buf_offset += label.len;
         }
         qbuffer[buf_offset] = 0; // null terminator
@@ -410,95 +701,212 @@ pub const DNSLayer = struct {
 
         // Increment QDCOUNT
         qdcount += 1;
-        self.DnsHeader.?.qdcount = std.mem.nativeToBig(u16, qdcount);
-
-        // Optional: append new query to linked list
-        var node = try allocator.create(DNSQuery);
-        node.qname = qbuffer[0..buf_offset]; // slice of newly written query
-
-        node.qtype = @intFromEnum(qtype);
-        node.qclass = @intFromEnum(class);
-
-        node.next = null;
-
-        if (self.queries) |first| {
-            var last = first;
-            while (last.next) |n| {
-                last = n;
-            }
-            last.next = node;
-        } else {
-            self.queries = node;
-        }
+        hdr.set_qdcount(qdcount);
     }
 
-    //TODO: don't pass allocator
-    fn get_queries(self: *DNSLayer, allocator: Allocator) !void {
-        // Questions parsing / printing loop
+    pub fn get_queries(self: *DNSLayer) !void {
+        var allocator = self.get_allocator();
+        const data = self.get_data();
         var offset: usize = DNSHeaderSize;
 
+        const hdr = self.get_immutable_header();
+        const qdcount = hdr.get_qdcount();
+
         var i: u32 = 0;
-        const qdcount = @as(u32, std.mem.bigToNative(u16, self.DnsHeader.?.qdcount));
         while (i < qdcount) : (i += 1) {
             const qname_start = offset;
 
             // Walk labels
-            while (offset < self.raw.len and self.raw[offset] != 0) {
-                const len = self.raw[offset];
+            while (offset < data.len and data[offset] != 0) {
+                const len = data[offset];
                 offset += 1;
 
-                if (offset + len > self.raw.len)
-                    return error.InvalidPacket;
+                if (offset + len > data.len)
+                    return LayerError.LayerInvalid;
 
                 offset += len;
             }
 
-            if (offset >= self.raw.len)
-                return error.InvalidPacket;
+            if (offset >= data.len)
+                return LayerError.LayerInvalid;
 
             offset += 1; // skip null terminator
 
-            const qname_slice = self.raw[qname_start..offset];
-
             // Skip QTYPE + QCLASS (4 bytes)
-            if (offset + 4 > self.raw.len)
+            if (offset + 4 > data.len)
+                return LayerError.LayerInvalid;
+
+            const qtype = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2]), .big);
+            const qclass = std.mem.readInt(u16, @ptrCast(data[offset + 2 .. offset + 4]), .big);
+
+            const whole_record_end = offset + 4;
+            const whole_record = data[qname_start..whole_record_end];
+
+            const query = try allocator.create(Query);
+
+            const qclass_e: DnsClass = @enumFromInt(qclass);
+            const qtype_e: QueryType = @enumFromInt(qtype);
+
+            // Store the starting offset of this query
+            query.* = Query.init(qname_start, whole_record.len, qtype_e, qclass_e, self);
+
+            // Link queries together
+            const last_query = self.get_last_query();
+            if (last_query) |last| {
+                last.next_query = query;
+            } else {
+                self.first_query = query;
+            }
+
+            offset = whole_record_end; // Move to next query position
+        }
+    }
+
+    pub fn get_remaining(self: *DNSLayer) !usize {
+        var offset: usize = DNSHeaderSize;
+
+        const q_sec_size: usize = try self.get_q_section_sz();
+        offset += q_sec_size;
+
+        return offset;
+    }
+
+    pub fn get_q_section_sz(self: *DNSLayer) !usize {
+        var size: usize = 0;
+        var query = self.get_first_query();
+
+        while (query) |q| {
+            size += q.get_data().len;
+            size += 4;
+            query = q.next_query;
+        }
+
+        return size;
+    }
+
+    pub fn get_first_query(self: DNSLayer) ?*Query {
+        return self.first_query;
+    }
+
+    pub fn get_first_answer(self: *DNSLayer) ?*Answer {
+        return self.first_answer;
+    }
+
+    pub fn get_last_answer(self: *DNSLayer) ?*Answer {
+        return self.last_answer;
+    }
+
+    pub fn get_answer_count(self: *DNSLayer) usize {
+        var count: usize = 0;
+        var cur = self.first_answer;
+        while (cur) |ans| {
+            count += 1;
+            cur = ans.next_answer;
+        }
+
+        return count;
+    }
+
+    pub fn get_answers(self: *DNSLayer) !void {
+        var allocator = self.get_allocator();
+        const data = self.get_data();
+        var offset: usize = DNSHeaderSize;
+        if (self.get_last_query()) |last| {
+            offset += last.length;
+        }
+
+        const hdr = self.get_immutable_header();
+
+        const ancount = hdr.get_ancount();
+
+        var i: u32 = 0;
+        while (i < ancount) : (i += 1) {
+            if (offset + 12 > data.len) // minimum RR header size: NAME(2) + TYPE(2) + CLASS(2) + TTL(4) + RDLENGTH(2)
                 return error.InvalidPacket;
 
-            const qtype = std.mem.readInt(u16, @ptrCast(self.raw[offset .. offset + 2].ptr), .big);
-            const qclass = std.mem.readInt(u16, @ptrCast(self.raw[offset + 2 .. offset + 4].ptr), .big);
+            // Parse NAME
+            const name_offset = offset;
+            //            _ = name_offset;
+            // This can be a pointer/offset compression (0xC0..) or raw labels
+            // decode_name function to handle pointers and labels
+            const name_slice = try decode_name(data, &offset);
+            _ = name_slice;
+
+            // Parse TYPE
+            const rtype = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
+            offset += 2;
+
+            // Parse CLASS
+            const rclass = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
+            offset += 2;
+
+            // Parse TTL
+            const ttl = std.mem.readInt(u32, @ptrCast(data[offset .. offset + 4].ptr), .big);
             offset += 4;
 
-            var node = try allocator.create(DNSQuery);
-            node.qname = qname_slice;
-            node.qclass = qclass;
-            node.qtype = qtype;
-            node.next = null;
+            _ = ttl;
 
-            if (self.queries) |query| {
-                var curr = query;
-                while (curr.next) |n| {
-                    curr = n;
-                }
-                curr.next = node;
-            } else {
-                self.queries = node;
+            // Parse RDLENGTH
+            const rdlength = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
+            offset += 2;
+
+            if (offset + rdlength > data.len) {
+                return error.InvalidPacket;
+            }
+
+            const ans_offset = offset;
+            print("ans_offset: {}\n", .{ans_offset});
+            const rdata = data[offset .. offset + rdlength];
+            offset += rdlength;
+
+            print("rdata: {any}\n", .{rdata});
+
+            print("name offset: {}\n", .{name_offset});
+            print("offset: {}\n", .{offset});
+
+            const whole_record = data[name_offset..offset];
+
+            print("whole_record: ({}) {x}\n", .{ whole_record.len, whole_record });
+
+            // Create a DNSAnswer node
+            const answer = try allocator.create(Answer);
+
+            const rtype_e: QueryType = @enumFromInt(rtype);
+            const class_e: DnsClass = @enumFromInt(rclass);
+            //node.ttl = ttl;
+
+            answer.* = Answer.init(name_offset, whole_record.len, rtype_e, class_e, self);
+
+            const last_answer = self.last_answer;
+
+            // append to linkedlist
+            if (last_answer) |last| { // if the last answer is not null
+                last.next_answer = answer; // set the last answer next answer to the answer created (answer being added)
+                answer.prev_answer = last; // set the answer created (answer being added)'s prev answer to the last answer
+                self.last_answer = answer; // the last answer is now the answer that's being added
+                //answer.offset = last.offset + last.length; // set answer added offset to the last offset + last length
+            } else { // there was no last answer
+                self.first_answer = answer; // set first answer to this answer being added
+                self.last_answer = answer; // set last answer to this answer being added
+                //answer.offset = ans_offset;
             }
         }
     }
 
     pub fn to_string(self: *DNSLayer, allocator: Allocator) []const u8 {
-        const hdr = self.get_header();
+        const hdr = self.get_mutable_header();
+        const flags = hdr.get_flags();
 
         const id: u16 = std.mem.bigToNative(u16, hdr.id);
 
-        const qr = hdr.qr;
-        const opcode = hdr.opcode;
-        const aa = hdr.aa;
-        const tc = hdr.tc;
-        const rd = hdr.rd;
-        const ra = hdr.ra;
-        const z = hdr.z;
-        const rcode = hdr.rcode;
+        const qr = flags.qr;
+        const opcode = flags.opcode;
+        const aa = flags.aa;
+        const tc = flags.tc;
+        const rd = flags.rd;
+        const ra = flags.ra;
+        const z = flags.z;
+        const rcode = flags.rcode;
 
         const qdcount: u16 = std.mem.bigToNative(u16, hdr.qdcount);
         const ancount: u16 = std.mem.bigToNative(u16, hdr.ancount);
@@ -536,20 +944,52 @@ pub const DNSLayer = struct {
         return DNSLayer.Protocol;
     }
 
-    pub fn deinit(self: *DNSLayer, allocator: Allocator) void {
-        allocator.destroy(self);
+    pub fn destroy_queries(self: *DNSLayer) void {
+        var allocator = self.get_allocator();
+        var cur = self.first_query;
+
+        while (cur) |query| {
+            const next = query.next_query;
+            allocator.destroy(query);
+            cur = next;
+        }
+    }
+
+    pub fn destroy_answers(self: *DNSLayer) void {
+        var allocator = self.get_allocator();
+        var cur = self.first_answer;
+
+        while (cur) |answer| {
+            const next = answer.next_answer;
+            allocator.destroy(answer);
+            cur = next;
+        }
+    }
+
+    pub fn get_next_layer_type(self: *DNSLayer, layer: *Layer) !?LayerIface {
+        _ = self;
+        _ = layer;
+        return null;
+    }
+
+    pub fn deinit(self: *DNSLayer) void {
+        self.destroy_queries(); // always destroy the queries
+        self.destroy_answers();
+        switch (self.owner) {
+            .packet_layer => {
+                return; // Layer in packet - don't free
+            },
+            .owned_buffer => |*buffer| {
+                buffer.deinit(); // standalone layer - it is mutable by default
+            },
+        }
     }
 };
 
 /// Creates a domain name from a DNS label. The allocator creates an ArrayList to store the bytes and returns a mutable slice
 /// The ArrayList is deinit'd before return
-pub fn decodeQname(
-    allocator: Allocator,
-    payload: []const u8,
-) ![]u8 {
+pub fn decodeQname(allocator: Allocator, payload: []const u8) ![]u8 {
     var list = try std.ArrayList(u8).initCapacity(allocator, payload.len);
-
-    defer list.deinit(allocator);
 
     var offset: usize = 0;
     var first = true;
@@ -607,62 +1047,62 @@ const test_response: [69]u8 = .{
     0x04, 0xa2, 0x9f, 0xc8, 0x01,
 };
 
-test "DNS parser with Cloudflare response" {
-    var buffer: [1024]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    const fallocor = fba.allocator();
-
-    const response_pkt = try fallocor.alloc(u8, test_response.len);
-    std.mem.copyForwards(u8, response_pkt, &test_response);
-
-    const dns_layer = try DNSLayer.init(response_pkt, fallocor);
-
-    // Expect header values
-    try std.testing.expectEqual(0xb82e, std.mem.bigToNative(u16, dns_layer.DnsHeader.?.id));
-    try std.testing.expectEqual(1, std.mem.bigToNative(u16, dns_layer.DnsHeader.?.qdcount));
-    try std.testing.expectEqual(2, std.mem.bigToNative(u16, dns_layer.DnsHeader.?.ancount));
-
-    // Expect query name
-    const query = dns_layer.get_first_query();
-    try std.testing.expect(query != null);
-    if (query) |q| {
-        const qname = try decodeQname(fallocor, q.qname);
-        try std.testing.expectEqualStrings("time.cloudflare.com", qname);
-        try std.testing.expectEqual(1, q.qtype); // TYPE A
-    }
-
-    // Expect answer IPs
-    var answer = dns_layer.get_first_answer();
-    try std.testing.expect(answer != null);
-    if (answer) |ans| {
-        if (ans.rtype == 1 and ans.rdata.len == 4) {
-            try std.testing.expectEqual(162, ans.rdata[0]);
-            try std.testing.expectEqual(159, ans.rdata[1]);
-            try std.testing.expectEqual(200, ans.rdata[2]);
-            try std.testing.expectEqual(123, ans.rdata[3]);
-        }
-
-        answer = ans.next;
-        try std.testing.expect(answer != null);
-        if (answer) |anss| {
-            if (anss.rtype == 1 and anss.rdata.len == 4) {
-                try std.testing.expectEqual(162, anss.rdata[0]);
-                try std.testing.expectEqual(159, anss.rdata[1]);
-                try std.testing.expectEqual(200, anss.rdata[2]);
-                try std.testing.expectEqual(1, anss.rdata[3]);
-            }
-        }
-    }
-
-    // Query section size and remaining
-    const qsize = try dns_layer.get_q_section_sz();
-    try std.testing.expectEqual(25, qsize);
-
-    const rem = try dns_layer.get_remaining();
-    try std.testing.expectEqual(37, rem);
-
-    try std.testing.expectEqual(69, dns_layer.raw.len);
-}
+//   test "DNS parser with Cloudflare response" {
+//       var buffer: [1024]u8 = undefined;
+//       var fba = std.heap.FixedBufferAllocator.init(&buffer);
+//       const fallocor = fba.allocator();
+//
+//       const response_pkt = try fallocor.alloc(u8, test_response.len);
+//       std.mem.copyForwards(u8, response_pkt, &test_response);
+//
+//       const dns_layer = try DNSLayer.init(response_pkt, fallocor);
+//
+//       // Expect header values
+//       try std.testing.expectEqual(0xb82e, std.mem.bigToNative(u16, dns_layer.DnsHeader.?.id));
+//       try std.testing.expectEqual(1, std.mem.bigToNative(u16, dns_layer.DnsHeader.?.qdcount));
+//       try std.testing.expectEqual(2, std.mem.bigToNative(u16, dns_layer.DnsHeader.?.ancount));
+//
+//       // Expect query name
+//       const query = dns_layer.get_first_query();
+//       try std.testing.expect(query != null);
+//       if (query) |q| {
+//           const qname = try decodeQname(fallocor, q.qname);
+//           try std.testing.expectEqualStrings("time.cloudflare.com", qname);
+//           try std.testing.expectEqual(1, q.qtype); // TYPE A
+//       }
+//
+//       // Expect answer IPs
+//       var answer = dns_layer.get_first_answer();
+//       try std.testing.expect(answer != null);
+//       if (answer) |ans| {
+//           if (ans.rtype == 1 and ans.rdata.len == 4) {
+//               try std.testing.expectEqual(162, ans.rdata[0]);
+//               try std.testing.expectEqual(159, ans.rdata[1]);
+//               try std.testing.expectEqual(200, ans.rdata[2]);
+//               try std.testing.expectEqual(123, ans.rdata[3]);
+//           }
+//
+//           answer = ans.next;
+//           try std.testing.expect(answer != null);
+//           if (answer) |anss| {
+//               if (anss.rtype == 1 and anss.rdata.len == 4) {
+//                   try std.testing.expectEqual(162, anss.rdata[0]);
+//                   try std.testing.expectEqual(159, anss.rdata[1]);
+//                   try std.testing.expectEqual(200, anss.rdata[2]);
+//                   try std.testing.expectEqual(1, anss.rdata[3]);
+//               }
+//           }
+//       }
+//
+//       // Query section size and remaining
+//       const qsize = try dns_layer.get_q_section_sz();
+//       try std.testing.expectEqual(25, qsize);
+//
+//       const rem = try dns_layer.get_remaining();
+//       try std.testing.expectEqual(37, rem);
+//
+//       try std.testing.expectEqual(69, dns_layer.raw.len);
+//   }
 
 comptime {
     if (@bitSizeOf(DNSHeader) != 96)

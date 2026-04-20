@@ -71,6 +71,10 @@ pub const UDPHeader = extern struct {
         return @byteSwap(self.length);
     }
 
+    pub fn get_checksum(self: *const UDPHeader) u16 {
+        return self.checksum;
+    }
+
     /// Calculate UDP checksum (requires pseudo-header and payload)
     /// For IPv4, the pseudo-header includes: source IP, dest IP, protocol, UDP length
     pub fn calculate_checksum(self: *UDPHeader, src_ip: u32, dst_ip: u32, payload: []const u8) void {
@@ -78,108 +82,61 @@ pub const UDPHeader = extern struct {
 
         var sum: u32 = 0;
 
-        //        std.debug.print("\n=== UDP CHECKSUM DEBUG ===\n", .{});
-
-        // ---- Source IP ----
         const src = std.mem.nativeToBig(u32, src_ip);
         const src_bytes = std.mem.asBytes(&src);
 
         const src_w1 = (@as(u16, src_bytes[0]) << 8) | src_bytes[1];
         const src_w2 = (@as(u16, src_bytes[2]) << 8) | src_bytes[3];
 
-        //      std.debug.print("SRC IP raw: 0x{x}\n", .{src_ip});
-        //      std.debug.print("SRC bytes: {x} {x} {x} {x}\n", .{
-        //          src_bytes[0], src_bytes[1], src_bytes[2], src_bytes[3],
-        //      });
-        //      std.debug.print("SRC words: 0x{x}, 0x{x}\n", .{ src_w1, src_w2 });
-
         sum += src_w1;
         sum += src_w2;
 
-        // ---- Destination IP ----
         const dst = std.mem.nativeToBig(u32, dst_ip);
         const dst_bytes = std.mem.asBytes(&dst);
 
         const dst_w1 = (@as(u16, dst_bytes[0]) << 8) | dst_bytes[1];
         const dst_w2 = (@as(u16, dst_bytes[2]) << 8) | dst_bytes[3];
 
-        //     std.debug.print("DST IP raw: 0x{x}\n", .{dst_ip});
-        //     std.debug.print("DST bytes: {x} {x} {x} {x}\n", .{
-        //         dst_bytes[0], dst_bytes[1], dst_bytes[2], dst_bytes[3],
-        //     });
-        //     std.debug.print("DST words: 0x{x}, 0x{x}\n", .{ dst_w1, dst_w2 });
-
         sum += dst_w1;
         sum += dst_w2;
 
-        // ---- Protocol ----
-        //     std.debug.print("Protocol: 0x0011\n", .{});
         sum += 0x0011;
 
-        // ---- UDP length (raw field) ----
-        //    std.debug.print("UDP length field (raw): 0x{x}\n", .{self.length});
         sum += @byteSwap(self.length);
 
-        // ---- UDP header ----
         const udp_bytes = @as([*]const u8, @ptrCast(self));
-
-        //  std.debug.print("UDP header bytes: ", .{});
-        //  for (0..8) |j| {
-        //      std.debug.print("{x} ", .{udp_bytes[j]});
-        //  }
-        //  std.debug.print("\n", .{});
 
         const h_src = (@as(u16, udp_bytes[0]) << 8) | udp_bytes[1];
         const h_dst = (@as(u16, udp_bytes[2]) << 8) | udp_bytes[3];
         const h_len = (@as(u16, udp_bytes[4]) << 8) | udp_bytes[5];
         const h_chk = (@as(u16, udp_bytes[6]) << 8) | udp_bytes[7];
 
-        // std.debug.print("HDR src_port: 0x{x}\n", .{h_src});
-        // std.debug.print("HDR dst_port: 0x{x}\n", .{h_dst});
-        // std.debug.print("HDR length:   0x{x}\n", .{h_len});
-        // std.debug.print("HDR checksum: 0x{x}\n", .{h_chk});
-
         sum += h_src;
         sum += h_dst;
         sum += h_len;
         sum += h_chk;
 
-        // ---- Payload ----
         var i: usize = 0;
         while (i + 1 < payload.len) {
             const word = (@as(u16, payload[i]) << 8) | payload[i + 1];
-            //     std.debug.print("Payload word @{}: 0x{x}\n", .{ i, word });
             sum += word;
             i += 2;
         }
 
         if (i < payload.len) {
             const last = @as(u16, payload[i]) << 8;
-            //    std.debug.print("Payload last byte @{}: 0x{x}\n", .{ i, last });
             sum += last;
         }
 
-        // std.debug.print("Sum before fold: 0x{x}\n", .{sum});
-
-        // ---- Fold ----
         while (sum > 0xFFFF) {
             sum = (sum & 0xFFFF) + (sum >> 16);
-            //    std.debug.print("Folding... sum = 0x{x}\n", .{sum});
         }
 
-        // std.debug.print("Sum after fold: 0x{x}\n", .{sum});
-
-        // ---- Final checksum ----
         self.checksum = ~@as(u16, @intCast(sum));
-
-        //  std.debug.print("Final checksum (before zero fix): 0x{x}\n", .{self.checksum});
 
         if (self.checksum == 0) {
             self.checksum = 0xFFFF;
         }
-
-        // std.debug.print("Stored checksum: 0x{x}\n", .{self.checksum});
-        //  std.debug.print("=== END DEBUG ===\n\n", .{});
     }
 
     /// Validate UDP checksum
@@ -194,13 +151,11 @@ pub const UDPHeader = extern struct {
         sum += 0x0011; // Protocol = 17
         sum += self.get_length();
 
-        // Add UDP header
         const words = @as([*]const u16, @ptrCast(self));
         for (0..UDPHeaderSize / 2) |i| {
             sum += words[i];
         }
 
-        // Add payload
         var i: usize = 0;
         while (i + 1 < payload.len) {
             const word = (@as(u16, payload[i]) << 8) | payload[i + 1];
@@ -212,7 +167,6 @@ pub const UDPHeader = extern struct {
             sum += @as(u16, payload[i]) << 8;
         }
 
-        // Fold to 16 bits
         while (sum > 0xFFFF) {
             sum = (sum & 0xFFFF) + (sum >> 16);
         }
@@ -238,8 +192,9 @@ pub const UDPLayer = struct {
                 const buffer_len = self.owner.owned_buffer.buffer.items.len;
                 if (buffer_len < UDPHeaderSize) {
                     const udp_data = try self.owner.owned_buffer.extend(buffer_len, UDPHeaderSize);
-
                     @memset(udp_data, 0);
+                    var header = UDPHeader.init_default();
+                    @memcpy(udp_data[0..UDPHeaderSize], std.mem.asBytes(&header));
                 }
 
                 return self;
@@ -254,17 +209,22 @@ pub const UDPLayer = struct {
         return data;
     }
 
-    fn get_mutable_header(self: *const UDPLayer) *UDPHeader {
+    pub fn get_mutable_header(self: *const UDPLayer) *UDPHeader {
         const data = self.get_data();
+
+        if (data.len < UDPHeaderSize) {
+            panic("UDP data len ({}) less than UDPHeaderSize", .{data.len});
+        }
+
         const aligned_ptr: [*]align(@alignOf(UDPHeader)) u8 = @alignCast(data.ptr);
         return @ptrCast(aligned_ptr);
     }
 
-    fn get_immutable_header(self: *const UDPLayer) *const UDPHeader {
+    pub fn get_immutable_header(self: *const UDPLayer) *const UDPHeader {
         const data: []const u8 = self.get_data();
 
         if (data.len < UDPHeaderSize) {
-            panic("Eth Raw Data len ({}) less than UDPHeaderSize", .{data.len});
+            panic("UDP data len ({}) less than UDPHeaderSize", .{data.len});
         }
 
         const aligned_ptr: [*]align(@alignOf(UDPHeader)) const u8 = @alignCast(data.ptr);
@@ -294,26 +254,6 @@ pub const UDPLayer = struct {
         }
     }
 
-    pub fn get_src_port(self: *UDPLayer) u16 {
-        const hdr = self.get_immutable_header();
-        return hdr.get_src_port();
-    }
-
-    pub fn get_dst_port(self: *UDPLayer) u16 {
-        const hdr = self.get_immutable_header();
-        return hdr.get_dst_port();
-    }
-
-    pub fn set_src_port(self: *UDPLayer, port: u16) void {
-        var hdr = self.get_mutable_header();
-        hdr.set_src_port(port);
-    }
-
-    pub fn set_dst_port(self: *UDPLayer, port: u16) void {
-        var hdr = self.get_mutable_header();
-        hdr.set_dst_port(port);
-    }
-
     pub fn get_length(self: *UDPLayer) u16 {
         const hdr = self.get_immutable_header();
         return hdr.get_length();
@@ -326,39 +266,19 @@ pub const UDPLayer = struct {
         hdr.set_length(length);
     }
 
-    pub fn get_checksum(self: *UDPLayer) u16 {
-        const hdr = self.get_immutable_header();
-        return hdr.checksum;
-    }
-
-    pub fn get_prev_layer(self: *UDPLayer) void {
-        switch (self.owner) {
-            .packet_layer => {
-                const prev_layer = self.owner.packet_layer.prev_layer;
-                if (prev_layer) |prev| {
-                    prev.to_string();
-                } else {
-                    print("no prev layer.\n", .{});
-                }
-            },
-
-            else => {
-                return;
-            },
-        }
-    }
-
     pub fn calculate_checksum(self: *UDPLayer) void {
         const hdr = self.get_mutable_header();
         self.calculate_length();
 
         switch (self.owner) {
-            .packet_layer => {
-                if (self.owner.packet_layer.prev_layer) |prev_layer| {
+            .packet_layer => |layer| {
+                if (layer.prev_layer) |prev_layer| {
                     if (try prev_layer.layer_iface.get_protocol() == tcp_ip_protocol.ipv4) {
-                        var ipv4_layer: LayerIface = prev_layer.layer_iface;
+                        var ipv4_iface: *LayerIface = &prev_layer.layer_iface;
+                        var ipv4_layer: *IPv4.IPv4Layer = &ipv4_iface.ipv4Layer;
+                        const ipv4_hdr: *const IPv4.IPv4Header = ipv4_layer.get_immutable_header();
 
-                        hdr.calculate_checksum(ipv4_layer.ipv4Layer.get_src_ip().to_u32(), ipv4_layer.ipv4Layer.get_dst_ip().to_u32(), self.get_data()[UDPHeaderSize..]);
+                        hdr.calculate_checksum(ipv4_hdr.get_src_ip().to_u32(), ipv4_hdr.get_dst_ip().to_u32(), self.get_data()[UDPHeaderSize..]);
                     } else if (try prev_layer.layer_iface.get_protocol() == tcp_ip_protocol.ipv6) {
                         return;
                         //prev_protocol = net_protocol.IPv6;
@@ -380,7 +300,7 @@ pub const UDPLayer = struct {
         const length = hdr.get_length();
         const checksum = nativeToBig(u16, hdr.checksum);
 
-        return std.fmt.allocPrint(allocator, "UDP Layer: src_port: {} dst_port: {} length: {} checksum: 0x{x:0>4}", .{
+        return std.fmt.allocPrint(allocator, "UDP: src_port: {} dst_port: {} length: {} checksum: 0x{x:0>4}", .{
             src_port,
             dst_port,
             length,
@@ -391,6 +311,9 @@ pub const UDPLayer = struct {
     pub fn get_next_layer_type(self: *UDPLayer, layer: *Packet.Layer) !?LayerIface {
         //        const data = self.get_data();
         _ = self;
+
+        // check src and dst ports
+        // check header length of expected protocol
         return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
     }
 
@@ -401,8 +324,12 @@ pub const UDPLayer = struct {
 
     pub fn deinit(self: *UDPLayer) void {
         switch (self.owner) {
-            .allocator_owned => self.owner.allocator_owned.deinit(),
-            else => return,
+            .packet_layer => {
+                return; // Layer in packet - don't free
+            },
+            .owned_buffer => |*buffer| {
+                return buffer.deinit(); // standalone layer - it is mutable by default
+            },
         }
     }
 };

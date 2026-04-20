@@ -10,8 +10,6 @@ const print = std.debug.print;
 
 const Allocator = std.mem.Allocator;
 
-const RawData = @import("RawData.zig").RawData;
-
 pub const ApplicationLayer = struct {
     owner: LayerOwner,
     const Protocol = tcp_ip_protocol.generic;
@@ -84,8 +82,13 @@ pub const ApplicationLayer = struct {
     }
 
     pub fn to_string(self: *const ApplicationLayer, allocator: Allocator) []const u8 {
-        _ = allocator;
-        return self.get_data();
+        const data = self.get_data();
+        const label: []const u8 = " Payload: ";
+        const str = allocator.alloc(u8, data.len + label.len) catch return "";
+        @memmove(str[0..label.len], label);
+        @memmove(str[label.len..], data);
+        return str;
+        //        return self.get_data();
     }
 
     pub fn get_protocol(self: *ApplicationLayer) tcp_ip_protocol {
@@ -93,7 +96,14 @@ pub const ApplicationLayer = struct {
         return ApplicationLayer.Protocol;
     }
 
-    pub fn deinit(self: *ApplicationLayer, allocator: std.mem.Allocator) void {
-        allocator.destroy(self);
+    pub fn deinit(self: *ApplicationLayer) void {
+        switch (self.owner) {
+            .packet_layer => {
+                return; // Layer in packet - don't free
+            },
+            .owned_buffer => |*buffer| {
+                return buffer.deinit(); // standalone layer - it is mutable by default
+            },
+        }
     }
 };

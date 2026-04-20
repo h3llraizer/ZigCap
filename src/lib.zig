@@ -23,7 +23,6 @@ pub const IPv6 = @import("IPv6.zig");
 pub const Packet = @import("Packet.zig");
 pub const TCP = @import("TCP.zig");
 pub const UDP = @import("UDP.zig");
-pub const RawData = @import("RawData.zig").RawData;
 pub const ProtocolEnums = @import("ProtocolEnums.zig");
 pub const Layer = @import("Layer.zig");
 pub const LayerIface = @import("LayerIface.zig").LayerIface;

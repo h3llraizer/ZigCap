@@ -46,7 +46,7 @@ pub const Buffer = struct {
     /// extends the buffer from the offset by length
     pub fn extend(self: *Buffer, offset: usize, length: usize) ![]u8 {
         const slice = try self.buffer.addManyAt(self.allocator, offset, length);
-        self.buffer.shrinkAndFree(self.allocator, self.buffer.items.len);
+        //        self.buffer.shrinkAndFree(self.allocator, self.buffer.items.len);
         return slice;
     }
 
@@ -54,7 +54,6 @@ pub const Buffer = struct {
     /// e.g. start at offset 10 and length 4 decreases by 4
     pub fn shorten(self: *Buffer, offset: usize, length: usize) !void {
         const end = offset + length;
-        std.debug.print("shortening at: {}\n", .{end});
         std.debug.assert(end <= self.buffer.items.len);
 
         const dest = self.buffer.items[offset..];
@@ -80,5 +79,9 @@ pub const Buffer = struct {
     /// returns slices
     pub fn get_mutable_slice(self: *Buffer, offset: usize, length: usize) []u8 {
         return self.buffer.items[offset .. offset + length];
+    }
+
+    pub fn deinit(self: *Buffer) void {
+        self.buffer.deinit(self.allocator);
     }
 };
