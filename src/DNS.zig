@@ -16,6 +16,11 @@ const Buffer = @import("Buffer.zig").Buffer;
 const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
 
+const DNSRecordTypes = @import("DNSRecordTypes.zig");
+const ARecord = DNSRecordTypes.ARecord;
+const AAAARecord = DNSRecordTypes.AAAARecord;
+const CNAMERecord = DNSRecordTypes.CNAMERecord;
+
 pub const QueryType = enum(u16) {
     A = 1, // IPv4 address record
     NS = 2, // Name Server record
@@ -415,87 +420,15 @@ pub const Query = struct {
     }
 };
 
-/// A Record - IPv4 Responses
-pub const ARecord = struct {
-    offset: usize,
-    length: usize,
-    qtype: QueryType,
-    qclass: DnsClass,
-    layer: *DNSLayer,
-    next_answer: ?*AnswerRecord = null,
-    prev_answer: ?*AnswerRecord = null,
-
-    pub fn get_data(self: *ARecord) []const u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
-    }
-
-    fn get_data_mut(self: *ARecord) []u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
-    }
-
-    pub fn get_ip(self: *ARecord) ?IPv4.IPv4Address {
-        if (self.qtype == QueryType.A) {
-            const data = self.get_data();
-            if (data.len >= 16) {
-                const ip_u32: u32 = std.mem.readInt(u32, data[12..16], .big);
-                const ip = IPv4.IPv4Address.init_from_u32(ip_u32);
-                return ip;
-            }
-        }
-
-        return null;
-    }
-
-    pub fn get_rr_type(self: ARecord) QueryType {
-        return self.qtype;
-    }
-};
-
-/// AAAA Record - IPv6 responses
-pub const AAAARecord = struct {
-    offset: usize,
-    length: usize,
-    qtype: QueryType,
-    qclass: DnsClass,
-    layer: *DNSLayer,
-    next_answer: ?*AnswerRecord = null,
-    prev_answer: ?*AnswerRecord = null,
-
-    pub fn get_data(self: *AAAARecord) []const u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
-    }
-
-    fn get_data_mut(self: *AAAARecord) []u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
-    }
-
-    pub fn get_ipv6(self: *AAAARecord) ?IPv6.IPv6Address {
-        if (self.qtype == QueryType.AAAA) {
-            const data = self.get_data();
-            if (data.len >= 28) {
-                //                const ip_u64: u64 = std.mem.readInt(u64, data[12..28], .big);
-                var ipv6_arr: [16]u8 = undefined;
-                @memmove(ipv6_arr[0..], data[12..28]);
-
-                const ip = IPv6.IPv6Address.init_from_array(ipv6_arr);
-                return ip;
-            }
-        }
-
-        return null;
-    }
-
-    pub fn get_rr_type(self: AAAARecord) QueryType {
-        return self.qtype;
-    }
-};
-
-/// Different to the DNSAnswer struct which you create a query from scratch with (see DNSAnswer)
 /// This tagged union is an interface over the concrete Answer Record Types
-/// Answer struct stores offset and length of the raw answer so the DNSLayer can manage it (similar to Packet.Layer)
+/// currently implemented record types:
+///     A,
+///     AAAA,
+///
 pub const AnswerRecord = union(enum) {
     a: ARecord,
     aaaa: AAAARecord,
+    cname: CNAMERecord,
 
     pub fn init(offset: usize, length: usize, qtype: QueryType, qclass: DnsClass, layer: *DNSLayer) ?AnswerRecord {
         switch (qtype) {
@@ -505,6 +438,10 @@ pub const AnswerRecord = union(enum) {
 
             .AAAA => {
                 return AnswerRecord{ .aaaa = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
+            },
+
+            .CNAME => {
+                return AnswerRecord{ .cname = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
             },
 
             else => return null,
@@ -1115,6 +1052,7 @@ pub const DNSLayer = struct {
 /// The ArrayList is deinit'd before return
 pub fn decodeQname(allocator: Allocator, payload: []const u8) ![]u8 {
     var list = try std.ArrayList(u8).initCapacity(allocator, payload.len);
+    defer list.deinit(allocator);
 
     var offset: usize = 0;
     var first = true;
@@ -1123,6 +1061,10 @@ pub fn decodeQname(allocator: Allocator, payload: []const u8) ![]u8 {
         const len = payload[offset];
         offset += 1;
 
+        print("offset: {} len: {}\n", .{ offset, len });
+        print("offset + len: {}\n", .{offset + len});
+        print("payload: {x}\n", .{payload[offset..]});
+        print("payload str: {s}\n", .{payload[offset..]});
         if (offset + len > payload.len) return error.InvalidPacket;
 
         if (!first) try list.append(allocator, '.');
