@@ -8,6 +8,7 @@ ZigCap is currently **experimental** and under active development. APIs may chan
 Currently supported functionality:
 - Build packets
 - Parse and modify existing packets
+- Build standalone layers (not attached to Packet)
 
 ## Supported Protocols
 - Ethernet (`src/Eth.zig`)
