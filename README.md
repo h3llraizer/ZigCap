@@ -13,6 +13,7 @@ Currently supported functionality:
 ## Supported Protocols
 - Ethernet (`src/Eth.zig`)
 - IPv4 (`src/IPv4.zig`)
+- IPv6 (`src/IPv6.zig`)
 - UDP (`src/UDP.zig`)
 - ARP (`src/ARP.zig`)
 - ICMP (`src/ICMP.zig`)

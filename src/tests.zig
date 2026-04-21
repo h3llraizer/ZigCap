@@ -4,7 +4,6 @@ const zigcap = @import("lib.zig");
 const print = std.debug.print;
 const expect = std.testing.expect;
 
-const RawData = zigcap.RawData;
 const Packet = zigcap.Packet.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
 const Layer = zigcap.Packet.Layer;
