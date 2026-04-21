@@ -100,7 +100,7 @@ test "dns build" {
 
     var dns_query = try DNS.DNSQuery.init(ziggit_dev_domain, DNS.QueryType.A, DNS.DnsClass.IN, allocator);
     defer dns_query.deinit();
-    try dns_layer.addQuery(&dns_query);
+    try dns_layer.add_query(&dns_query);
 
     try expect(dns_layer.get_query_count() == 1);
 
@@ -114,7 +114,7 @@ test "dns build" {
     const google_domain: []const u8 = "google.com";
     var dns_query1 = try DNS.DNSQuery.init(google_domain, DNS.QueryType.A, DNS.DnsClass.IN, allocator);
     defer dns_query1.deinit();
-    try dns_layer.addQuery(&dns_query1);
+    try dns_layer.add_query(&dns_query1);
 
     try expect(dns_layer.get_query_count() == 2);
 

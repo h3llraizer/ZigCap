@@ -292,6 +292,7 @@ pub const TXTRecord = struct {
         return self.get_data()[13..];
     }
 
+    /// retrieves the name stated in the RR.
     pub fn get_name(self: *TXTRecord, allocator: Allocator) ![]u8 {
         const data = self.get_data();
         return try decode_name(self.layer.get_data(), data, allocator);

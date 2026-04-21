@@ -16,6 +16,10 @@ const Buffer = @import("Buffer.zig").Buffer;
 const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
 
+const DNSEnums = @import("DNSEnums.zig");
+pub const QueryType = DNSEnums.QueryType;
+pub const DnsClass = DNSEnums.DnsClass;
+
 const DNSRecordTypes = @import("DNSRecordTypes.zig");
 const GenericRecord = DNSRecordTypes.GenericRecord;
 const ARecord = DNSRecordTypes.ARecord;
@@ -25,98 +29,7 @@ const TXTRecord = DNSRecordTypes.TXTRecord;
 const MXRecord = DNSRecordTypes.MXRecord;
 const PTRRecord = DNSRecordTypes.PTRRecord;
 
-pub const QueryType = enum(u16) {
-    A = 1, // IPv4 address record
-    NS = 2, // Name Server record
-    MD = 3, // Obsolete, replaced by MX
-    MF = 4, // Obsolete, replaced by MX
-    CNAME = 5, // Canonical name record
-    SOA = 6, // Start of Authority record
-    MB = 7, // Mailbox domain name record
-    MG = 8, // Mail group member record
-    MR = 9, // Mail rename domain name record
-    NULL_R = 10, // Null record
-    WKS = 11, // Well known service description record
-    PTR = 12, // Pointer record
-    HINFO = 13, // Host information record
-    MINFO = 14, // Mailbox or mail list information record
-    MX = 15, // Mail exchanger record
-    TXT = 16, // Text record
-    RP = 17, // Responsible person record
-    AFSDB = 18, // AFS database record
-    X25 = 19, // DNS X25 resource record
-    ISDN = 20, // Integrated Services Digital Network record
-    RT = 21, // Route Through record
-    NSAP = 22, // Network service access point address record
-    NSAP_PTR = 23, // Network service access point address pointer record
-    SIG = 24, // Signature record
-    KEY = 25, // Key record
-    PX = 26, // Mail Mapping Information record
-    GPOS = 27, // DNS Geographical Position record
-    AAAA = 28, // IPv6 address record
-    LOC = 29, // Location record
-    NXT = 30, // Obsolete record
-    EID = 31, // DNS Endpoint Identifier record
-    NIMLOC = 32, // DNS Nimrod Locator record
-    SRV = 33, // Service locator record
-    ATMA = 34, // Asynchronous Transfer Mode address record
-    NAPTR = 35, // Naming Authority Pointer record
-    KX = 36, // Key eXchanger record
-    CERT = 37, // Certificate record
-    A6 = 38, // Obsolete, replaced by AAAA type
-    DNAM = 39, // Delegation Name record
-    SINK = 40, // Kitchen sink record
-    OPT = 41, // Option record
-    APL = 42, // Address Prefix List record
-    DS = 43, // Delegation signer record
-    SSHFP = 44, // SSH Public Key Fingerprint record
-    IPSECKEY = 45, // IPsec Key record
-    RRSIG = 46, // DNSSEC signature record
-    NSEC = 47, // Next-Secure record
-    DNSKEY = 48, // DNS Key record
-    DHCID = 49, // DHCP identifier record
-    NSEC3 = 50, // NSEC record version 3
-    NSEC3PARAM = 51, // NSEC3 parameters
-    ALL = 255, // All cached records
-    GENERIC = 256,
-
-    pub fn from_u16(value: u16) QueryType {
-        return std.enums.fromInt(QueryType, value) orelse {
-            return .GENERIC;
-        };
-    }
-};
-
-pub const DnsClass = enum(u16) {
-    IN = 1, // Internet
-    CS = 2, // CSNET (obsolete)
-    CH = 3, // Chaos
-    HS = 4, // Hesiod
-    ANY = 255, // Any class
-
-    pub fn fromU16(value: u16) DnsClass {
-        switch (value) {
-            1 => return .IN,
-            2 => return .CS,
-            3 => return .CH,
-            4 => return .HS,
-            255 => return .ANY,
-            else => return @intCast(value), // unknown class, keep as raw
-        }
-    }
-
-    pub fn toString(self: DnsClass) []const u8 {
-        return switch (self) {
-            .IN => "IN",
-            .CS => "CS",
-            .CH => "CH",
-            .HS => "HS",
-            .ANY => "ANY",
-            else => "UNKNOWN",
-        };
-    }
-};
-
+// TODO: assess if this is needed
 pub const QueryOwner = union(enum) {
     dns_layer: *DNSLayer,
     buffer: Buffer,
@@ -169,6 +82,7 @@ pub const DNSQuery = struct {
     }
 
     /// doesn't work yet
+    /// TODO: fix
     pub fn decode_name(self: *DNSQuery) ![]const u8 {
         var offset: usize = 0;
         const raw = self.get_data();
@@ -214,6 +128,7 @@ pub const DNSQuery = struct {
     };
 };
 
+// TODO: incorperate with AnswerRecord
 pub const DNSAnswer = struct {
     qtype: QueryType,
     qclass: DnsClass,
@@ -224,78 +139,6 @@ pub const DNSAnswer = struct {
     pub fn init(qtype: QueryType, qclass: DnsClass, ttl: u32, rdlength: u16, allocator: Allocator) DNSAnswer {
         const self = DNSAnswer{ .qtype = qtype, .qclass = qclass, .ttl = ttl, .rdlength = rdlength, .buffer = .init_empty(allocator) };
         return self;
-    }
-};
-
-const DNSRcode = enum(u4) {
-    NoError = 0,
-    FormatError = 1,
-    ServerFailure = 2,
-    NameError = 3,
-    NotImplemented = 4,
-    Refused = 5,
-    YXDomain = 6,
-    YXRRSet = 7,
-    NXRRSet = 8,
-    NotAuth = 9,
-    NotZone = 10,
-    Reserved11 = 11,
-    Reserved12 = 12,
-    Reserved13 = 13,
-    Reserved14 = 14,
-    Reserved15 = 15,
-    _,
-
-    pub fn name(self: DNSRcode) []const u8 {
-        return switch (self) {
-            .NoError => "NOERROR",
-            .FormatError => "FORMERR",
-            .ServerFailure => "SERVFAIL",
-            .NameError => "NXDOMAIN",
-            .NotImplemented => "NOTIMP",
-            .Refused => "REFUSED",
-            .YXDomain => "YXDOMAIN",
-            .YXRRSet => "YXRRSET",
-            .NXRRSet => "NXRRSET",
-            .NotAuth => "NOTAUTH",
-            .NotZone => "NOTZONE",
-            else => "RESERVED",
-        };
-    }
-};
-
-const DNSOpcode = enum(u4) {
-    Query = 0,
-    IQuery = 1,
-    Status = 2,
-    Reserved3 = 3,
-    Notify = 4,
-    Update = 5,
-    Dso = 6,
-    // 7-15 are reserved
-
-    pub fn name(self: DNSOpcode) []const u8 {
-        return switch (self) {
-            .Query => "QUERY",
-            .IQuery => "IQUERY",
-            .Status => "STATUS",
-            .Notify => "NOTIFY",
-            .Update => "UPDATE",
-            .Dso => "DSO",
-            else => "RESERVED",
-        };
-    }
-
-    pub fn description(self: DNSOpcode) []const u8 {
-        return switch (self) {
-            .Query => "Standard query",
-            .IQuery => "Inverse query (obsolete)",
-            .Status => "Server status request",
-            .Notify => "Zone change notification",
-            .Update => "Dynamic update",
-            .Dso => "DNS Stateful Operations",
-            else => "Reserved for future use",
-        };
     }
 };
 
@@ -685,7 +528,7 @@ pub const DNSLayer = struct {
         return count;
     }
 
-    pub fn addQuery(self: *DNSLayer, query: *DNSQuery) !void {
+    pub fn add_query(self: *DNSLayer, query: *DNSQuery) !void {
         var allocator = self.get_allocator();
         const q = try allocator.create(Query);
         const last_query = self.get_last_query();
@@ -714,15 +557,6 @@ pub const DNSLayer = struct {
         hdr.set_qdcount(qdcount);
     }
 
-    //pub fn extract_query(self: *DNSLayer, query: *Query, allocator: Allocator) ?DNSQuery {
-    //    var cur = self.first_query;
-    //    while (cur) |q| {
-    //        if (query == q) {
-    //
-    //        }
-    //    }
-    //}
-
     fn decode_name(raw: []const u8, offset: *usize) ![]const u8 {
         const start = offset.*;
         var end = start;
@@ -747,8 +581,6 @@ pub const DNSLayer = struct {
         }
     }
 
-    //    fn find_by_() {}
-
     pub fn extend_payload(self: *DNSLayer, offset: usize, extend_len: usize) ![]u8 {
         var buf: []u8 = undefined;
         switch (self.owner) {
@@ -763,44 +595,7 @@ pub const DNSLayer = struct {
         return buf;
     }
 
-    //TODO: remove domain, qtype, class and allocator as required params and just pass DNSQuery struct
-    pub fn add_query(self: *DNSLayer, domain: []const u8, qtype: QueryType, class: DnsClass) !void {
-        var hdr = self.get_mutable_header();
-
-        var qdcount = hdr.get_qdcount();
-
-        const extend_len = domain.len + 6;
-
-        var query_buf = try self.extend_payload(self.get_data().len, extend_len);
-
-        // Slice buffer starting at offset
-        var qbuffer = query_buf[0..];
-
-        // Write QNAME (labels)
-        var buf_offset: usize = 0;
-        var it = std.mem.splitScalar(u8, domain, '.');
-        while (it.next()) |label| {
-            qbuffer[buf_offset] = @intCast(label.len);
-            buf_offset += 1;
-            @memmove(qbuffer[buf_offset .. buf_offset + label.len], label);
-            buf_offset += label.len;
-        }
-        qbuffer[buf_offset] = 0; // null terminator
-        buf_offset += 1;
-
-        // Write QTYPE
-        std.mem.writeInt(u16, @ptrCast(qbuffer[buf_offset .. buf_offset + 2]), @intCast(@intFromEnum(qtype)), .big);
-        buf_offset += 2;
-
-        // Write QCLASS
-        std.mem.writeInt(u16, @ptrCast(qbuffer[buf_offset .. buf_offset + 2]), @intCast(@intFromEnum(class)), .big);
-        buf_offset += 2;
-
-        // Increment QDCOUNT
-        qdcount += 1;
-        hdr.set_qdcount(qdcount);
-    }
-
+    /// call when creating DNS layer from existing data
     pub fn get_queries(self: *DNSLayer) !void {
         var allocator = self.get_allocator();
         const data = self.get_data();
@@ -868,7 +663,7 @@ pub const DNSLayer = struct {
         return offset;
     }
 
-    pub fn get_q_section_sz(self: *DNSLayer) !usize {
+    fn get_q_section_sz(self: *DNSLayer) !usize {
         var size: usize = 0;
         var query = self.get_first_query();
 
@@ -917,6 +712,7 @@ pub const DNSLayer = struct {
         return count;
     }
 
+    /// call when creating DNS layer from existing data
     pub fn get_answers(self: *DNSLayer) !void {
         var allocator = self.get_allocator();
         const data = self.get_data();
