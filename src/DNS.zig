@@ -122,6 +122,8 @@ pub const QueryOwner = union(enum) {
     buffer: Buffer,
 };
 
+/// Use to build a DNSQuery.
+/// Buffer struct is created using the allocator which you provide
 pub const DNSQuery = struct {
     qtype: QueryType,
     qclass: DnsClass,
@@ -436,6 +438,7 @@ pub const Query = struct {
 ///     CNAME,
 ///     TXT,
 ///     MX,
+///     PTR,
 ///     Generic,
 pub const AnswerRecord = union(enum) {
     a: ARecord,
@@ -446,8 +449,9 @@ pub const AnswerRecord = union(enum) {
     ptr: PTRRecord,
     generic: GenericRecord,
 
-    pub fn init(offset: usize, length: usize, qtype: QueryType, qclass: DnsClass, layer: *DNSLayer) ?AnswerRecord {
+    pub fn init(offset: usize, length: usize, qtype: QueryType, qclass: DnsClass, layer: *DNSLayer) AnswerRecord {
         switch (qtype) {
+            // TODO: reduce repeating code
             .A => {
                 return AnswerRecord{ .a = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
             },
@@ -476,7 +480,7 @@ pub const AnswerRecord = union(enum) {
                 return AnswerRecord{ .generic = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
             },
 
-            else => return null,
+            else => return AnswerRecord{ .generic = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } },
         }
     }
 
@@ -489,6 +493,18 @@ pub const AnswerRecord = union(enum) {
     pub fn get_length(self: *AnswerRecord) usize {
         return switch (self.*) {
             inline else => |*rr| rr.length,
+        };
+    }
+
+    pub fn set_offset(self: *AnswerRecord, offset: usize) void {
+        return switch (self.*) {
+            inline else => |*rr| rr.offset = offset,
+        };
+    }
+
+    pub fn set_length(self: *AnswerRecord, length: usize) void {
+        return switch (self.*) {
+            inline else => |*rr| rr.length = length,
         };
     }
 
@@ -731,14 +747,16 @@ pub const DNSLayer = struct {
         }
     }
 
-    fn extend_payload(self: *DNSLayer, offset: usize, extend_len: usize) ![]u8 {
+    //    fn find_by_() {}
+
+    pub fn extend_payload(self: *DNSLayer, offset: usize, extend_len: usize) ![]u8 {
         var buf: []u8 = undefined;
         switch (self.owner) {
             .packet_layer => |layer| {
                 buf = try layer.packet.extend_layer(layer, extend_len);
             },
             .owned_buffer => |*buffer| {
-                buf = try buffer.extend(offset, extend_len); // temp - needs to extend from current ihl length not base header length
+                buf = try buffer.extend(offset, extend_len);
             },
         }
 
@@ -956,9 +974,7 @@ pub const DNSLayer = struct {
             const rtype_e: QueryType = QueryType.from_u16(rtype);
             const class_e: DnsClass = @enumFromInt(rclass);
 
-            answer.* = AnswerRecord.init(name_offset, whole_record.len, rtype_e, class_e, self) orelse {
-                continue;
-            };
+            answer.* = AnswerRecord.init(name_offset, whole_record.len, rtype_e, class_e, self);
 
             const last_answer = self.last_answer;
 

@@ -12,6 +12,7 @@ const LayerOwner = zigcap.Layer.LayerOwner;
 const tcp_ip_protocol = zigcap.tcp_ip_protocol;
 const IPProtocol = zigcap.ProtocolEnums.IPProtocol;
 const IPv4 = @import("IPv4.zig");
+const IPv6 = @import("IPv6.zig");
 const Eth = @import("Eth.zig");
 const UDP = @import("UDP.zig");
 const ARP = @import("ARP.zig");
@@ -172,6 +173,8 @@ test "parse dns query raw" {
 test "parse dns A response raw" {
     const google_a_resp: [135]u8 align(2) = [_]u8{ 0x72, 0x43, 0x81, 0x80, 0x0, 0x1, 0x0, 0x6, 0x0, 0x0, 0x0, 0x1, 0x6, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x3, 0x63, 0x6f, 0x6d, 0x0, 0x0, 0x1, 0x0, 0x1, 0xc0, 0xc, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x45, 0x0, 0x4, 0x8e, 0xfa, 0x81, 0x8b, 0xc0, 0xc, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x45, 0x0, 0x4, 0x8e, 0xfa, 0x81, 0x66, 0xc0, 0xc, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x45, 0x0, 0x4, 0x8e, 0xfa, 0x81, 0x8a, 0xc0, 0xc, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x45, 0x0, 0x4, 0x8e, 0xfa, 0x81, 0x64, 0xc0, 0xc, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x45, 0x0, 0x4, 0x8e, 0xfa, 0x81, 0x71, 0xc0, 0xc, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x45, 0x0, 0x4, 0x8e, 0xfa, 0x81, 0x65, 0x0, 0x0, 0x29, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
 
+    print("parsing google A response.\n", .{});
+
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.deinit();
 
@@ -185,6 +188,8 @@ test "parse dns A response raw" {
     var dns_layer = try LayerIface.init(DNS.DNSLayer, dns_owner);
     defer dns_layer.deinit();
 
+    print("dns_layer len: {}\n", .{dns_layer.get_data().len});
+
     try dns_layer.dnsLayer.get_queries();
     try dns_layer.dnsLayer.get_answers();
 
@@ -195,9 +200,7 @@ test "parse dns A response raw" {
     var query = dns_layer.dnsLayer.first_query;
 
     while (query) |q| {
-        const q_data = q.get_data();
-
-        const qname = try DNS.decodeQname(allocator, q_data);
+        const qname = try q.decode_qname(allocator);
         defer allocator.free(qname);
 
         print("{s}\n", .{qname});
@@ -214,7 +217,16 @@ test "parse dns A response raw" {
         if (ans.a.get_ip()) |ip| {
             const ip_str = try ip.to_string(allocator);
             defer allocator.free(ip_str);
-            print("{s}\n", .{ip_str});
+            print("original: {s}\n", .{ip_str});
+
+            const new_ip = try IPv4.IPv4Address.init_from_string("1.2.3.4");
+
+            ans.a.set_ip(new_ip);
+            if (ans.a.get_ip()) |new_ipv4| {
+                const new_ip_str = try new_ipv4.to_string(allocator);
+                defer allocator.free(new_ip_str);
+                print("changed: {s}\n", .{new_ip_str});
+            }
         }
 
         const ttl = ans.get_ttl();
@@ -227,6 +239,8 @@ test "parse dns A response raw" {
 
         answer = ans.get_next_record();
     }
+
+    print("dns_layer post mod len: {}\n", .{dns_layer.get_data().len});
 }
 
 test "parse dns AAAA response raw" {
@@ -256,7 +270,7 @@ test "parse dns AAAA response raw" {
         const qname = try DNS.decodeQname(allocator, q_data);
         defer allocator.free(qname);
 
-        print("{s}\n", .{qname});
+        print("QName: {s}\n", .{qname});
         query = q.next_query;
     }
 
@@ -269,7 +283,17 @@ test "parse dns AAAA response raw" {
         if (ans.aaaa.get_ipv6()) |ipv6| {
             const ip_str = try ipv6.to_string(allocator);
             defer allocator.free(ip_str);
-            print("{s}\n", .{ip_str});
+            print("Original {s}\n", .{ip_str});
+
+            const new_ipv6 = IPv6.IPv6Address.init_from_array(.{ 0x26, 0x20, 0x1, 0xec, 0x0, 0x50, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x12 });
+
+            ans.aaaa.set_ipv6(new_ipv6);
+
+            if (ans.aaaa.get_ipv6()) |ipv6_m| {
+                const new_ipv6_str = try ipv6_m.to_string(allocator);
+                defer allocator.free(new_ipv6_str);
+                print("changed: {s}\n", .{new_ipv6_str});
+            }
         }
 
         answer = ans.get_next_record();
@@ -317,7 +341,15 @@ test "parse ebay CNAME response" {
     // slot348525.ebay.com.edgekey.net cname.2
     // e348525.a.akamaiedge.net - cname.3
 
+    // 2.19.248.137 - a.1
+    // 2.19.248.151 - a.2
+
+    if (dns_layer.dnsLayer.first_answer) |ans| {
+        print("dns_layer answer data: {x}\n", .{dns_layer.get_data()[ans.get_offset()..]});
+    }
+
     var cname_count: usize = 0;
+    var a_count: usize = 0;
     var answer = dns_layer.dnsLayer.first_answer;
     while (answer) |ans| {
         print("answer: offset={} length={} {any} {any}\n", .{
@@ -331,31 +363,104 @@ test "parse ebay CNAME response" {
 
         if (ans.get_rr_type() == DNS.QueryType.CNAME) {
             cname_count += 1;
+            print("cname raw: {x}\n", .{ans.get_data()});
             const cname = try ans.cname.decode_cname(allocator);
             defer allocator.free(cname);
             print("cname decoded: {s}\n", .{cname});
+
             if (cname_count == 1) {
                 try expect(std.mem.eql(u8, cname, "www.ebay.co.uk.ebaycdn.net"));
+                //try expect(std.mem.eql(u8, name, "www.ebay.com"));
+                const name = try ans.cname.get_name(allocator);
+                defer allocator.free(name);
+                print("name: {s}\n", .{name});
             }
 
             if (cname_count == 2) {
                 try expect(std.mem.eql(u8, cname, "slot348525.ebay.com.edgekey.net"));
+                const name = try ans.cname.get_name(allocator);
+                defer allocator.free(name);
+                print("name: {s}\n", .{name});
             }
 
             if (cname_count == 3) {
                 try expect(std.mem.eql(u8, cname, "e348525.a.akamaiedge.net"));
+                // TODO: why is this get_name causing infinite loop
+                //const name = try ans.cname.get_name(allocator);
+                //defer allocator.free(name);
+                //print("name: {s}\n", .{name});
             }
         }
 
         if (ans.get_rr_type() == DNS.QueryType.A) {
+            a_count += 1;
+            try expect(ans.a.get_ip() != null);
             if (ans.a.get_ip()) |ipv4_address| {
                 const ip_addr_str = try ipv4_address.to_string(allocator);
                 defer allocator.free(ip_addr_str);
                 print("{s}\n", .{ip_addr_str});
+                if (a_count == 1) {
+                    try expect(std.mem.eql(u8, ip_addr_str, "2.19.248.137"));
+                }
+
+                if (a_count == 2) {
+                    try expect(std.mem.eql(u8, ip_addr_str, "2.19.248.151"));
+                }
             }
         }
 
         answer = ans.get_next_record();
+    }
+
+    //   cname_count = 0;
+    //   answer = dns_layer.dnsLayer.first_answer;
+    //   while (answer) |ans| {
+    //       print("answer: offset={} length={} {any} {any}\n", .{
+    //           ans.get_offset(),
+    //           ans.get_length(),
+    //           ans.get_rr_type(),
+    //           ans.get_class_type(),
+    //       });
+    //
+    //       print("ttl: {}\n", .{ans.get_ttl()});
+    //
+    //       if (ans.get_rr_type() == DNS.QueryType.CNAME) {
+    //           cname_count += 1;
+    //           print("cname raw: {x}\n", .{ans.get_data()});
+    //           const cname = try ans.cname.decode_cname(allocator);
+    //           defer allocator.free(cname);
+    //           print("cname decoded: {s}\n", .{cname});
+    //           if (cname_count == 1) {
+    //               try expect(std.mem.eql(u8, cname, "www.ebay.co.uk.ebaycdn.net"));
+    //               try ans.cname.set_cname("www.lorem-epsom-lorem-epsom.comabdsffss..com", allocator);
+    //               //try ans.cname.set_cname("www.abcd.co.uk.abcdcdn.net", allocator);
+    //               const new_cname = try ans.cname.decode_cname(allocator);
+    //               defer allocator.free(new_cname);
+    //               print("cname decoded: {s}\n", .{new_cname});
+    //           }
+    //
+    //           //if (cname_count == 2) {
+    //           //    try expect(std.mem.eql(u8, cname, "slot348525.ebay.com.edgekey.net"));
+    //           //}
+    //
+    //           //if (cname_count == 3) {
+    //           //    try expect(std.mem.eql(u8, cname, "e348525.a.akamaiedge.net"));
+    //           //}
+    //       }
+    //
+    //       //if (ans.get_rr_type() == DNS.QueryType.A) {
+    //       //    if (ans.a.get_ip()) |ipv4_address| {
+    //       //        const ip_addr_str = try ipv4_address.to_string(allocator);
+    //       //        defer allocator.free(ip_addr_str);
+    //       //        print("{s}\n", .{ip_addr_str});
+    //       //    }
+    //       //}
+    //
+    //       answer = ans.get_next_record();
+    //   }
+
+    if (dns_layer.dnsLayer.first_answer) |ans| {
+        print("dns_layer answer data: {x}\n", .{dns_layer.get_data()[ans.get_offset()..]});
     }
 }
 
@@ -390,7 +495,7 @@ test "parse dns txt record response" {
         query = q.next_query;
     }
 
-    //    try expect(dns_layer.dnsLayer.get_answer_count() == 5);
+    try expect(dns_layer.dnsLayer.get_answer_count() == 2);
 
     try expect(dns_layer.dnsLayer.first_answer != null);
 
@@ -407,6 +512,10 @@ test "parse dns txt record response" {
 
         if (ans.get_rr_type() == DNS.QueryType.TXT) {
             print("txt record: {s} \n", .{ans.txt.get_record_str()});
+
+            const name = try ans.txt.get_name(allocator);
+            defer allocator.free(name);
+            print("name: {s}\n", .{name});
         }
 
         answer = ans.get_next_record();
