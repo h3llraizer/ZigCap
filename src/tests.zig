@@ -976,7 +976,7 @@ test "build ipv4 layer with Router Alert option" {
     print("========================== END ==========================\n", .{});
 }
 
-test "ipv4 layer in complete packet with Router Alert option" {
+test "IPv4 Packet Router Alert option" {
     print("========================== START ==========================\n", .{});
     print("ipv4 layer in complete packet with Router Alert option\n", .{});
     var backing_buffer: [1024]u8 = undefined;
