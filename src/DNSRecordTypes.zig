@@ -188,47 +188,48 @@ pub const CNAMERecord = struct {
         return try decode_name(self.layer.get_data(), self.get_data()[12..], allocator);
     }
 
-    pub fn update_proceeding_records(self: *CNAMERecord, len: isize) void {
-        const pos = self.offset + 12; // absolute offset of start of cname in dns_layer + 12 to get the start of the name
-
+    pub fn update_proceeding_records(self: *CNAMERecord, delta: isize) void {
+        const pos = self.offset + 12;
         const ptr0: [1]u8 = .{0xC0};
-        //const ptr1: [1]u8 = .{0};
 
         var cur = self.next_answer;
         while (cur) |ans| {
             var next_data = ans.get_data_mut();
             var off: usize = 0;
 
-            // Search through the entire record for compression pointers
             while (off < next_data.len - 1) {
                 const ptr_in_ans = next_data[off .. off + 2];
                 if (ptr_in_ans[0] == ptr0[0]) {
                     var pointer: u16 = (@as(u16, ptr_in_ans[0] & 0x3F) << 8) | @as(u16, ptr_in_ans[1]);
+                    print("original ptr: {}\n", .{pointer});
 
-                    // Check if this pointer points to a location after the current CNAME
                     if (pointer > pos) {
-                        pointer += @as(u16, @intCast(len));
+                        // Convert to signed to handle negative delta, then back to unsigned
+                        const new_pointer = @as(i32, pointer) + delta;
+                        if (new_pointer < 0) {
+                            // Handle error case - pointer would become negative
+                            @panic("pointer would become negative");
+                        }
+                        pointer = @as(u16, @intCast(new_pointer));
+                        print("changed ptr: {}\n", .{pointer});
 
-                        // Update BOTH bytes of the pointer
                         ptr_in_ans[0] = @as(u8, 0xC0 | @as(u8, @truncate((pointer >> 8) & 0x3F)));
                         ptr_in_ans[1] = @as(u8, @truncate(pointer & 0xFF));
                     }
                 }
-                off += 2; // Move to next potential pointer location
+                off += 2;
             }
-
             cur = ans.get_next_record();
         }
     }
 
     pub fn update_rest_ptrs(self: *CNAMERecord, ignore: [2]u8) !void {
+        print("ignoring offset: {x}\n", .{ignore});
         const end = self.offset + self.length;
 
         var first: bool = true;
-
         var new_ptr_loc: [2]u8 = undefined;
-
-        var difference: isize = 0; // this should actually be isize because the difference could be an increase or decrease
+        var difference: isize = 0;
 
         var cur = self.next_answer;
         while (cur) |ans| {
@@ -243,21 +244,24 @@ pub const CNAMERecord = struct {
                 },
                 else => {
                     cur = ans.get_next_record();
+                    continue;
                 },
             }
 
             const total_len = answers_data.len;
+            var i: usize = 0;
 
-            var i: usize = 0; // i is a relative offset in the current answer record
             while (i < total_len - 1) {
                 if (answers_data[i] & 0xC0 == 0xC0) {
                     const pointer: u16 = @as(u16, answers_data[i] & 0x3F) << 8 | @as(u16, answers_data[i + 1]);
+
+                    print("found ptr: {}.\n", .{pointer});
 
                     if (pointer >= self.offset and pointer < end) {
                         if (!(answers_data[i] == ignore[0] and answers_data[i + 1] == ignore[1])) {
                             var ptr_begin = self.layer.get_data()[pointer..];
 
-                            // need to find the end of the label
+                            // Find the end of the label
                             var idx: usize = 0;
                             var label_end: bool = false;
                             var zero_count: usize = 0;
@@ -265,54 +269,58 @@ pub const CNAMERecord = struct {
                                 if (ptr_begin[idx] == 0) {
                                     zero_count += 1;
                                 }
-
                                 if (zero_count == 1) {
                                     label_end = true;
                                 }
-
                                 idx += 1;
                             }
 
-                            ptr_begin = ptr_begin[0..idx]; // this is the slice to be copied to the first record which needs the ptr
-
+                            ptr_begin = ptr_begin[0..idx];
                             const label_len: isize = @intCast(ptr_begin.len);
 
                             if (first) {
                                 const extend_start = ans.get_offset() + i;
-
                                 const begin = self.layer.get_data()[extend_start .. extend_start + 2];
+                                difference = label_len - @as(isize, @intCast(begin.len));
 
-                                difference = label_len - @as(isize, @intCast(begin.len)); // actual extend len
+                                // Handle both positive and negative differences
+                                if (difference > 0) {
+                                    // Extend the payload
+                                    _ = try self.layer.extend_payload(extend_start, @as(usize, @intCast(difference)));
+                                } else if (difference < 0) {
+                                    // Shrink the payload
+                                    _ = try self.layer.shorten_payload(extend_start, @as(usize, @intCast(-difference)));
+                                }
+                                // difference == 0: no change needed
 
-                                // BEFORE extend
+                                // Copy the label
                                 const src = self.layer.get_data()[pointer .. pointer + idx];
-                                var tmp: [512]u8 = undefined; // create some space on the stack - 512
-                                @memmove(tmp[0..src.len], src); // copy into the tmp buffer
-
+                                var tmp: [512]u8 = undefined;
+                                @memcpy(tmp[0..src.len], src);
                                 const label: []u8 = tmp[0..src.len];
+                                @memcpy(self.layer.get_data()[extend_start .. extend_start + label.len], label);
 
-                                // calculate the difference to overwrite the ptr first and then extend by the difference
-
-                                // mutate - extend the answers buffer
-                                print("difference: {}\n", .{difference});
-                                _ = try self.layer.extend_payload(extend_start, @as(usize, @intCast(difference)));
-
-                                // copy from tmp
-                                @memmove(self.layer.get_data()[extend_start .. extend_start + label.len], label);
-
+                                // Update the pointer location
                                 new_ptr_loc[0] = 0xC0 | @as(u8, @truncate((extend_start >> 8) & 0x3F));
                                 new_ptr_loc[1] = @as(u8, @truncate(extend_start & 0xFF));
 
+                                // Update answer record length
                                 ans.set_length(ans.get_length() + @as(usize, @intCast(difference)));
 
+                                // Update subsequent record offsets
+                                print("Update subsequent record offsets:\n", .{});
                                 var next = ans.get_next_record();
                                 while (next) |next_record| {
-                                    next_record.set_offset(next_record.get_offset() + @as(usize, @intCast(difference)));
+                                    const cur_offset = next_record.get_offset();
+                                    print("cur_offset: {}\n", .{cur_offset});
+                                    next_record.set_offset(cur_offset + @as(usize, @intCast(difference)));
+                                    print("new offset: {}\n", .{next_record.get_offset()});
                                     next = next_record.get_next_record();
                                 }
 
                                 first = false;
                             } else {
+                                // Replace pointer with new location
                                 answers_data[i] = new_ptr_loc[0];
                                 answers_data[i + 1] = new_ptr_loc[1];
                             }
@@ -320,20 +328,26 @@ pub const CNAMERecord = struct {
                     } else if (!first) {
                         const new_ptr: u16 = (@as(u16, new_ptr_loc[0] & 0x3F) << 8) | @as(u16, new_ptr_loc[1]);
                         if (pointer > new_ptr) {
-                            const ext_pointer = pointer + difference;
+                            print("pointer {} greater than new_ptr.\n", .{pointer});
+                            // Use signed arithmetic for pointer adjustment
+                            const ext_pointer = @as(i32, pointer) + difference;
+                            if (ext_pointer < 0) {
+                                @panic("pointer would become negative");
+                            }
+                            print("ext_pointer: {}\n", .{ext_pointer});
 
-                            answers_data[i] = 0xC0 | @as(u8, @truncate((@as(usize, @intCast(ext_pointer)) >> 8) & 0x3F));
-                            answers_data[i + 1] = @as(u8, @truncate(@as(usize, @intCast(ext_pointer)) & 0xFF));
+                            answers_data[i] = 0xC0 | @as(u8, @truncate((@as(u16, @intCast(ext_pointer)) >> 8) & 0x3F));
+                            answers_data[i + 1] = @as(u8, @truncate(@as(u16, @intCast(ext_pointer)) & 0xFF));
+                        } else {
+                            print("pointer {} not greater than new_ptr.\n", .{pointer});
                         }
                     }
 
                     i += 2;
                     continue;
                 }
-
                 i += 1;
             }
-
             cur = ans.get_next_record();
         }
     }
@@ -390,28 +404,33 @@ pub const CNAMERecord = struct {
             const new_data = self.get_data_mut();
             @memcpy(new_data[12..], new_cname_wire);
         } else if (new_len < old_len) {
-            print("new cname len is less than current.\n", .{});
-            const shrink_len = old_len - new_len;
+            print("new cname len is less than current. current: {} new: {}\n", .{ old_len, new_len });
+            const shrink_len: isize = @as(isize, @intCast(old_len)) - @as(isize, @intCast(new_len));
             print("shrink len: {}\n", .{shrink_len});
             const cname_offset = self.offset + 12;
 
-            // Shrink the payload (shift everything left)
-            // Extend the payload
-            _ = try self.layer.shorten_payload(cname_offset, shrink_len);
+            // Shrink the records RR
+            _ = try self.layer.shorten_payload(cname_offset, @intCast(shrink_len));
             print("shortened.\n", .{});
 
             // Update this record's length
-            self.length -= shrink_len;
+            self.length -= @intCast(shrink_len); // int cast required here because shrink_len is isize
 
             // Update subsequent records' offsets and lengths
+            print("Update subsequent records' offsets and lengths:\n", .{});
             var next_record: ?*AnswerRecord = self.next_answer;
             while (next_record) |next| {
-                next.set_offset(next.get_offset() - shrink_len);
+                const cur_offset = next.get_offset();
+                print("cur record offset: {}\n", .{cur_offset});
+                next.set_offset(cur_offset - @as(usize, @intCast(shrink_len)));
+                print("cur record new offset: {}\n", .{next.get_offset()});
                 next_record = next.get_next_record();
             }
 
+            print("shrink len: {}\n", .{-shrink_len});
+
             // Update compression pointers
-            self.update_proceeding_records(@intCast(shrink_len));
+            self.update_proceeding_records(-shrink_len);
             print("proceeding records updated.\n", .{});
             try self.update_rest_ptrs(ptr); // needs to be called now
             print("rest of ptrs updated.\n", .{});

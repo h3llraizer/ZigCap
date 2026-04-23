@@ -585,13 +585,15 @@ test "parse and mutate ebay CNAME response" {
         //           try an.cname.update_rest_ptrs(ignore);
         //       }
 
-        //try ans.cname.set_cname("www.lorem-epsom-lorem-epsom.comabdsffss.com", allocator);
+        try ans.cname.set_cname("www.lorem-epsom-lorem-epsom.comabdsffss.com", allocator);
+
+        //try ans.cname.set_cname("www.justanotherrandomdomainnamedontmindmepal.com", allocator);
 
         //        try ans.cname.set_cname("www.ebay.co.uk.ebaycdn.net", allocator); // create test for expect no change
 
         //try ans.cname.set_cname("www.ebay.co.uk.ebaycdn.org", allocator); // bug - changes .net throughout to .org
 
-        try ans.cname.set_cname("www.random.org", allocator); // broken
+        //try ans.cname.set_cname("www.random.org", allocator); // broken
     }
 
     count = 0;
@@ -614,14 +616,14 @@ test "parse and mutate ebay CNAME response" {
             count += 1;
             const str = try ans.cname.to_string(allocator);
             defer allocator.free(str);
-
+            //const str = "";
             const offset = ans.get_offset();
             const length = ans.get_length();
             const end = offset + length;
             print("{}. offset={} length={} end={} {s}\n", .{ count, offset, length, end, str });
         }
 
-        //   print("raw data: {x}\n", .{ans.get_data()});
+        print("raw data: {x}\n", .{ans.get_data()});
 
         cur = ans.get_next_record();
     }
@@ -694,9 +696,9 @@ test "parse and mutate ebay CNAME response" {
     //    answer = ans.get_next_record();
     //}
 
-    //   if (dns_layer.dnsLayer.first_answer) |ans| {
-    //       print("dns_layer answer data: {x}\n", .{dns_layer.get_data()[ans.get_offset()..]});
-    //   }
+    if (dns_layer.dnsLayer.first_answer) |ans| {
+        print("dns_layer answer data: {x}\n", .{dns_layer.get_data()[ans.get_offset()..]});
+    }
 }
 
 pub fn find_cmprs_ptrs(start_record: *DNS.AnswerRecord) void {
