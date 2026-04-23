@@ -824,6 +824,42 @@ pub const DNSLayer = struct {
         }
     }
 
+    pub fn decompress(self: *DNSLayer) !void {
+        self.find_cmprs_ptrs();
+    }
+
+    fn find_cmprs_ptrs(self: *DNSLayer) void {
+        var record: ?*AnswerRecord = self.first_answer;
+        while (record) |rec| {
+            switch (rec.get_rr_type()) {
+                .A => {
+                    find_compression_ptrs_in_answer(rec.a.get_data()[0..2]);
+                },
+                .CNAME => {
+                    find_compression_ptrs_in_answer(rec.cname.get_data());
+                },
+                else => {
+                    record = rec.get_next_record();
+                },
+            }
+            record = rec.get_next_record();
+        }
+    }
+
+    fn find_compression_ptrs_in_answer(data: []const u8) void {
+        var offset: usize = 0;
+
+        while (offset < data.len - 1) {
+            if (data[offset] & 0xC0 == 0xC0) {
+                const ptr = data[offset .. offset + 2];
+                const pointer: u16 = (@as(u16, data[offset] & 0x3F) << 8) | @as(u16, data[offset + 1]);
+                std.debug.print("found compression ptr: ({}) {x} {}\n", .{ ptr.len, ptr, pointer });
+            }
+
+            offset += 1;
+        }
+    }
+
     pub fn to_string(self: *DNSLayer, allocator: Allocator) []const u8 {
         const hdr = self.get_mutable_header();
         const flags = hdr.get_flags();

@@ -188,7 +188,7 @@ pub const CNAMERecord = struct {
         return try decode_name(self.layer.get_data(), self.get_data()[12..], allocator);
     }
 
-    pub fn update_proceeding_records(self: *CNAMERecord, delta: isize) void {
+    fn update_proceeding_records(self: *CNAMERecord, delta: isize) void {
         const pos = self.offset + 12;
         const ptr0: [1]u8 = .{0xC0};
 
@@ -223,7 +223,7 @@ pub const CNAMERecord = struct {
         }
     }
 
-    pub fn update_rest_ptrs(self: *CNAMERecord, ignore: [2]u8) !void {
+    fn update_rest_ptrs(self: *CNAMERecord, ignore: [2]u8) !void {
         print("ignoring offset: {x}\n", .{ignore});
         const end = self.offset + self.length;
 
@@ -358,7 +358,7 @@ pub const CNAMERecord = struct {
     /// else if the new cname is shorter or longer, then the dns layers buffer is shortened or extended, respectively
     ///
     /// currently broken. don't use it.
-    pub fn set_cname(self: *CNAMERecord, cname: []const u8, allocator: Allocator) !void {
+    fn set_cname(self: *CNAMERecord, cname: []const u8, allocator: Allocator) !void {
         // need to check if the cname being changed contains any sub label ptrs which proceeding records rely on
         // e.g. .net in a cname can be relied on proceeding records
         // in this case, find the next record that uses this ptr, edit the cname record to include that sub-label
