@@ -10,6 +10,8 @@ const DnsClass = DNS.DnsClass;
 const DNSLayer = DNS.DNSLayer;
 const AnswerRecord = DNS.AnswerRecord;
 
+const print = std.debug.print;
+
 pub const GenericRecord = struct {
     offset: usize,
     length: usize,
@@ -50,14 +52,18 @@ pub const ARecord = struct {
         return self.layer.get_data()[self.offset .. self.offset + self.length];
     }
 
+    pub fn get_name(self: *ARecord, allocator: Allocator) ![]u8 {
+        const data = self.get_data(); // the length of the name is not known so just take use the offset of this RR
+
+        return try decode_name(self.layer.get_data(), data, allocator);
+    }
+
     pub fn get_ip(self: *ARecord) ?IPv4Address {
-        if (self.qtype == QueryType.A) {
-            const data = self.get_data();
-            if (data.len >= 16) {
-                const ip_u32: u32 = std.mem.readInt(u32, data[12..16], .big);
-                const ip = IPv4Address.init_from_u32(ip_u32);
-                return ip;
-            }
+        const data = self.get_data();
+        if (data.len >= 16) {
+            const ip_u32: u32 = std.mem.readInt(u32, data[12..16], .big);
+            const ip = IPv4Address.init_from_u32(ip_u32);
+            return ip;
         }
 
         return null;
@@ -68,6 +74,32 @@ pub const ARecord = struct {
         if (data.len >= 16) {
             std.mem.writeInt(u32, data[12..16], ipv4.to_u32(), .big);
         }
+    }
+
+    pub fn to_string(self: *ARecord, allocator: Allocator) ![]const u8 {
+        var list: std.ArrayList(u8) = .empty;
+
+        const name = try self.get_name(allocator);
+        defer allocator.free(name);
+        const type_s = @tagName(self.qtype);
+        const class_s = @tagName(self.qclass);
+        var ip: []const u8 = undefined;
+        if (self.get_ip()) |ipv4| {
+            ip = try ipv4.to_string(allocator);
+        }
+        defer allocator.free(ip);
+
+        const space = " ";
+
+        try list.appendSlice(allocator, name);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, type_s);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, class_s);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, ip);
+
+        return try list.toOwnedSlice(allocator);
     }
 
     pub fn get_rr_type(self: ARecord) QueryType {
@@ -143,8 +175,8 @@ pub const CNAMERecord = struct {
     }
 
     pub fn get_name(self: *CNAMERecord, allocator: Allocator) ![]u8 {
-        const data = self.get_data();
-        // the length of the name is not known so just take use the offset of this RR
+        const data = self.get_data(); // the length of the name is not known so just take use the offset of this RR
+
         return try decode_name(self.layer.get_data(), data, allocator);
     }
 
@@ -156,6 +188,156 @@ pub const CNAMERecord = struct {
         return try decode_name(self.layer.get_data(), self.get_data()[12..], allocator);
     }
 
+    pub fn update_proceeding_records(self: *CNAMERecord, len: isize) void {
+        const pos = self.offset + 12; // absolute offset of start of cname in dns_layer + 12 to get the start of the name
+
+        const ptr0: [1]u8 = .{0xC0};
+        //const ptr1: [1]u8 = .{0};
+
+        var cur = self.next_answer;
+        while (cur) |ans| {
+            var next_data = ans.get_data_mut();
+            var off: usize = 0;
+
+            // Search through the entire record for compression pointers
+            while (off < next_data.len - 1) {
+                const ptr_in_ans = next_data[off .. off + 2];
+                if (ptr_in_ans[0] == ptr0[0]) {
+                    var pointer: u16 = (@as(u16, ptr_in_ans[0] & 0x3F) << 8) | @as(u16, ptr_in_ans[1]);
+
+                    // Check if this pointer points to a location after the current CNAME
+                    if (pointer > pos) {
+                        pointer += @as(u16, @intCast(len));
+
+                        // Update BOTH bytes of the pointer
+                        ptr_in_ans[0] = @as(u8, 0xC0 | @as(u8, @truncate((pointer >> 8) & 0x3F)));
+                        ptr_in_ans[1] = @as(u8, @truncate(pointer & 0xFF));
+                    }
+                }
+                off += 2; // Move to next potential pointer location
+            }
+
+            cur = ans.get_next_record();
+        }
+    }
+
+    pub fn update_rest_ptrs(self: *CNAMERecord, ignore: [2]u8) !void {
+        const end = self.offset + self.length;
+
+        var first: bool = true;
+
+        var new_ptr_loc: [2]u8 = undefined;
+
+        var difference: isize = 0; // this should actually be isize because the difference could be an increase or decrease
+
+        var cur = self.next_answer;
+        while (cur) |ans| {
+            var answers_data: []u8 = undefined;
+
+            switch (ans.get_rr_type()) {
+                .A => {
+                    answers_data = ans.get_data_mut()[0..2];
+                },
+                .CNAME => {
+                    answers_data = ans.get_data_mut();
+                },
+                else => {
+                    cur = ans.get_next_record();
+                },
+            }
+
+            const total_len = answers_data.len;
+
+            var i: usize = 0; // i is a relative offset in the current answer record
+            while (i < total_len - 1) {
+                if (answers_data[i] & 0xC0 == 0xC0) {
+                    const pointer: u16 = @as(u16, answers_data[i] & 0x3F) << 8 | @as(u16, answers_data[i + 1]);
+
+                    if (pointer >= self.offset and pointer < end) {
+                        if (!(answers_data[i] == ignore[0] and answers_data[i + 1] == ignore[1])) {
+                            var ptr_begin = self.layer.get_data()[pointer..];
+
+                            // need to find the end of the label
+                            var idx: usize = 0;
+                            var label_end: bool = false;
+                            var zero_count: usize = 0;
+                            while (!label_end) {
+                                if (ptr_begin[idx] == 0) {
+                                    zero_count += 1;
+                                }
+
+                                if (zero_count == 1) {
+                                    label_end = true;
+                                }
+
+                                idx += 1;
+                            }
+
+                            ptr_begin = ptr_begin[0..idx]; // this is the slice to be copied to the first record which needs the ptr
+
+                            const label_len: isize = @intCast(ptr_begin.len);
+
+                            if (first) {
+                                const extend_start = ans.get_offset() + i;
+
+                                const begin = self.layer.get_data()[extend_start .. extend_start + 2];
+
+                                difference = label_len - @as(isize, @intCast(begin.len)); // actual extend len
+
+                                // BEFORE extend
+                                const src = self.layer.get_data()[pointer .. pointer + idx];
+                                var tmp: [512]u8 = undefined; // create some space on the stack - 512
+                                @memmove(tmp[0..src.len], src); // copy into the tmp buffer
+
+                                const label: []u8 = tmp[0..src.len];
+
+                                // calculate the difference to overwrite the ptr first and then extend by the difference
+
+                                // mutate - extend the answers buffer
+                                print("difference: {}\n", .{difference});
+                                _ = try self.layer.extend_payload(extend_start, @as(usize, @intCast(difference)));
+
+                                // copy from tmp
+                                @memmove(self.layer.get_data()[extend_start .. extend_start + label.len], label);
+
+                                new_ptr_loc[0] = 0xC0 | @as(u8, @truncate((extend_start >> 8) & 0x3F));
+                                new_ptr_loc[1] = @as(u8, @truncate(extend_start & 0xFF));
+
+                                ans.set_length(ans.get_length() + @as(usize, @intCast(difference)));
+
+                                var next = ans.get_next_record();
+                                while (next) |next_record| {
+                                    next_record.set_offset(next_record.get_offset() + @as(usize, @intCast(difference)));
+                                    next = next_record.get_next_record();
+                                }
+
+                                first = false;
+                            } else {
+                                answers_data[i] = new_ptr_loc[0];
+                                answers_data[i + 1] = new_ptr_loc[1];
+                            }
+                        }
+                    } else if (!first) {
+                        const new_ptr: u16 = (@as(u16, new_ptr_loc[0] & 0x3F) << 8) | @as(u16, new_ptr_loc[1]);
+                        if (pointer > new_ptr) {
+                            const ext_pointer = pointer + difference;
+
+                            answers_data[i] = 0xC0 | @as(u8, @truncate((@as(usize, @intCast(ext_pointer)) >> 8) & 0x3F));
+                            answers_data[i + 1] = @as(u8, @truncate(@as(usize, @intCast(ext_pointer)) & 0xFF));
+                        }
+                    }
+
+                    i += 2;
+                    continue;
+                }
+
+                i += 1;
+            }
+
+            cur = ans.get_next_record();
+        }
+    }
+
     /// Takes a non-dns-label cname value and converts it to label format using a helper method and the allocator provided.
     /// The formatted cname value is copied over the current one with these cases:
     /// if the formatted cname value is of the same length as the current one, the DNSLayer buffer remains unchanged
@@ -163,6 +345,10 @@ pub const CNAMERecord = struct {
     ///
     /// currently broken. don't use it.
     pub fn set_cname(self: *CNAMERecord, cname: []const u8, allocator: Allocator) !void {
+        // need to check if the cname being changed contains any sub label ptrs which proceeding records rely on
+        // e.g. .net in a cname can be relied on proceeding records
+        // in this case, find the next record that uses this ptr, edit the cname record to include that sub-label
+        // and then update the proceeding records so that they use the ptr to the above
         const data = self.get_data_mut();
         const new_cname_wire = try encodeQnameSimple(allocator, cname);
         defer allocator.free(new_cname_wire);
@@ -171,9 +357,17 @@ pub const CNAMERecord = struct {
         const old_len = current_rdata.len;
         const new_len = new_cname_wire.len;
 
+        const cname_start = self.offset + 12;
+
+        var ptr: [2]u8 = undefined; // generate compression ptr for this cname record being changed
+        ptr[0] = 0xC0 | @as(u8, @truncate((cname_start >> 8) & 0x3F));
+        ptr[1] = @as(u8, @truncate(cname_start & 0xFF));
+
         if (new_len > old_len) {
             const extend_len = new_len - old_len;
             const cname_offset = self.offset + 12;
+
+            print("extend len: {}\n", .{extend_len});
 
             // Extend the payload
             _ = try self.layer.extend_payload(cname_offset, extend_len);
@@ -185,24 +379,26 @@ pub const CNAMERecord = struct {
             var next_record: ?*AnswerRecord = self.next_answer;
             while (next_record) |next| {
                 next.set_offset(next.get_offset() + extend_len);
-                next.set_length(next.get_length() + extend_len);
                 next_record = next.get_next_record();
             }
 
             // Update ALL compression pointers in the packet
-            try self.updateCompressionPointers(cname_offset, @as(isize, @intCast(extend_len)));
+            self.update_proceeding_records(@intCast(extend_len));
+            try self.update_rest_ptrs(ptr); // needs to be called now
 
             // Refresh data pointer and write new CNAME
             const new_data = self.get_data_mut();
             @memcpy(new_data[12..], new_cname_wire);
         } else if (new_len < old_len) {
+            print("new cname len is less than current.\n", .{});
             const shrink_len = old_len - new_len;
+            print("shrink len: {}\n", .{shrink_len});
             const cname_offset = self.offset + 12;
 
             // Shrink the payload (shift everything left)
-            const full_packet = self.layer.get_data();
-            const after_rdata = cname_offset + old_len;
-            @memmove(full_packet[cname_offset + new_len ..][0 .. full_packet.len - (cname_offset + new_len)], full_packet[after_rdata..]);
+            // Extend the payload
+            _ = try self.layer.shorten_payload(cname_offset, shrink_len);
+            print("shortened.\n", .{});
 
             // Update this record's length
             self.length -= shrink_len;
@@ -211,12 +407,14 @@ pub const CNAMERecord = struct {
             var next_record: ?*AnswerRecord = self.next_answer;
             while (next_record) |next| {
                 next.set_offset(next.get_offset() - shrink_len);
-                next.set_length(next.get_length() - shrink_len);
                 next_record = next.get_next_record();
             }
 
             // Update compression pointers
-            try self.updateCompressionPointers(cname_offset, -@as(isize, @intCast(shrink_len)));
+            self.update_proceeding_records(@intCast(shrink_len));
+            print("proceeding records updated.\n", .{});
+            try self.update_rest_ptrs(ptr); // needs to be called now
+            print("rest of ptrs updated.\n", .{});
 
             // Write new CNAME
             const new_data = self.get_data_mut();
@@ -227,39 +425,27 @@ pub const CNAMERecord = struct {
         }
     }
 
-    fn updateCompressionPointers(self: *CNAMERecord, start_offset: usize, delta: isize) !void {
-        const full_packet = self.layer.get_data();
-        var offset: usize = 0;
+    pub fn to_string(self: *CNAMERecord, allocator: Allocator) ![]const u8 {
+        var list: std.ArrayList(u8) = .empty;
 
-        while (offset < full_packet.len - 1) {
-            // Look for compression pointers (bytes starting with 0xC0)
-            if (full_packet[offset] & 0xC0 == 0xC0) {
-                const pointer: u16 = (@as(u16, full_packet[offset] & 0x3F) << 8) | @as(u16, full_packet[offset + 1]);
-                std.debug.print("ptr: {} {x}\n", .{ pointer, pointer });
+        const name = try self.get_name(allocator);
+        defer allocator.free(name);
+        const type_s = @tagName(self.qtype);
+        const class_s = @tagName(self.qclass);
+        const cname = try self.decode_cname(allocator);
+        defer allocator.free(cname);
 
-                // If this pointer points to or after the modified region, update it
-                if (pointer >= start_offset) {
-                    const new_pointer: u16 = @as(u16, @intCast(@as(isize, @intCast(pointer)) + delta));
-                    std.debug.print("new ptr: {} {x}\n", .{ new_pointer, new_pointer });
-                    full_packet[offset] = @as(u8, @intCast(0xC0 | ((new_pointer >> 8) & 0x3F)));
-                    full_packet[offset + 1] = @as(u8, @intCast(new_pointer & 0xFF));
-                    std.debug.print("updated offset: {x}\n", .{full_packet[offset .. offset + 2]});
-                }
+        const space = " ";
 
-                // Skip the pointer (2 bytes)
-                offset += 2;
-            } else {
-                // Regular label: length byte + label data
-                const len = full_packet[offset];
-                if (len == 0) {
-                    offset += 1; // Null terminator
-                    continue;
-                }
+        try list.appendSlice(allocator, name);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, type_s);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, class_s);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, cname);
 
-                // Skip length byte + label data
-                offset += 1 + len;
-            }
-        }
+        return try list.toOwnedSlice(allocator);
     }
 
     pub fn get_rr_type(self: CNAMERecord) QueryType {
@@ -356,6 +542,107 @@ pub const PTRRecord = struct {
         return self.qtype;
     }
 };
+
+pub fn decode_name(layer_data: []const u8, record_data: []const u8, allocator: Allocator) ![]u8 {
+    const full_packet = layer_data; // get the entire dns layers data - this is required for pointer jumps
+    const rdata = record_data;
+
+    var list = try std.ArrayList(u8).initCapacity(allocator, full_packet.len);
+    defer list.deinit(allocator);
+
+    var offset: usize = 0;
+    var first = true;
+
+    while (offset < rdata.len and rdata[offset] != 0) {
+        const label_len = rdata[offset];
+
+        //print("label len: {}\n", .{label_len});
+
+        // Check for compression pointer (first two bits are 11)
+        // 0xC0 is compresssion ptr
+        if ((label_len & 0xC0) == 0xC0) {
+            if (offset + 1 >= rdata.len) return error.InvalidPacket;
+
+            // Calculate absolute jump offset in the FULL packet
+            const absolute_jump = (@as(u16, label_len & 0x3F) << 8) | @as(u16, rdata[offset + 1]);
+
+            //std.debug.print("Pointer at rdata offset {} jumps to absolute packet offset {}\n", .{ offset, absolute_jump });
+
+            // Decode the name at the absolute jump position
+            const jumped_name = try decodeNameFromAbsolute(allocator, full_packet, absolute_jump);
+            defer allocator.free(jumped_name);
+
+            // Append the jumped name
+            if (jumped_name.len > 0) {
+                if (!first) try list.append(allocator, '.');
+                try list.appendSlice(allocator, jumped_name);
+                first = false;
+            }
+
+            // Move past the pointer (2 bytes) and continue
+            //offset += 2;
+            //continue;
+            break;
+        }
+
+        // Regular label (not a pointer)
+        offset += 1;
+
+        if (offset + label_len > rdata.len) return error.InvalidPacket;
+
+        if (!first) try list.append(allocator, '.');
+        first = false;
+
+        try list.appendSlice(allocator, rdata[offset .. offset + label_len]);
+        offset += label_len;
+    }
+
+    return list.toOwnedSlice(allocator);
+}
+
+fn decodeNameFromAbsolute(allocator: Allocator, full_packet: []const u8, start_offset: usize) ![]u8 {
+    var list = try std.ArrayList(u8).initCapacity(allocator, full_packet.len);
+    defer list.deinit(allocator);
+
+    var offset = start_offset;
+    var first = true;
+
+    while (offset < full_packet.len and full_packet[offset] != 0) {
+        const label_len = full_packet[offset];
+
+        // Handle nested pointers (pointer pointing to another pointer)
+        if ((label_len & 0xC0) == 0xC0) {
+            if (offset + 1 >= full_packet.len) return error.InvalidPacket;
+            const jump = (@as(u16, label_len & 0x3F) << 8) | @as(u16, full_packet[offset + 1]);
+            const nested = try decodeNameFromAbsolute(allocator, full_packet, jump);
+            defer allocator.free(nested);
+
+            if (nested.len > 0) {
+                if (!first) try list.append(allocator, '.');
+                try list.appendSlice(allocator, nested);
+                first = false;
+            }
+
+            // Move past the pointer
+            //offset += 2;
+            //continue;
+            break;
+        }
+
+        // Regular label
+        offset += 1;
+
+        if (offset + label_len > full_packet.len) return error.InvalidPacket;
+
+        if (!first) try list.append(allocator, '.');
+        first = false;
+
+        try list.appendSlice(allocator, full_packet[offset .. offset + label_len]);
+        offset += label_len;
+    }
+
+    return list.toOwnedSlice(allocator);
+}
 
 pub fn encodeQname(allocator: Allocator, domain: []const u8, compression_dict: ?std.StringHashMap(u16)) ![]u8 {
     var list = try std.ArrayList(u8).initCapacity(allocator, domain.len + 2); // +2 for root and null
@@ -473,101 +760,4 @@ pub fn buildCompressionDict(allocator: Allocator, domains: []const []const u8) !
     }
 
     return dict;
-}
-
-pub fn decode_name(layer_data: []const u8, record_data: []const u8, allocator: Allocator) ![]u8 {
-    const full_packet = layer_data; // get the entire dns layers data - this is required for pointer jumps
-    const rdata = record_data;
-
-    var list = try std.ArrayList(u8).initCapacity(allocator, full_packet.len);
-    defer list.deinit(allocator);
-
-    var offset: usize = 0;
-    var first = true;
-
-    while (offset < rdata.len and rdata[offset] != 0) {
-        const label_len = rdata[offset];
-
-        // Check for compression pointer (first two bits are 11)
-        // 0xC0 is compresssion ptr
-        if ((label_len & 0xC0) == 0xC0) {
-            if (offset + 1 >= rdata.len) return error.InvalidPacket;
-
-            // Calculate absolute jump offset in the FULL packet
-            const absolute_jump = (@as(u16, label_len & 0x3F) << 8) | @as(u16, rdata[offset + 1]);
-
-            //                std.debug.print("Pointer at rdata offset {} jumps to absolute packet offset {}\n", .{ offset, absolute_jump });
-
-            // Decode the name at the absolute jump position
-            const jumped_name = try decodeNameFromAbsolute(allocator, full_packet, absolute_jump);
-            defer allocator.free(jumped_name);
-
-            // Append the jumped name
-            if (jumped_name.len > 0) {
-                if (!first) try list.append(allocator, '.');
-                try list.appendSlice(allocator, jumped_name);
-                first = false;
-            }
-
-            // Move past the pointer (2 bytes) and continue
-            offset += 2;
-            continue;
-        }
-
-        // Regular label (not a pointer)
-        offset += 1;
-
-        if (offset + label_len > rdata.len) return error.InvalidPacket;
-
-        if (!first) try list.append(allocator, '.');
-        first = false;
-
-        try list.appendSlice(allocator, rdata[offset .. offset + label_len]);
-        offset += label_len;
-    }
-
-    return list.toOwnedSlice(allocator);
-}
-
-fn decodeNameFromAbsolute(allocator: Allocator, full_packet: []const u8, start_offset: usize) ![]u8 {
-    var list = try std.ArrayList(u8).initCapacity(allocator, full_packet.len);
-    defer list.deinit(allocator);
-
-    var offset = start_offset;
-    var first = true;
-
-    while (offset < full_packet.len and full_packet[offset] != 0) {
-        const label_len = full_packet[offset];
-
-        // Handle nested pointers (pointer pointing to another pointer)
-        if ((label_len & 0xC0) == 0xC0) {
-            if (offset + 1 >= full_packet.len) return error.InvalidPacket;
-            const jump = (@as(u16, label_len & 0x3F) << 8) | @as(u16, full_packet[offset + 1]);
-            const nested = try decodeNameFromAbsolute(allocator, full_packet, jump);
-            defer allocator.free(nested);
-
-            if (nested.len > 0) {
-                if (!first) try list.append(allocator, '.');
-                try list.appendSlice(allocator, nested);
-                first = false;
-            }
-
-            // Move past the pointer
-            offset += 2;
-            continue;
-        }
-
-        // Regular label
-        offset += 1;
-
-        if (offset + label_len > full_packet.len) return error.InvalidPacket;
-
-        if (!first) try list.append(allocator, '.');
-        first = false;
-
-        try list.appendSlice(allocator, full_packet[offset .. offset + label_len]);
-        offset += label_len;
-    }
-
-    return list.toOwnedSlice(allocator);
 }

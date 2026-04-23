@@ -327,6 +327,25 @@ pub const AnswerRecord = union(enum) {
         }
     }
 
+    /// broken - needs to use compression ptrs if they are there
+    pub fn get_name(self: *AnswerRecord, allocator: Allocator) ![]u8 {
+        const data = self.get_data();
+        // the length of the name is not known so just take use the offset of this RR
+        const layer = self.get_layer();
+        return try DNSRecordTypes.decode_name(layer.get_data(), data, allocator);
+    }
+
+    pub fn get_name_raw(self: *AnswerRecord) []const u8 {
+        const data = self.get_data();
+        return data;
+    }
+
+    pub fn get_layer(self: *AnswerRecord) *DNSLayer {
+        return switch (self.*) {
+            inline else => |*rr| rr.layer,
+        };
+    }
+
     pub fn get_offset(self: *AnswerRecord) usize {
         return switch (self.*) {
             inline else => |*rr| rr.offset,
@@ -464,11 +483,9 @@ pub const DNSLayer = struct {
     pub fn get_data(self: *const DNSLayer) []u8 {
         switch (self.owner) {
             .packet_layer => {
-                //               print("getting data from packet.\n", .{});
                 return self.owner.packet_layer.get_data(); // Layer in packet
             },
             .owned_buffer => |*buffer| {
-                //                print("DNSLayer (self) in get_data: {*}\n", .{self});
                 return buffer.buffer.items; // standalone layer
             },
         }
@@ -585,7 +602,7 @@ pub const DNSLayer = struct {
         var buf: []u8 = undefined;
         switch (self.owner) {
             .packet_layer => |layer| {
-                buf = try layer.packet.extend_layer(layer, extend_len);
+                buf = try layer.packet.extend_layer(layer, extend_len); // TODO: extend at offset instead
             },
             .owned_buffer => |*buffer| {
                 buf = try buffer.extend(offset, extend_len);
@@ -593,6 +610,17 @@ pub const DNSLayer = struct {
         }
 
         return buf;
+    }
+
+    pub fn shorten_payload(self: *DNSLayer, offset: usize, shorten_len: usize) !void {
+        switch (self.owner) {
+            .packet_layer => |layer| {
+                try layer.packet.shorten_layer(layer, offset, shorten_len);
+            },
+            .owned_buffer => |*buffer| {
+                try buffer.shorten(offset, shorten_len);
+            },
+        }
     }
 
     /// call when creating DNS layer from existing data
@@ -701,6 +729,14 @@ pub const DNSLayer = struct {
         return self.last_answer;
     }
 
+    pub fn print_answers_meta(self: *DNSLayer) void {
+        var cur = self.first_answer;
+        while (cur) |ans| {
+            print("answer: {s}\n\toffset: {}\n\tlength: {}\n\tdata: {x}\n", .{ @tagName(ans.get_rr_type()), ans.get_offset(), ans.get_length(), ans.get_data() });
+            cur = ans.get_next_record();
+        }
+    }
+
     pub fn get_answer_count(self: *DNSLayer) usize {
         var count: usize = 0;
         var cur = self.first_answer;
@@ -764,7 +800,7 @@ pub const DNSLayer = struct {
 
             const whole_record = data[name_offset..offset];
 
-            // Create a DNSAnswer node
+            // Create a AnswerRecord "node" for AnswerRecord linkedlist
             const answer = try allocator.create(AnswerRecord);
 
             const rtype_e: QueryType = QueryType.from_u16(rtype);
@@ -811,21 +847,7 @@ pub const DNSLayer = struct {
         const result = std.fmt.allocPrint(
             allocator,
             "DNS Layer: id: {} qr: {} opcode: {}  aa: {} tc: {} rd: {} ra: {} z: {} rcode: {} qdcount: {} ancount: {} nscount: {} arcount: {}",
-            .{
-                id,
-                qr,
-                opcode,
-                aa,
-                tc,
-                rd,
-                ra,
-                z,
-                rcode,
-                qdcount,
-                ancount,
-                nscount,
-                arcount,
-            },
+            .{ id, qr, opcode, aa, tc, rd, ra, z, rcode, qdcount, ancount, nscount, arcount },
         ) catch |err| {
             std.debug.print("DNS allocPrint failed: {s}\n", .{@errorName(err)});
             return "";
@@ -839,7 +861,7 @@ pub const DNSLayer = struct {
         return DNSLayer.Protocol;
     }
 
-    pub fn destroy_queries(self: *DNSLayer) void {
+    fn destroy_queries(self: *DNSLayer) void {
         var allocator = self.get_allocator();
         var cur = self.first_query;
 
@@ -850,7 +872,7 @@ pub const DNSLayer = struct {
         }
     }
 
-    pub fn destroy_answers(self: *DNSLayer) void {
+    fn destroy_answers(self: *DNSLayer) void {
         var allocator = self.get_allocator();
         var cur = self.first_answer;
 
@@ -894,7 +916,10 @@ pub fn decodeQname(allocator: Allocator, payload: []const u8) ![]u8 {
         const len = payload[offset];
         offset += 1;
 
-        if (offset + len > payload.len) return error.InvalidPacket;
+        if (offset + len > payload.len) {
+            print("offset + len: {} exceeds packet.\n", .{offset + len});
+            return error.InvalidPacket;
+        }
 
         if (!first) try list.append(allocator, '.');
         first = false;
