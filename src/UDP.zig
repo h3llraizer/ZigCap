@@ -301,15 +301,16 @@ pub const UDPLayer = struct {
 
     pub fn get_next_layer_type(self: *UDPLayer, layer: *Packet.Layer) !?LayerIface {
         //const data = self.get_data();
-        //       const hdr = self.get_immutable_header();
-        //       // check src and dst ports
-        //       // check header length of expected protocol
-        //
-        //       if (hdr.get_dst_port() == 53 or hdr.get_src_port() == 53) {
-        //           return try LayerIface.init(DNS.DNSLayer, LayerOwner{ .packet_layer = layer });
-        //       }
+        const hdr = self.get_immutable_header();
+        // check src and dst ports
+        // check header length of expected protocol
 
-        _ = self;
+        print("dst port {}\n", .{hdr.get_dst_port()});
+        print("src port {}\n", .{hdr.get_src_port()});
+
+        if (hdr.get_dst_port() == 53 or hdr.get_src_port() == 53) {
+            return try LayerIface.init(DNS.DNSLayer, LayerOwner{ .packet_layer = layer });
+        }
 
         return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
     }

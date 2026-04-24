@@ -8,6 +8,7 @@ const TCP = @import("TCP.zig");
 const ARP = @import("ARP.zig");
 const ICMP = @import("ICMP.zig");
 const GenericLayer = @import("GenericLayer.zig");
+const DNS = @import("DNS.zig");
 
 pub const tcp_ip_protocol = enum(u32) {
     generic = 0,
@@ -36,6 +37,7 @@ pub fn get_layer_type_enum(value: type) !tcp_ip_protocol {
         ARP.ARPLayer => return tcp_ip_protocol.arp,
         ICMP.ICMPLayer => return tcp_ip_protocol.icmp,
         GenericLayer.ApplicationLayer => return tcp_ip_protocol.generic,
+        DNS.DNSLayer => return tcp_ip_protocol.dns,
         else => return error.LayerInvalid,
     }
 }

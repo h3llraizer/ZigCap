@@ -72,8 +72,15 @@ pub const Packet = struct {
         };
     }
 
-    /// inits a packet from an existing slice (data), parses each layer until optional tcp_ip_protocol specified or until last layer
+    /// Parses a packet from an existing slice (data).
+    /// Each layer is parsed until optional tcp_ip_protocol specified or until last layer in packet.
+    /// Takes ownership of the buffer provided.
+    ///
     pub fn from_raw(self: *Packet, allocator: Allocator, buffer: *std.array_list.Aligned(u8, .@"2"), link_type: link_layer_type, parse_until: ?tcp_ip_protocol) !void {
+        if (self.buffer.buffer.items.len > 0) {
+            return error.PacketBufferNotEmpty;
+        }
+
         self.buffer = try Buffer.init(try buffer.toOwnedSlice(allocator), allocator);
 
         // Take ownership of the ArrayList's memory
@@ -157,6 +164,8 @@ pub const Packet = struct {
 
     fn accumulate_layers(self: *Packet, parse_until: ?tcp_ip_protocol) !void {
         var cur = self.first_layer;
+
+        //defer self.last_layer = cur;
 
         while (cur) |current_layer| {
             //print("current layer: ", .{});
@@ -483,6 +492,7 @@ pub const Packet = struct {
         var cur = self.first_layer;
 
         while (cur) |layer| {
+            layer.layer_iface.deinit(); // calls deinit on the concrete layer - layers that have additional allocations to manage their data ( DNSLayer dynamically creates AnswerRecord and Query structs for example ) will destroy allocations
             const next = layer.next_layer;
             self.layer_allocator.destroy(layer);
             cur = next;

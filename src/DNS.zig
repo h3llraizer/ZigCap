@@ -481,14 +481,7 @@ pub const DNSLayer = struct {
     }
 
     pub fn get_data(self: *const DNSLayer) []u8 {
-        switch (self.owner) {
-            .packet_layer => {
-                return self.owner.packet_layer.get_data(); // Layer in packet
-            },
-            .owned_buffer => |*buffer| {
-                return buffer.buffer.items; // standalone layer
-            },
-        }
+        return self.owner.get_data();
     }
 
     /// Get the payload (data after DNS header)
@@ -755,6 +748,13 @@ pub const DNSLayer = struct {
         var offset: usize = DNSHeaderSize;
         if (self.get_last_query()) |last| {
             offset += last.length;
+        } else {
+            try self.get_queries();
+            if (self.get_last_query()) |last| {
+                offset += last.length;
+            } else {
+                return error.GetQueriesFailed;
+            }
         }
 
         const hdr = self.get_immutable_header();
