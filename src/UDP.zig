@@ -305,7 +305,7 @@ pub const UDPLayer = struct {
         // check src and dst ports
         // check header length of expected protocol
 
-        if (hdr.get_dst_port() == 53 or hdr.get_src_port() == 53) {
+        if ((hdr.get_dst_port() == 53 or hdr.get_src_port() == 53) and self.get_payload().len >= DNS.DNSHeaderSize) {
             return try LayerIface.init(DNS.DNSLayer, LayerOwner{ .packet_layer = layer });
         }
 

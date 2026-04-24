@@ -191,7 +191,7 @@ pub const DNSHeaderFlags = packed struct {
     }
 };
 
-const DNSHeaderSize: usize = 12;
+pub const DNSHeaderSize: usize = 12;
 
 pub const DNSHeader = extern struct {
     id: u16, // Identification
