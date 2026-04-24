@@ -305,9 +305,6 @@ pub const UDPLayer = struct {
         // check src and dst ports
         // check header length of expected protocol
 
-        print("dst port {}\n", .{hdr.get_dst_port()});
-        print("src port {}\n", .{hdr.get_src_port()});
-
         if (hdr.get_dst_port() == 53 or hdr.get_src_port() == 53) {
             return try LayerIface.init(DNS.DNSLayer, LayerOwner{ .packet_layer = layer });
         }

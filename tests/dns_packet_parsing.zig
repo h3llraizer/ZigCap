@@ -17,7 +17,7 @@ test "parse dns packet" {
     const ziggit_dev_a_resp: [97]u8 = [_]u8{ 0x14, 0x4f, 0x8a, 0xa4, 0x15, 0x7d, 0x38, 0x6, 0xe6, 0x92, 0x63, 0xac, 0x8, 0x0, 0x45, 0x0, 0x0, 0x53, 0xd, 0x2a, 0x40, 0x0, 0x40, 0x11, 0xa8, 0x40, 0xc0, 0xa8, 0x1, 0xfe, 0xc0, 0xa8, 0x1, 0xe1, 0x0, 0x35, 0xee, 0x99, 0x0, 0x3f, 0x26, 0xd1, 0x5a, 0xf2, 0x81, 0x80, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x1, 0x6, 0x7a, 0x69, 0x67, 0x67, 0x69, 0x74, 0x3, 0x64, 0x65, 0x76, 0x0, 0x0, 0x1, 0x0, 0x1, 0xc0, 0xc, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x3, 0x56, 0x0, 0x4, 0xaa, 0xbb, 0xcb, 0x4d, 0x0, 0x0, 0x29, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
 
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
-    defer _ = debug_allocator.deinit();
+    defer _ = debug_allocator.detectLeaks();
 
     const allocator = debug_allocator.allocator();
 
@@ -33,8 +33,6 @@ test "parse dns packet" {
     defer packet.deinit();
 
     try expect(packet.get_layer_count() == 4);
-
-    packet.print_layers_meta();
 
     try expect(packet.last_layer.?.layer_iface.get_protocol() == tcp_ip_protocol.dns);
 
@@ -106,6 +104,16 @@ test "parse dns packet" {
     try expect(dns_layer.get_query_count() == 1);
     try expect(dns_layer.get_answer_count() == 1);
 
+    try expect(dns_layer.first_query != null);
+    if (dns_layer.first_query) |query| {
+        const qname = try query.decode_qname(allocator);
+        defer allocator.free(qname);
+        try expect(std.mem.eql(u8, qname, "ziggit.dev"));
+
+        try expect(query.qtype == DNS.QueryType.A);
+        try expect(query.qclass == DNS.DnsClass.IN);
+    }
+
     try expect(dns_layer.first_answer != null);
     if (dns_layer.first_answer) |answer| {
         const name = try answer.get_name(allocator);
@@ -132,13 +140,14 @@ test "parse dns packet" {
 
     const original_raw_packet_buffer = raw_packet_buffer.items;
 
-    print("original_raw_packet_buffer.len: {}\n", .{original_raw_packet_buffer.len});
-
     try expect(original_raw_packet_buffer.len == 0);
 
-    try expect(packet.get_raw().len == 97); // confirms that the packet buffer passed in at the start has not change in size despite parsing
+    try expect(packet.get_raw().len == 97); // confirms that the packet buffer passed in at the start has not changed in lenghth during parsing
 
-    print("packet buf: {}\n", .{packet.get_raw().len});
+    try expect(ipv4_hdr.get_checksum() == 43072); // confirms ipv4 hdr has not mutated since parsing
 
-    print("original: {x}\n", .{raw_packet_buffer.items});
+    try expect(udp_hdr.get_checksum() == 9937); // confirms the ip addressing, udp header and payload have not mutated since parsing
+
+    //try expect(std.mem.eql(u8, &raw_packet_buffer.items, &ziggit_dev_a_resp));
+
 }
