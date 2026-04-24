@@ -247,6 +247,10 @@ pub const UDPLayer = struct {
     pub fn get_payload(self: *UDPLayer) ?[]const u8 {
         const data = self.get_data();
 
+        //        print("UDP data: {x}\n", .{data});
+
+        //        print("{any}\n", .{self.get_immutable_header()});
+
         if (data.len > UDPHeaderSize) {
             return data[UDPHeaderSize..]; // return remaining bytes after the header
         } else {
@@ -309,11 +313,17 @@ pub const UDPLayer = struct {
     }
 
     pub fn get_next_layer_type(self: *UDPLayer, layer: *Packet.Layer) !?LayerIface {
-        //        const data = self.get_data();
+        //const data = self.get_data();
+        //       const hdr = self.get_immutable_header();
+        //       // check src and dst ports
+        //       // check header length of expected protocol
+        //
+        //       if (hdr.get_dst_port() == 53 or hdr.get_src_port() == 53) {
+        //           return try LayerIface.init(DNS.DNSLayer, LayerOwner{ .packet_layer = layer });
+        //       }
+
         _ = self;
 
-        // check src and dst ports
-        // check header length of expected protocol
         return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
     }
 

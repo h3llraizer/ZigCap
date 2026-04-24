@@ -165,12 +165,21 @@ pub const Packet = struct {
 
             const next_layer_len = current_layer.get_payload().len;
 
+            print("next_layer_len: {}\n", .{next_layer_len});
+
             next_layer.* = Layer.init(current_layer.length, next_layer_len, impl_layer, self);
 
             var next_layer_payload_len: usize = 0;
             if (next_layer.layer_iface.get_payload()) |payload| {
+                print("next_layer_payload: {x}\n", .{payload});
                 next_layer_payload_len = payload.len;
+            } else {
+                print("no payload.\n", .{});
             }
+
+            print("current layer data: {x}\n", .{current_layer.get_data()});
+
+            print("current_layer length: {}\n", .{current_layer.length});
 
             next_layer.offset = current_layer.length;
 

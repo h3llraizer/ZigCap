@@ -355,6 +355,8 @@ pub const IPv4Layer = struct {
         const hdr_length: usize = @intCast(hdr.get_ihl() * 4);
         const data = self.get_data();
 
+        //        print("hdr length: {}\n", .{hdr_length});
+
         std.debug.assert(data.len >= hdr_length);
 
         return hdr_length;

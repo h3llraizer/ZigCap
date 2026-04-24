@@ -9,4 +9,6 @@ const Buffer = @import("Buffer.zig").Buffer;
 pub const LayerOwner = union(enum) {
     packet_layer: *Packet.Layer,
     owned_buffer: Buffer,
+
+    //TODO: add common method
 };

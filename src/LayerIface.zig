@@ -127,3 +127,94 @@ pub const LayerIface = union(enum) {
         };
     }
 };
+
+// Layer interface using vtable polymorphism
+pub const LayerInterface = struct {
+    impl: *anyopaque,
+    v_get_next_layer_type: *const fn (*anyopaque, *Packet.Layer) LayerError!?LayerIface,
+    v_get_protocol: *const fn (*anyopaque) tcp_ip_protocol,
+    v_to_string: *const fn (*anyopaque, Allocator) []const u8,
+    v_get_data: *const fn (*anyopaque) []u8,
+    v_get_payload: *const fn (*anyopaque) ?[]const u8,
+    v_deinit: *const fn (*anyopaque) void,
+
+    /// Creates a LayerInterface from any concrete layer implementation
+    pub fn implBy(impl_obj: anytype) LayerInterface {
+        const T = @TypeOf(impl_obj);
+        const delegate = LayerDelegate(T);
+        return .{
+            .impl = @ptrCast(impl_obj),
+            .v_get_next_layer_type = delegate.get_next_layer_type,
+            .v_get_protocol = delegate.get_protocol,
+            .v_to_string = delegate.to_string,
+            .v_get_data = delegate.get_data,
+            .v_get_payload = delegate.get_payload,
+            .v_deinit = delegate.deinit,
+        };
+    }
+
+    // Public interface methods
+    pub fn get_next_layer_type(self: *LayerInterface, next_layer: *Packet.Layer) LayerError!?LayerIface {
+        return self.v_get_next_layer_type(self.impl, next_layer);
+    }
+
+    pub fn get_protocol(self: *LayerInterface) tcp_ip_protocol {
+        return self.v_get_protocol(self.impl);
+    }
+
+    pub fn to_string(self: *LayerInterface, allocator: Allocator) []const u8 {
+        return self.v_to_string(self.impl, allocator);
+    }
+
+    pub fn get_data(self: *LayerInterface) []u8 {
+        return self.v_get_data(self.impl);
+    }
+
+    pub fn get_payload(self: *LayerInterface) ?[]const u8 {
+        return self.v_get_payload(self.impl);
+    }
+
+    pub fn deinit(self: *LayerInterface) void {
+        return self.v_deinit(self.impl);
+    }
+};
+
+/// Delegate to convert opaque pointer back to concrete type
+inline fn LayerDelegate(comptime T: type) type {
+    return struct {
+        fn get_next_layer_type(impl: *anyopaque, next_layer: *Packet.Layer) LayerError!?LayerIface {
+            const self = @as(T, @ptrCast(@alignCast(impl)));
+            return try self.get_next_layer_type(next_layer);
+        }
+
+        fn get_protocol(impl: *anyopaque) tcp_ip_protocol {
+            const self = @as(T, @ptrCast(@alignCast(impl)));
+            return self.get_protocol();
+        }
+
+        fn to_string(impl: *anyopaque, allocator: Allocator) []const u8 {
+            const self = @as(T, @ptrCast(@alignCast(impl)));
+            return self.to_string(allocator);
+        }
+
+        fn get_data(impl: *anyopaque) []u8 {
+            const self = @as(T, @ptrCast(@alignCast(impl)));
+            return self.get_data();
+        }
+
+        fn get_payload(impl: *anyopaque) ?[]const u8 {
+            const self = @as(T, @ptrCast(@alignCast(impl)));
+            return self.get_payload();
+        }
+
+        fn deinit(impl: *anyopaque) void {
+            const self = @as(T, @ptrCast(@alignCast(impl)));
+            self.deinit();
+        }
+    };
+}
+
+/// Helper to cast opaque pointer to concrete type
+pub fn TPtr(T: type, opaque_ptr: *anyopaque) *T {
+    return @as(*T, @ptrCast(@alignCast(opaque_ptr)));
+}

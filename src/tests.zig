@@ -19,6 +19,7 @@ const ARP = @import("ARP.zig");
 const ICMP = @import("ICMP.zig");
 const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
 const LayerIface = @import("LayerIface.zig").LayerIface;
+const LayerInterface = @import("LayerIface.zig").LayerInterface;
 
 const PcapWrapper = @import("PcapWrapper.zig");
 
@@ -383,7 +384,7 @@ test "parse ebay CNAME response" {
         0x2, 0x13, 0xf8, 0x97, // IP: 2.19.248.151
     };
 
-    print("parsing ebay CNAME response.\n", .{});
+    //print("parsing ebay CNAME response.\n", .{});
 
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.deinit();
@@ -398,7 +399,7 @@ test "parse ebay CNAME response" {
     var dns_layer = try LayerIface.init(DNS.DNSLayer, dns_owner);
     defer dns_layer.deinit();
 
-    print("{x}\n", .{dns_layer.get_data()});
+    // print("{x}\n", .{dns_layer.get_data()});
 
     try dns_layer.dnsLayer.get_queries();
     try dns_layer.dnsLayer.get_answers();
@@ -409,7 +410,7 @@ test "parse ebay CNAME response" {
         const qname = try q.decode_qname(allocator);
         defer allocator.free(qname);
 
-        print("{s}\n", .{qname});
+        //print("{s}\n", .{qname});
         query = q.next_query;
     }
 
@@ -424,20 +425,20 @@ test "parse ebay CNAME response" {
     // 2.19.248.137 - a.1
     // 2.19.248.151 - a.2
 
-    if (dns_layer.dnsLayer.first_answer) |ans| {
-        print("dns_layer answer data: {x}\n", .{dns_layer.get_data()[ans.get_offset()..]});
-    }
+    //if (dns_layer.dnsLayer.first_answer) |ans| {
+    //    print("dns_layer answer data: {x}\n", .{dns_layer.get_data()[ans.get_offset()..]});
+    //}
 
     var cname_count: usize = 0;
     var a_count: usize = 0;
     var answer = dns_layer.dnsLayer.first_answer;
     while (answer) |ans| {
-        print("answer: offset={} length={} {any} {any}\n", .{
-            ans.get_offset(),
-            ans.get_length(),
-            ans.get_rr_type(),
-            ans.get_class_type(),
-        });
+        //   print("answer: offset={} length={} {any} {any}\n", .{
+        //       ans.get_offset(),
+        //       ans.get_length(),
+        //       ans.get_rr_type(),
+        //       ans.get_class_type(),
+        //   });
 
         //print("ttl: {}\n", .{ans.get_ttl()});
 
@@ -446,7 +447,7 @@ test "parse ebay CNAME response" {
             //print("cname raw: {x}\n", .{ans.get_data()});
             const cname = try ans.cname.decode_cname(allocator);
             defer allocator.free(cname);
-            print("cname decoded: {s}\n", .{cname});
+            //print("cname decoded: {s}\n", .{cname});
 
             if (cname_count == 1) {
                 try expect(std.mem.eql(u8, cname, "www.ebay.co.uk.ebaycdn.net"));
@@ -454,7 +455,7 @@ test "parse ebay CNAME response" {
                 defer allocator.free(name);
 
                 try expect(std.mem.eql(u8, name, "www.ebay.co.uk"));
-                print("name1: {s}\n", .{name});
+                //print("name1: {s}\n", .{name});
             }
 
             if (cname_count == 2) {
@@ -462,7 +463,7 @@ test "parse ebay CNAME response" {
                 const name = try ans.cname.get_name(allocator);
                 defer allocator.free(name);
                 try expect(std.mem.eql(u8, name, "www.ebay.co.uk.ebaycdn.net"));
-                print("name2: {s}\n", .{name});
+                //print("name2: {s}\n", .{name});
             }
 
             if (cname_count == 3) {
@@ -472,7 +473,7 @@ test "parse ebay CNAME response" {
                 defer allocator.free(name);
 
                 try expect(std.mem.eql(u8, name, "slot348525.ebay.com.edgekey.net"));
-                print("name3: {s}\n", .{name});
+                //print("name3: {s}\n", .{name});
             }
         }
 
@@ -496,11 +497,7 @@ test "parse ebay CNAME response" {
         answer = ans.get_next_record();
     }
 
-    try dns_layer.dnsLayer.decompress();
-
-    if (dns_layer.dnsLayer.first_answer) |ans| {
-        print("dns_layer answer data: {x}\n", .{dns_layer.get_data()[ans.get_offset()..]});
-    }
+    //    try dns_layer.dnsLayer.decompress();
 }
 
 test "parse dns txt record response" {
@@ -687,6 +684,45 @@ test "parse PTR record response" {
     }
 }
 
+test "parse dns packet" {
+    const cname_resp_pkt: [136]u8 align(2) = [_]u8{ 0x14, 0x4f, 0x8a, 0xa4, 0x15, 0x7d, 0x38, 0x6, 0xe6, 0x92, 0x63, 0xac, 0x8, 0x0, 0x45, 0x0, 0x0, 0x7a, 0xea, 0xd8, 0x40, 0x0, 0x40, 0x11, 0xca, 0x6a, 0xc0, 0xa8, 0x1, 0xfe, 0xc0, 0xa8, 0x1, 0xe1, 0x0, 0x35, 0xdf, 0x65, 0x0, 0x66, 0xd6, 0x5f, 0x7f, 0xd, 0x81, 0x80, 0x0, 0x1, 0x0, 0x2, 0x0, 0x0, 0x0, 0x1, 0x3, 0x77, 0x77, 0x77, 0x5, 0x70, 0x65, 0x70, 0x73, 0x69, 0x3, 0x63, 0x6f, 0x6d, 0x0, 0x0, 0x1, 0x0, 0x1, 0xc0, 0xc, 0x0, 0x5, 0x0, 0x1, 0x0, 0x0, 0x3, 0x3f, 0x0, 0x18, 0x7, 0x67, 0x32, 0x77, 0x68, 0x34, 0x39, 0x37, 0x1, 0x78, 0x8, 0x69, 0x6e, 0x63, 0x61, 0x70, 0x64, 0x6e, 0x73, 0x3, 0x6e, 0x65, 0x74, 0x0, 0xc0, 0x2b, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x1e, 0x0, 0x4, 0x2d, 0xdf, 0x13, 0x84, 0x0, 0x0, 0x29, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
+
+    _ = cname_resp_pkt;
+    //  var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    //  //    defer _ = debug_allocator.deinit();
+
+    //  var allocator = debug_allocator.allocator();
+
+    //  const pkt_data = try allocator.alloc(u8, cname_resp_pkt.len);
+    //  @memmove(pkt_data, cname_resp_pkt[0..]);
+
+    //  var packet = try Packet.create(allocator, allocator);
+    //  defer packet.deinit();
+    //  try packet.from_raw(pkt_data, link_layer_type.ETHERNET);
+}
+
+test "parse udp packet" {
+    const simple_udp_packet: [51]u8 = [_]u8{ 0x38, 0x6, 0xe6, 0x92, 0x63, 0xac, 0x14, 0x4f, 0x8a, 0xa4, 0x15, 0x7d, 0x8, 0x0, 0x45, 0x0, 0x0, 0x25, 0xa4, 0xaf, 0x0, 0x0, 0x80, 0x11, 0x10, 0xe9, 0xc0, 0xa8, 0x1, 0xe1, 0xc0, 0xa8, 0x1, 0xfe, 0xd3, 0xd, 0x13, 0x8d, 0x0, 0x11, 0xd0, 0x53, 0x73, 0x6f, 0x6d, 0x65, 0x20, 0x64, 0x61, 0x74, 0x61 };
+
+    print("start parse of simple UDP packet.\n", .{});
+
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+
+    var allocator = debug_allocator.allocator();
+
+    const pkt_data = try allocator.alloc(u8, simple_udp_packet.len);
+    @memmove(pkt_data, simple_udp_packet[0..]);
+
+    print("raw: ({}) {x}\n", .{ pkt_data.len, pkt_data });
+
+    var packet = try Packet.create(allocator, std.heap.page_allocator);
+    try packet.from_raw(pkt_data, link_layer_type.ETHERNET);
+
+    packet.print_layers_meta();
+
+    print("end of parsing of simple UDP packet.\n", .{});
+}
+
 test "build arp layer" {
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 
@@ -813,9 +849,49 @@ test "build arp reply packet" {
 
     _ = try packet.add_layer(&arp_layer_iface);
 
+    print("size of LayerIface: {}\n", .{@sizeOf(LayerIface)});
+    print("size of LayerInterface: {}\n", .{@sizeOf(LayerInterface)});
+
     ////packet.print_layers_meta();
 
     //try send_packet(packet.buffer.buffer.items);
+}
+
+test "iface" {
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    //    defer _ = debug_allocator.detectLeaks();
+
+    const allocator = debug_allocator.allocator();
+
+    var eth_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+
+    defer eth_layer_owner.owned_buffer.buffer.deinit(allocator);
+
+    var eth_layer: Eth.EthLayer = try Eth.EthLayer.init(eth_layer_owner);
+
+    var eth_hdr = eth_layer.get_mutable_header();
+
+    eth_hdr.set_eth_type(Eth.EthType.IP);
+
+    try expect(eth_hdr.get_eth_type() == Eth.EthType.IP);
+
+    eth_hdr.set_dst_mac(try Eth.MacAddress.init_from_string("38:06:e6:92:63:ac"));
+
+    eth_hdr.set_src_mac(try Eth.MacAddress.init_from_string("14:4f:8a:a4:15:7d"));
+
+    var layer_iface = LayerInterface.implBy(&eth_layer);
+
+    _ = &layer_iface;
+
+    print("{x}\n", .{layer_iface.get_data()});
+
+    eth_hdr.set_src_mac(try Eth.MacAddress.init_from_string("1B:2B:3B:4B:5B:6B"));
+
+    print("{x}\n", .{layer_iface.get_data()});
+
+    const str = layer_iface.to_string(allocator);
+    defer allocator.free(str);
+    print("{s}\n", .{str});
 }
 
 test "build icmp request" {
@@ -832,25 +908,24 @@ test "build icmp request" {
 }
 
 test "parse icmp packet" {
-    var backing_buffer: [1024]u8 = undefined;
-
-    var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
-
-    const allocator = fba.allocator();
-
-    var copied = try allocator.alloc(u8, icmp_request_raw.len);
-
-    @memmove(copied, icmp_request_raw[0..]);
-
-    var packet = try Packet.create(allocator, allocator);
-    defer packet.deinit();
-
-    packet.from_raw(copied[0..], link_layer_type.ETHERNET) catch |err| {
-        print("{s}\n", .{@errorName(err)});
-    };
-
-    //packet.print_layers_meta();
-
+    //   var backing_buffer: [1024]u8 = undefined;
+    //
+    //   var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
+    //
+    //   const allocator = fba.allocator();
+    //
+    //   var copied = try allocator.alloc(u8, icmp_request_raw.len);
+    //
+    //   @memmove(copied, icmp_request_raw[0..]);
+    //
+    //   var packet = try Packet.create(allocator, allocator);
+    //   defer packet.deinit();
+    //
+    //   packet.from_raw(copied[0..], link_layer_type.ETHERNET) catch |err| {
+    //       print("{s}\n", .{@errorName(err)});
+    //   };
+    //
+    //   packet.print_layers_meta();
 }
 
 test "build independant eth layer" {
