@@ -1,5 +1,6 @@
 const std = @import("std");
 const print = std.debug.print;
+const expect = std.testing.expect;
 
 const zigcap = @import("zigcap");
 
@@ -87,8 +88,9 @@ test "parse udp packet" {
 
     print("raw: ({}) {x}\n", .{ pkt_data.len, pkt_data });
 
-    var packet = try Packet.create(allocator, std.heap.page_allocator);
-    try packet.from_raw(pkt_data, link_layer_type.ETHERNET, null);
+    var packet = try Packet.from_raw(allocator, pkt_data, link_layer_type.ETHERNET, null);
+
+    try expect(packet.get_layer_count() == 4);
 
     packet.print_layers_meta();
 

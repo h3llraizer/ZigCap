@@ -72,8 +72,18 @@ pub const Packet = struct {
         };
     }
 
-    /// Packet must be created with .create first. raw_data will be overwritten with the RawData provided
-    pub fn from_raw(self: *Packet, data: []u8, link_type: link_layer_type, parse_until: ?tcp_ip_protocol) !void {
+    /// inits a packet from an existing slice (data), parses each layer until optional tcp_ip_protocol specified or until last layer
+    pub fn from_raw(allocator: Allocator, data: []u8, link_type: link_layer_type, parse_until: ?tcp_ip_protocol) !Packet {
+        // Create the packet first
+        var packet = try Packet.create(allocator, allocator); // or pass separate allocators
+
+        // Parse the raw data
+        try packet.parse_raw(data, link_type, parse_until);
+
+        return packet;
+    }
+
+    fn parse_raw(self: *Packet, data: []u8, link_type: link_layer_type, parse_until: ?tcp_ip_protocol) !void {
         //        self.buffer.buffer.items = data;
 
         try self.buffer.buffer.appendSlice(self.buffer.allocator, data);
@@ -163,26 +173,6 @@ pub const Packet = struct {
                     return;
                 }
             };
-
-            //           if (parse_until) |protocol| {
-            //               if (next_layer.layer_iface.get_protocol() == protocol) {
-            //                   print("{any} protocol hit.\n", .{protocol});
-            //
-            //                   // Don't destroy - keep the layer
-            //                   // Calculate offset and length for UDP
-            //                   const current_layer_payload = current_layer.layer_iface.get_payload();
-            //                   current_layer.length -= current_layer_payload.len;
-            //
-            //                   next_layer.* = Layer.init(current_layer.length, current_layer_payload.len, impl_layer, self);
-            //
-            //                   // Link it into the list
-            //                   next_layer.prev_layer = current_layer;
-            //                   current_layer.next_layer = next_layer;
-            //
-            //                   self.last_layer = next_layer; // UDP is the last layer
-            //                   break;
-            //               }
-            //           }
 
             const current_layer_payload = current_layer.layer_iface.get_payload();
 
