@@ -79,7 +79,7 @@ pub const LayerIface = union(enum) {
 
     /// returns the protocol of the concrete layer which it's interfacing over
     /// e.g. TCPLayer is tcp_ip_protocol.tcp
-    pub fn get_protocol(self: *LayerIface) !tcp_ip_protocol {
+    pub fn get_protocol(self: *LayerIface) tcp_ip_protocol {
         return switch (self.*) {
             inline else => |*layer| layer.get_protocol(),
         };
@@ -174,6 +174,8 @@ pub const LayerInterface = struct {
         return self.v_get_payload(self.impl);
     }
 
+    /// Calls the concrete layers deinit method.
+    /// if you call the concrete layers and this interfaces deinit you will double free the underlying buffer
     pub fn deinit(self: *LayerInterface) void {
         return self.v_deinit(self.impl);
     }

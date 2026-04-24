@@ -233,14 +233,7 @@ pub const UDPLayer = struct {
 
     /// Get slice of data (header + payload)
     pub fn get_data(self: *const UDPLayer) []u8 {
-        switch (self.owner) {
-            .packet_layer => {
-                return self.owner.packet_layer.get_data(); // Layer in packet - it might be mutable or immutable
-            },
-            .owned_buffer => {
-                return self.owner.owned_buffer.buffer.items; // standalone layer - it is mutable by default
-            },
-        }
+        return self.owner.get_data();
     }
 
     /// Get the payload (data after UDP header)
@@ -277,13 +270,13 @@ pub const UDPLayer = struct {
         switch (self.owner) {
             .packet_layer => |layer| {
                 if (layer.prev_layer) |prev_layer| {
-                    if (try prev_layer.layer_iface.get_protocol() == tcp_ip_protocol.ipv4) {
+                    if (prev_layer.layer_iface.get_protocol() == tcp_ip_protocol.ipv4) {
                         var ipv4_iface: *LayerIface = &prev_layer.layer_iface;
                         var ipv4_layer: *IPv4.IPv4Layer = &ipv4_iface.ipv4Layer;
                         const ipv4_hdr: *const IPv4.IPv4Header = ipv4_layer.get_immutable_header();
 
                         hdr.calculate_checksum(ipv4_hdr.get_src_ip().to_u32(), ipv4_hdr.get_dst_ip().to_u32(), self.get_data()[UDPHeaderSize..]);
-                    } else if (try prev_layer.layer_iface.get_protocol() == tcp_ip_protocol.ipv6) {
+                    } else if (prev_layer.layer_iface.get_protocol() == tcp_ip_protocol.ipv6) {
                         return;
                         //prev_protocol = net_protocol.IPv6;
                     }

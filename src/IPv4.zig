@@ -200,13 +200,15 @@ pub const IPv4Layer = struct {
 
     /// return immutable slice of the payload
     pub fn get_payload(self: *IPv4Layer) ?[]const u8 {
-        switch (self.owner) {
-            .packet_layer => |layer| {
-                return layer.get_data()[self.get_header_len()..]; // Layer in packet payload
-            },
-            .owned_buffer => {
-                return null;
-            },
+        const data = self.get_data();
+
+        const hdr_len = self.get_header_len();
+
+        if (data.len > hdr_len) {
+            print("IPv4 payload: {x}\n", .{data[hdr_len..]});
+            return data[hdr_len..];
+        } else {
+            return null;
         }
     }
 

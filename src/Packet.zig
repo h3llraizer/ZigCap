@@ -247,7 +247,7 @@ pub const Packet = struct {
     pub fn search_layers(self: *Packet, target: tcp_ip_protocol) !?*Layer {
         var cur = self.first_layer;
         while (cur) |layer| {
-            if (try layer.layer_iface.get_protocol() == target) {
+            if (layer.layer_iface.get_protocol() == target) {
                 return layer;
             }
             cur = layer.next_layer;

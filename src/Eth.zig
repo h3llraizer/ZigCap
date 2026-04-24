@@ -177,16 +177,7 @@ pub const EthLayer = struct {
 
     /// get slice of data (hdr+payload)
     pub fn get_data(self: *const EthLayer) []u8 {
-        switch (self.owner) {
-            .packet_layer => |layer| {
-                //             print("getting data from packet.\n", .{});
-
-                return layer.get_data(); // Layer in packet - it might be mutable or immutable
-            },
-            .owned_buffer => |buffer| {
-                return buffer.buffer.items; // standalone layer - it is mutable by default
-            },
-        }
+        return self.owner.get_data();
     }
 
     /// return mutable slice of the payload
@@ -211,8 +202,6 @@ pub const EthLayer = struct {
             return null;
         };
 
-        //       print("payload in eth: {x}\n", .{data});
-
         switch (eth_type) {
             EthType.IP => {
                 const ihl_byte = data[0];
@@ -223,8 +212,6 @@ pub const EthLayer = struct {
                     if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) {
                         return try LayerIface.init(GenericLayer.ApplicationLayer, LayerOwner{ .packet_layer = layer });
                     }
-
-                    //                    print("returning IPv4.\n", .{});
 
                     return try LayerIface.init(IPv4.IPv4Layer, LayerOwner{ .packet_layer = layer });
                 }
