@@ -80,21 +80,51 @@ test "parse udp packet" {
     print("start parse of simple UDP packet.\n", .{});
 
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
 
-    var allocator = debug_allocator.allocator();
+    const allocator = debug_allocator.allocator();
 
-    const pkt_data = try allocator.alloc(u8, simple_udp_packet.len);
-    @memmove(pkt_data, simple_udp_packet[0..]);
+    var raw_packet_buffer: std.array_list.Aligned(u8, std.mem.Alignment.@"2") = .empty;
+    //    defer raw_packet_buffer.deinit(allocator); - doesn't need to be called because Packet takes ownership but it is still safe to do so
 
-    print("raw: ({}) {x}\n", .{ pkt_data.len, pkt_data });
+    try raw_packet_buffer.appendSlice(allocator, &simple_udp_packet);
 
-    var packet = try Packet.from_raw(allocator, pkt_data, link_layer_type.ETHERNET, null);
+    const original_raw_packet_buffer_len = raw_packet_buffer.items.len;
+
+    var packet = try Packet.create(allocator, allocator);
+    try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.ETHERNET, null);
+    defer packet.deinit();
 
     try expect(packet.get_layer_count() == 4);
 
     packet.print_layers_meta();
 
+    if (packet.first_layer) |first| {
+        print("first layer data: {x}\n", .{first.get_data()});
+    }
+
+    if (packet.last_layer) |last| {
+        last.print_meta();
+        print("last data len: {}\n", .{last.get_data().len});
+        try expect(last.get_data().len == 9);
+        try expect(try packet.delete_layer(last));
+        try expect(packet.get_layer_count() == 3);
+        try expect(packet.get_raw().len == original_raw_packet_buffer_len - 9);
+    }
+
+    packet.print_layers_meta();
+
     print("end of parsing of simple UDP packet.\n", .{});
+
+    print("original_raw_packet_buffer_len: {}\n", .{original_raw_packet_buffer_len});
+
+    const original_raw_packet_buffer = raw_packet_buffer.items;
+
+    try expect(original_raw_packet_buffer.len == 0);
+
+    print("packet buf: {}\n", .{packet.get_raw().len});
+
+    print("original: {x}\n", .{raw_packet_buffer.items});
 }
 
 test "parse icmp packet" {
@@ -106,16 +136,12 @@ test "parse icmp packet" {
     //
     //   const allocator = fba.allocator();
     //
-    //   var copied = try allocator.alloc(u8, icmp_request_raw.len);
+    //   const copied = try allocator.alloc(u8, icmp_request_raw.len);
     //
     //   @memmove(copied, icmp_request_raw[0..]);
     //
-    //   var packet = try Packet.create(allocator, allocator);
+    //   var packet = try Packet.from_raw(allocator, copied, link_layer_type.ETHERNET, null);
     //   defer packet.deinit();
-    //
-    //   packet.from_raw(copied[0..], link_layer_type.ETHERNET) catch |err| {
-    //       print("{s}\n", .{@errorName(err)});
-    //   };
     //
     //   packet.print_layers_meta();
 }

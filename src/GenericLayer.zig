@@ -37,7 +37,9 @@ pub const ApplicationLayer = struct {
 
     /// Get slice of data (header + payload)
     pub fn get_data(self: *const ApplicationLayer) []u8 {
-        return self.owner.get_data();
+        const data = self.owner.get_data();
+        print("app layer data: {x}\n", .{data});
+        return data;
     }
 
     pub fn get_payload(self: *ApplicationLayer) []const u8 {

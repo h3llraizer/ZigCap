@@ -73,21 +73,28 @@ pub const Packet = struct {
     }
 
     /// inits a packet from an existing slice (data), parses each layer until optional tcp_ip_protocol specified or until last layer
-    pub fn from_raw(allocator: Allocator, data: []u8, link_type: link_layer_type, parse_until: ?tcp_ip_protocol) !Packet {
-        // Create the packet first
-        var packet = try Packet.create(allocator, allocator); // or pass separate allocators
+    pub fn from_raw(self: *Packet, allocator: Allocator, buffer: *std.array_list.Aligned(u8, .@"2"), link_type: link_layer_type, parse_until: ?tcp_ip_protocol) !void {
+        self.buffer = try Buffer.init(try buffer.toOwnedSlice(allocator), allocator);
 
-        // Parse the raw data
-        try packet.parse_raw(data, link_type, parse_until);
+        // Take ownership of the ArrayList's memory
+        //        packet.buffer = try Buffer.init(try buffer.toOwnedSlice(allocator), allocator);
 
-        return packet;
+        const first_layer = try self.layer_allocator.create(Layer);
+        const link_layer = try create_first_layer(self.buffer.buffer.items, link_type, first_layer) orelse {
+            return error.LinkLayerCreationFailed;
+        };
+
+        first_layer.* = Layer.init(0, self.buffer.buffer.items.len, link_layer, self);
+        self.first_layer = first_layer;
+
+        try self.accumulate_layers(parse_until);
     }
 
-    fn parse_raw(self: *Packet, data: []u8, link_type: link_layer_type, parse_until: ?tcp_ip_protocol) !void {
-        //        self.buffer.buffer.items = data;
+    pub fn get_raw(self: *Packet) []align(2) u8 {
+        return self.buffer.buffer.items;
+    }
 
-        try self.buffer.buffer.appendSlice(self.buffer.allocator, data);
-
+    fn parse_raw(self: *Packet, link_type: link_layer_type, parse_until: ?tcp_ip_protocol) !void {
         const first_layer = try self.layer_allocator.create(Layer); // create layer struct
 
         const link_layer = try create_first_layer(self.buffer.buffer.items, link_type, first_layer) orelse {
@@ -152,8 +159,8 @@ pub const Packet = struct {
         var cur = self.first_layer;
 
         while (cur) |current_layer| {
-            print("current layer: ", .{});
-            current_layer.print_meta();
+            //print("current layer: ", .{});
+            //current_layer.print_meta();
 
             const next_layer: *Layer = try self.layer_allocator.create(Layer);
 
@@ -176,7 +183,7 @@ pub const Packet = struct {
 
             const current_layer_payload = current_layer.layer_iface.get_payload();
 
-            print("current layer payload len: {}\n", .{current_layer_payload.len});
+            //print("current layer payload len: {}\n", .{current_layer_payload.len});
 
             current_layer.length -= current_layer_payload.len;
 
@@ -184,8 +191,8 @@ pub const Packet = struct {
 
             next_layer.* = Layer.init(next_layer_offset, current_layer_payload.len, impl_layer, self);
 
-            print("next layer: ", .{});
-            next_layer.print_meta();
+            //print("next layer: ", .{});
+            //next_layer.print_meta();
 
             // Set up the linked list pointers
             next_layer.prev_layer = current_layer;
