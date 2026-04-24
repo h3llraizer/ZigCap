@@ -21,7 +21,7 @@ Currently supported functionality:
 - Generic / Application Layer (`src/GenericLayer.zig`)
 
 ## Testing
-All tests are currently passing (`tests.zig`).
+All tests are currently passing (`tests/`).
 
 ## Contributing
 Contributions are welcome, but note:

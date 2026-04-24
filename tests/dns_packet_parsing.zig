@@ -125,6 +125,8 @@ test "parse dns packet" {
         try expect(answer.get_class_type() == DNS.DnsClass.IN);
         try expect(answer.get_rr_type() == DNS.QueryType.A);
 
+        try expect(answer.get_ttl() == 854);
+
         const ip = answer.a.get_ip() orelse {
             try expect(false); // A record contains no IP
             return;

@@ -300,7 +300,6 @@ pub const UDPLayer = struct {
     }
 
     pub fn get_next_layer_type(self: *UDPLayer, layer: *Packet.Layer) !?LayerIface {
-        //const data = self.get_data();
         const hdr = self.get_immutable_header();
         // check src and dst ports
         // check header length of expected protocol
