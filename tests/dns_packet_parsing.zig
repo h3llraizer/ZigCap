@@ -8,6 +8,9 @@ const Packet = zigcap.Packet.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
 const tcp_ip_protocol = zigcap.tcp_ip_protocol;
 
+const Eth = zigcap.Eth;
+const IPv4 = zigcap.IPv4;
+const UDP = zigcap.UDP;
 const DNS = zigcap.DNS;
 
 test "parse dns packet" {
@@ -33,56 +36,107 @@ test "parse dns packet" {
 
     packet.print_layers_meta();
 
-    if (packet.first_layer) |first| {
-        print("first layer data: {x}\n", .{first.get_data()});
-    }
-
     try expect(packet.last_layer.?.layer_iface.get_protocol() == tcp_ip_protocol.dns);
 
+    const eth_layer: *Eth.EthLayer = packet.get_layer_of_type(Eth.EthLayer) orelse {
+        try expect(false); // packet does not have EthLayer
+        return;
+    };
+
+    const eth_hdr = eth_layer.get_immutable_header();
+
+    try expect(eth_hdr.get_eth_type() == Eth.EthType.IP);
+
+    const expected_src_eth: [6]u8 = .{ 0x38, 0x06, 0xe6, 0x92, 0x63, 0xac };
+    try expect(std.mem.eql(u8, &eth_hdr.get_src_mac().addr, &expected_src_eth));
+
+    const expected_dst_eth: [6]u8 = .{ 0x14, 0x4f, 0x8a, 0xa4, 0x15, 0x7d };
+    try expect(std.mem.eql(u8, &eth_hdr.get_dst_mac().addr, &expected_dst_eth));
+
+    const ipv4_layer: *IPv4.IPv4Layer = packet.get_layer_of_type(IPv4.IPv4Layer) orelse {
+        try expect(false); // packet does not have IPv4 Layer
+        return;
+    };
+
+    const ipv4_hdr = ipv4_layer.get_immutable_header();
+    try expect(ipv4_hdr.get_checksum() == 43072);
+    const expected_dst_ip: [4]u8 = .{ 0xc0, 0xa8, 0x01, 0xe1 };
+    try expect(std.mem.eql(u8, &ipv4_hdr.get_dst_ip().array, &expected_dst_ip));
+
+    const expected_src_ip: [4]u8 = .{ 0xc0, 0xa8, 0x01, 0xfe };
+    try expect(std.mem.eql(u8, &ipv4_hdr.get_src_ip().array, &expected_src_ip));
+
+    try expect(ipv4_hdr.get_ttl() == 64);
+
+    try expect(ipv4_hdr.get_ihl() == 5);
+
+    try expect(ipv4_layer.get_header_len() == 20);
+
+    try expect(ipv4_layer.get_payload().len == 63);
+
+    try expect(ipv4_hdr.get_length() == 83);
+
+    const udp_layer: *UDP.UDPLayer = packet.get_layer_of_type(UDP.UDPLayer) orelse {
+        try expect(false); // packet does not have UDP layer
+        return;
+    };
+
+    const udp_hdr = udp_layer.get_immutable_header();
+
+    try expect(udp_hdr.get_src_port() == 53);
+    try expect(udp_hdr.get_dst_port() == 61081);
+    try expect(udp_hdr.get_length() == 63);
+    try expect(udp_hdr.get_checksum() == 9937);
+
     const dns_layer: *DNS.DNSLayer = packet.get_layer_of_type(DNS.DNSLayer) orelse {
-        try expect(false); // packet did not have DNS layer
+        try expect(false); // packet does not have DNS layer
         return;
     };
 
     const hdr = dns_layer.get_immutable_header();
-    print("{any}\n", .{hdr});
+    try expect(hdr.get_ancount() == 1);
+    try expect(hdr.get_arcount() == 1);
+    try expect(hdr.get_nscount() == 0);
+    try expect(hdr.get_qdcount() == 1);
+    try expect(hdr.get_id() == 23282);
 
-    //    try dns_layer.get_queries();
+    //    try dns_layer.get_queries(); // doesn't need to be called when get_answers() is called
     try dns_layer.get_answers();
 
-    var count: usize = 0;
-    var cur = dns_layer.first_answer;
+    try expect(dns_layer.get_query_count() == 1);
+    try expect(dns_layer.get_answer_count() == 1);
+
     try expect(dns_layer.first_answer != null);
-    while (cur) |answer| {
-        count += 1;
+    if (dns_layer.first_answer) |answer| {
         const name = try answer.get_name(allocator);
         defer allocator.free(name);
-        print("{}. {s} {any} {any} ", .{ count, name, answer.get_rr_type(), answer.get_class_type() });
 
-        if (answer.get_rr_type() == DNS.QueryType.A) {
-            const ip = answer.a.get_ip() orelse {
-                print("(null)\n", .{});
-                cur = answer.get_next_record();
-                continue;
-            };
+        try expect(std.mem.eql(u8, name, "ziggit.dev"));
 
-            const ip_str = try ip.to_string(allocator);
-            defer allocator.free(ip_str);
-            print("{s}", .{ip_str});
-        }
+        try expect(answer.get_class_type() == DNS.DnsClass.IN);
+        try expect(answer.get_rr_type() == DNS.QueryType.A);
 
-        print("\n", .{});
+        const ip = answer.a.get_ip() orelse {
+            try expect(false); // A record contains no IP
+            return;
+        };
 
-        cur = answer.get_next_record();
+        const ip_str = try ip.to_string(allocator);
+        defer allocator.free(ip_str);
+        try expect(std.mem.eql(u8, ip_str, "170.187.203.77"));
+    } else {
+        try expect(false); // first answer null
     }
 
-    print("end of parsing of DNS packet.\n", .{});
-
-    print("original_raw_packet_buffer_len: {}\n", .{original_raw_packet_buffer_len});
+    try expect(original_raw_packet_buffer_len == 97);
 
     const original_raw_packet_buffer = raw_packet_buffer.items;
 
+    print("original_raw_packet_buffer.len: {}\n", .{original_raw_packet_buffer.len});
+
     try expect(original_raw_packet_buffer.len == 0);
+
+    try expect(packet.get_raw().len == 97); // confirms that the packet buffer passed in at the start has not change in size despite parsing
 
     print("packet buf: {}\n", .{packet.get_raw().len});
 

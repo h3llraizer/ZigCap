@@ -108,7 +108,7 @@ pub const IPv4Header = extern struct {
     }
 
     /// returns the checksum of the IPv4 header in native endian.
-    pub fn get_checksum(self: *IPv4Header) u16 {
+    pub fn get_checksum(self: *const IPv4Header) u16 {
         return std.mem.bigToNative(u16, self.checksum);
     }
 

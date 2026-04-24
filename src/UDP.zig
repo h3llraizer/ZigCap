@@ -70,7 +70,7 @@ pub const UDPHeader = extern struct {
     }
 
     pub fn get_checksum(self: *const UDPHeader) u16 {
-        return self.checksum;
+        return @byteSwap(self.checksum);
     }
 
     /// Calculate UDP checksum (requires pseudo-header and payload)

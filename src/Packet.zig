@@ -24,7 +24,7 @@ const Buffer = @import("Buffer.zig").Buffer;
 
 /// Do NOT change the offset and lengths manually - there is no need to. They are public by default but let the Packet manage these members
 pub const Layer = struct {
-    offset: usize,
+    offset: usize, // absolute offset in the owning packet
     length: usize,
     layer_iface: LayerIface,
     packet: *Packet,

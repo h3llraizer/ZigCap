@@ -205,7 +205,7 @@ pub const DNSHeader = extern struct {
         self.id = @byteSwap(id);
     }
 
-    pub fn get_id(self: *DNSHeader) u16 {
+    pub fn get_id(self: *const DNSHeader) u16 {
         return @byteSwap(self.id);
     }
 
@@ -231,7 +231,7 @@ pub const DNSHeader = extern struct {
         self.nscount = @byteSwap(nscount);
     }
 
-    pub fn get_nscount(self: *DNSHeader) u16 {
+    pub fn get_nscount(self: *const DNSHeader) u16 {
         return @byteSwap(self.nscount);
     }
 
@@ -239,7 +239,7 @@ pub const DNSHeader = extern struct {
         self.arcount = @byteSwap(arcount);
     }
 
-    pub fn get_arcount(self: *DNSHeader) u16 {
+    pub fn get_arcount(self: *const DNSHeader) u16 {
         return @byteSwap(self.arcount);
     }
 
