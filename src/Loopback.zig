@@ -72,19 +72,13 @@ pub const LoopBackLayer = struct {
     }
 
     fn get_mutable_header(self: *const LoopBackLayer) *LoopBackHeader {
-        const data = self.get_data().mutable;
+        const data = self.get_data();
         const aligned_ptr: [*]align(@alignOf(LoopBackHeader)) u8 = @alignCast(data.ptr);
         return @ptrCast(aligned_ptr);
     }
 
     fn get_immutable_header(self: *const LoopBackLayer) *const LoopBackHeader {
-        var data: []const u8 = undefined;
-
-        if (self.get_data().is_mutable()) { // if the data is actually mutable - we just need immutable in this case anyway
-            data = self.get_data().get_mutable();
-        } else {
-            data = self.get_data().get_immutable();
-        }
+        const data: []const u8 = self.get_data();
 
         if (data.len < LoopBackHeaderSize) {
             panic("LoopBack Raw Data len ({}) less than LoopBackHeaderSize", .{data.len});
@@ -94,7 +88,7 @@ pub const LoopBackLayer = struct {
         return @ptrCast(aligned_ptr);
     }
 
-    pub fn get_data(self: *const LoopBackLayer) RawData {
+    pub fn get_data(self: *const LoopBackLayer) []u8 {
         switch (self.owner) {
             .packet_layer => {
                 print("getting data from packet.\n", .{});
@@ -112,12 +106,12 @@ pub const LoopBackLayer = struct {
     }
 
     /// return mutable slice of the payload
-    pub fn get_payload(self: *const LoopBackLayer) ?[]const u8 { // needs to return RawData
-        const data = self.get_data().get_immutable();
+    pub fn get_payload(self: *const LoopBackLayer) []const u8 { // needs to return RawData
+        const data = self.get_data();
         if (data.len > LoopBackHeaderSize) {
             return data[LoopBackHeaderSize..];
         } else {
-            return null;
+            return "";
         }
     }
 
@@ -125,7 +119,7 @@ pub const LoopBackLayer = struct {
         const hdr = self.get_immutable_header();
         const protocol_type = hdr.get_protocol_type();
 
-        const data = self.get_data().get_immutable();
+        const data = self.get_data();
 
         print("{x}\n", .{data});
 

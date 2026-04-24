@@ -260,9 +260,9 @@ pub const ARPLayer = struct {
     }
 
     /// return mutable slice of the payload (ARP has no payload beyond the header)
-    pub fn get_payload(self: *ARPLayer) ?[]const u8 {
+    pub fn get_payload(self: *ARPLayer) []const u8 {
         _ = self;
-        return null;
+        return "";
     }
 
     pub fn get_sender_mac(self: *ARPLayer) Eth.MacAddress {

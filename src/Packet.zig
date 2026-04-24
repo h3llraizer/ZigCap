@@ -39,19 +39,17 @@ pub const Layer = struct {
         return self.packet.buffer.buffer.items[self.offset..];
     }
 
-    /// get the Layers payload as a const slice. It's const because it adheres to the API design in that modifications should be made through the layers concrete layer type
-    pub fn get_payload(self: *Layer) []const u8 {
-        const payload_start = self.offset + self.length;
-        if (self.packet.buffer.buffer.items.len > payload_start) {
-            return self.packet.buffer.buffer.items[payload_start..];
-        } else {
-            return "";
-        }
+    pub fn print_meta(self: *Layer) void {
+        print("{any}: offset: {} length: {}\n", .{
+            self.layer_iface.get_protocol(),
+            self.offset,
+            self.length,
+        });
     }
 
+    /// to_string returns immut slice. caller free memory using the allocator provided
     pub fn to_string(self: *Layer, allocator: Allocator) []const u8 {
         const str = self.layer_iface.to_string(allocator);
-        //print("{s}\n", .{self.layer_iface.to_string(allocator)});
         return str;
     }
 };
@@ -75,7 +73,7 @@ pub const Packet = struct {
     }
 
     /// Packet must be created with .create first. raw_data will be overwritten with the RawData provided
-    pub fn from_raw(self: *Packet, data: []u8, link_type: link_layer_type) !void {
+    pub fn from_raw(self: *Packet, data: []u8, link_type: link_layer_type, parse_until: ?tcp_ip_protocol) !void {
         //        self.buffer.buffer.items = data;
 
         try self.buffer.buffer.appendSlice(self.buffer.allocator, data);
@@ -86,11 +84,11 @@ pub const Packet = struct {
             return error.LinkLayerCreationFailed;
         };
 
-        first_layer.* = Layer.init(0, first_layer.length, link_layer, self);
+        first_layer.* = Layer.init(0, self.buffer.buffer.items.len, link_layer, self);
 
         self.first_layer = first_layer;
 
-        try self.accumulate_layers();
+        try self.accumulate_layers(parse_until);
     }
 
     fn create_ip_layer(raw: []const u8, layer: *Layer) !?LayerIface {
@@ -140,10 +138,13 @@ pub const Packet = struct {
         }
     }
 
-    fn accumulate_layers(self: *Packet) !void {
+    fn accumulate_layers(self: *Packet, parse_until: ?tcp_ip_protocol) !void {
         var cur = self.first_layer;
 
         while (cur) |current_layer| {
+            print("current layer: ", .{});
+            current_layer.print_meta();
+
             const next_layer: *Layer = try self.layer_allocator.create(Layer);
 
             const impl_layer = blk: {
@@ -163,29 +164,50 @@ pub const Packet = struct {
                 }
             };
 
-            const next_layer_len = current_layer.get_payload().len;
+            //           if (parse_until) |protocol| {
+            //               if (next_layer.layer_iface.get_protocol() == protocol) {
+            //                   print("{any} protocol hit.\n", .{protocol});
+            //
+            //                   // Don't destroy - keep the layer
+            //                   // Calculate offset and length for UDP
+            //                   const current_layer_payload = current_layer.layer_iface.get_payload();
+            //                   current_layer.length -= current_layer_payload.len;
+            //
+            //                   next_layer.* = Layer.init(current_layer.length, current_layer_payload.len, impl_layer, self);
+            //
+            //                   // Link it into the list
+            //                   next_layer.prev_layer = current_layer;
+            //                   current_layer.next_layer = next_layer;
+            //
+            //                   self.last_layer = next_layer; // UDP is the last layer
+            //                   break;
+            //               }
+            //           }
 
-            print("next_layer_len: {}\n", .{next_layer_len});
+            const current_layer_payload = current_layer.layer_iface.get_payload();
 
-            next_layer.* = Layer.init(current_layer.length, next_layer_len, impl_layer, self);
+            print("current layer payload len: {}\n", .{current_layer_payload.len});
 
-            var next_layer_payload_len: usize = 0;
-            if (next_layer.layer_iface.get_payload()) |payload| {
-                print("next_layer_payload: {x}\n", .{payload});
-                next_layer_payload_len = payload.len;
-            } else {
-                print("no payload.\n", .{});
-            }
+            current_layer.length -= current_layer_payload.len;
 
-            print("current layer data: {x}\n", .{current_layer.get_data()});
+            const next_layer_offset = current_layer.offset + current_layer.length;
 
-            print("current_layer length: {}\n", .{current_layer.length});
+            next_layer.* = Layer.init(next_layer_offset, current_layer_payload.len, impl_layer, self);
 
-            next_layer.offset = current_layer.length;
+            print("next layer: ", .{});
+            next_layer.print_meta();
 
             // Set up the linked list pointers
             next_layer.prev_layer = current_layer;
             current_layer.next_layer = next_layer;
+
+            if (parse_until) |protocol| {
+                if (next_layer.layer_iface.get_protocol() == protocol) {
+                    next_layer.prev_layer = current_layer;
+                    current_layer.next_layer = next_layer;
+                    break;
+                }
+            }
 
             cur = next_layer;
         }

@@ -14,8 +14,6 @@ const Packet = @import("Packet.zig");
 
 const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
 
-const RawData = @import("RawData.zig").RawData;
-
 pub const TCPHeaderMinSize = 20;
 pub const TCPHeaderMaxSize = 40;
 
@@ -193,13 +191,13 @@ pub const TCPLayer = struct {
     }
 
     /// Get the payload (data after TCP header)
-    pub fn get_payload(self: *TCPLayer) ?[]const u8 {
+    pub fn get_payload(self: *TCPLayer) []const u8 {
         const data = self.get_data();
 
         if (data.len > TCPHeaderMinSize) { // TODO: calculate the TCP header length
             return data[TCPHeaderMinSize..]; // return remaining bytes after the header
         } else {
-            return null;
+            return "";
         }
     }
 

@@ -21,8 +21,6 @@ const LayerIface = @import("LayerIface.zig").LayerIface;
 
 const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
 
-const RawData = @import("RawData.zig").RawData;
-
 pub const MaxHeaderLength = 60; //IPv4MinHeader Length
 pub const MinHeaderLength = 20;
 
@@ -188,38 +186,29 @@ pub const IPv4Layer = struct {
     /// returns mutable slice of data (hdr+payload).
     /// this will likely be made private in future to avoid accidental mutations
     pub fn get_data(self: *const IPv4Layer) []u8 {
-        switch (self.owner) {
-            .packet_layer => |layer| {
-                return layer.get_data(); // Layer in packet - it might be mutable or immutable
-            },
-            .owned_buffer => {
-                return self.owner.owned_buffer.buffer.items; // standalone layer - it is mutable by default
-            },
-        }
+        return self.owner.get_data();
     }
 
     /// return immutable slice of the payload
-    pub fn get_payload(self: *IPv4Layer) ?[]const u8 {
+    pub fn get_payload(self: *IPv4Layer) []const u8 {
         const data = self.get_data();
 
         const hdr_len = self.get_header_len();
 
+        //print("hdr_len: {}\n", .{hdr_len});
+
         if (data.len > hdr_len) {
-            print("IPv4 payload: {x}\n", .{data[hdr_len..]});
+            //print("IPv4 payload: {x}\n", .{data[hdr_len..]});
             return data[hdr_len..];
         } else {
-            return null;
+            return "";
         }
     }
 
     /// calls get_payload and returns the length.
     /// owned_buffer IPv4 layer will always return 0
     pub fn get_payload_len(self: *IPv4Layer) usize {
-        if (self.get_payload()) |payload| {
-            return payload.len;
-        } else {
-            return 0;
-        }
+        return self.get_payload().len;
     }
 
     pub fn get_options(self: *IPv4Layer) []const u8 {

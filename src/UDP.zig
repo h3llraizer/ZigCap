@@ -20,8 +20,6 @@ const nativeToBig = std.mem.nativeToBig;
 const activeTag = std.meta.activeTag;
 const panic = std.debug.panic;
 
-const RawData = @import("RawData.zig").RawData;
-
 pub const UDPHeaderSize = 8;
 
 // UDP Header structure (extern struct for exact layout)
@@ -237,17 +235,13 @@ pub const UDPLayer = struct {
     }
 
     /// Get the payload (data after UDP header)
-    pub fn get_payload(self: *UDPLayer) ?[]const u8 {
+    pub fn get_payload(self: *UDPLayer) []const u8 {
         const data = self.get_data();
-
-        //        print("UDP data: {x}\n", .{data});
-
-        //        print("{any}\n", .{self.get_immutable_header()});
 
         if (data.len > UDPHeaderSize) {
             return data[UDPHeaderSize..]; // return remaining bytes after the header
         } else {
-            return null;
+            return "";
         }
     }
 

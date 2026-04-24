@@ -181,14 +181,13 @@ pub const EthLayer = struct {
     }
 
     /// return mutable slice of the payload
-    pub fn get_payload(self: *EthLayer) ?[]const u8 {
-        switch (self.owner) {
-            .packet_layer => |layer| {
-                return layer.get_payload(); // Layer in packet payload
-            },
-            .owned_buffer => {
-                return null;
-            },
+    pub fn get_payload(self: *EthLayer) []const u8 {
+        const data = self.get_data();
+
+        if (data.len > EthHeaderSize) {
+            return data[EthHeaderSize..]; // return remaining bytes after the header
+        } else {
+            return "";
         }
     }
 
@@ -197,10 +196,11 @@ pub const EthLayer = struct {
         const hdr = self.get_immutable_header();
         const eth_type = hdr.get_eth_type();
 
-        const data = self.get_payload() orelse {
-            print("no more data.\n", .{});
+        const data = self.get_payload();
+
+        if (data.len == 0) {
             return null;
-        };
+        }
 
         switch (eth_type) {
             EthType.IP => {

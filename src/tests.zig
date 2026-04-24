@@ -1,8 +1,9 @@
 // src/tests.zig
 const std = @import("std");
-const zigcap = @import("lib.zig");
 const print = std.debug.print;
 const expect = std.testing.expect;
+
+const zigcap = @import("lib.zig");
 
 const Packet = zigcap.Packet.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;

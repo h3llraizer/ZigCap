@@ -37,19 +37,10 @@ pub const ApplicationLayer = struct {
 
     /// Get slice of data (header + payload)
     pub fn get_data(self: *const ApplicationLayer) []u8 {
-        switch (self.owner) {
-            .packet_layer => |layer| {
-                //             print("getting data from packet.\n", .{});
-
-                return layer.get_data(); // Layer in packet - it might be mutable or immutable
-            },
-            .owned_buffer => |buffer| {
-                return buffer.buffer.items; // standalone layer - it is mutable by default
-            },
-        }
+        return self.owner.get_data();
     }
 
-    pub fn get_payload(self: *ApplicationLayer) ?[]const u8 {
+    pub fn get_payload(self: *ApplicationLayer) []const u8 {
         const payload: []const u8 = self.get_data();
         return payload;
     }

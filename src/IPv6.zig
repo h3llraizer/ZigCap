@@ -397,13 +397,7 @@ pub const IPv6Layer = struct {
     }
 
     fn get_immutable_header(self: *const IPv6Layer) *const IPv6Header {
-        var data: []const u8 = undefined;
-
-        if (self.get_data().is_mutable()) { // if the data is actually mutable - we just need immutable in this case anyway
-            data = self.get_data().get_mutable();
-        } else {
-            data = self.get_data().get_immutable();
-        }
+        const data: []const u8 = self.get_data();
 
         if (data.len < IPv6HeaderSize) {
             panic("IPv6 Raw Data len ({}) less than IPv6HeaderSize", .{data.len});
@@ -414,7 +408,7 @@ pub const IPv6Layer = struct {
     }
 
     /// get slice of data (hdr+payload)
-    pub fn get_data(self: *const IPv6Layer) RawData {
+    pub fn get_data(self: *const IPv6Layer) []u8 {
         switch (self.owner) {
             .packet_layer => {
                 print("getting data from packet.\n", .{});
@@ -431,12 +425,12 @@ pub const IPv6Layer = struct {
     }
 
     /// return mutable slice of the payload
-    pub fn get_payload(self: *const IPv6Layer) ?[]const u8 { // needs to return RawData
-        const data = self.get_data().get_immutable();
+    pub fn get_payload(self: *const IPv6Layer) []const u8 { // needs to return RawData
+        const data = self.get_data();
         if (data.len > IPv6HeaderSize) {
             return data[IPv6HeaderSize..];
         } else {
-            return null;
+            return "";
         }
     }
 
@@ -444,7 +438,7 @@ pub const IPv6Layer = struct {
         var offset: usize = IPv6HeaderSize;
         var current_next: u8 = self.get_immutable_header().next_header;
 
-        const data = self.get_data().get_immutable();
+        const data = self.get_data();
 
         while (current_next != @intFromEnum(NextHeader.NoNext) and
             current_next != @intFromEnum(NextHeader.TCP) and
@@ -561,7 +555,7 @@ pub const IPv6Layer = struct {
     }
 
     pub fn get_next_layer_type(self: *const IPv6Layer, layer: *Packet.Layer) !?LayerIface {
-        const data = self.get_data().get_immutable();
+        const data = self.get_data();
 
         if (data.len < @sizeOf(IPv6Header)) return error.BufferTooSmall;
 

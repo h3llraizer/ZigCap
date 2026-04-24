@@ -492,13 +492,13 @@ pub const DNSLayer = struct {
     }
 
     /// Get the payload (data after DNS header)
-    pub fn get_payload(self: *DNSLayer) ?[]const u8 {
+    pub fn get_payload(self: *DNSLayer) []const u8 {
         const data = self.get_data();
 
         if (data.len > DNSHeaderSize) {
             return data[DNSHeaderSize..]; // return remaining bytes after the header
         } else {
-            return null;
+            return "";
         }
     }
 

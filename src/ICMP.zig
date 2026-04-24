@@ -447,12 +447,12 @@ pub const ICMPLayer = struct {
     }
 
     /// return immutable slice of the payload
-    pub fn get_payload(self: *ICMPLayer) ?[]const u8 {
+    pub fn get_payload(self: *ICMPLayer) []const u8 {
         const data = self.get_data();
         if (data.len > ICMPHeaderSize) {
             return data[ICMPHeaderSize..];
         }
-        return null;
+        return "";
     }
 
     pub fn get_type(self: *ICMPLayer) ICMPType {

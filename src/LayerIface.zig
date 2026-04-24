@@ -112,7 +112,7 @@ pub const LayerIface = union(enum) {
     /// return the payload (data[hdr_len..]) from the layer.
     /// depending on if the layer is owned by a Packet then the Packet will get the layers payload using it's offset+length in the packet buffer
     /// if the layer is standalone (with owned_buffer owner) then it will always return null
-    pub fn get_payload(self: *LayerIface) ?[]const u8 {
+    pub fn get_payload(self: *LayerIface) []const u8 {
         return switch (self.*) {
             inline else => |*layer| layer.get_payload(),
         };
@@ -135,7 +135,7 @@ pub const LayerInterface = struct {
     v_get_protocol: *const fn (*anyopaque) tcp_ip_protocol,
     v_to_string: *const fn (*anyopaque, Allocator) []const u8,
     v_get_data: *const fn (*anyopaque) []u8,
-    v_get_payload: *const fn (*anyopaque) ?[]const u8,
+    v_get_payload: *const fn (*anyopaque) []const u8,
     v_deinit: *const fn (*anyopaque) void,
 
     /// Creates a LayerInterface from any concrete layer implementation
@@ -170,7 +170,7 @@ pub const LayerInterface = struct {
         return self.v_get_data(self.impl);
     }
 
-    pub fn get_payload(self: *LayerInterface) ?[]const u8 {
+    pub fn get_payload(self: *LayerInterface) []const u8 {
         return self.v_get_payload(self.impl);
     }
 
@@ -204,7 +204,7 @@ inline fn LayerDelegate(comptime T: type) type {
             return self.get_data();
         }
 
-        fn get_payload(impl: *anyopaque) ?[]const u8 {
+        fn get_payload(impl: *anyopaque) []const u8 {
             const self = @as(T, @ptrCast(@alignCast(impl)));
             return self.get_payload();
         }
