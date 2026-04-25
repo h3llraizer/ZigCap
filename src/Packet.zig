@@ -261,9 +261,7 @@ pub const Packet = struct {
             return null;
         };
 
-        const layer: ?*Layer = self.search_layers(layer_type_enum) catch {
-            return null;
-        };
+        const layer: ?*Layer = self.search_layers(layer_type_enum);
 
         if (layer) |b| {
             return @as(*layer_type, @ptrCast(@alignCast(b.layer_iface.ptr())));
@@ -272,7 +270,15 @@ pub const Packet = struct {
         return null;
     }
 
-    pub fn search_layers(self: *Packet, target: tcp_ip_protocol) !?*Layer {
+    pub fn has_protocol_layer(self: *Packet, layer_proto: tcp_ip_protocol) bool {
+        if (self.search_layers(layer_proto) != null) {
+            return true;
+        }
+
+        return false;
+    }
+
+    pub fn search_layers(self: *Packet, target: tcp_ip_protocol) ?*Layer {
         var cur = self.first_layer;
         while (cur) |layer| {
             if (layer.layer_iface.get_protocol() == target) {

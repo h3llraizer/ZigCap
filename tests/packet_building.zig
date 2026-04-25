@@ -432,7 +432,7 @@ test "build eth,ipv4,udp,generic_app packet" {
         try app.set_payload("hello new world");
     }
 
-    if (try packet.search_layers(tcp_ip_protocol.ipv4)) |ipv4| {
+    if (packet.search_layers(tcp_ip_protocol.ipv4)) |ipv4| {
         var new_ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
         defer new_ipv4_layer_owner.owned_buffer.buffer.deinit(allocator);
         var ip_layer = try packet.extract_layer(ipv4, &eth_layer_owner) orelse {
@@ -442,7 +442,7 @@ test "build eth,ipv4,udp,generic_app packet" {
 
         ip_layer.ipv4Layer.set_ip_proto(IPProtocol.UDP);
 
-        const eth = try packet.search_layers(tcp_ip_protocol.eth) orelse {
+        const eth = packet.search_layers(tcp_ip_protocol.eth) orelse {
             print("could not find eth layer.\n", .{});
             return;
         };

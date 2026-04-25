@@ -79,21 +79,28 @@ test "parse tcp layer" {
 
     var tcp_hdr = tcp_layer.tcpLayer.get_immutable_header();
 
-    print("src_port: {}\n", .{tcp_hdr.get_src_port()});
-    print("dst_port: {}\n", .{tcp_hdr.get_dst_port()});
-    print("seq_num: {}\n", .{tcp_hdr.get_seq_num()});
-    print("ack_num: {}\n", .{tcp_hdr.get_ack_num()});
-    print("window: {}\n", .{tcp_hdr.get_window()});
-    print("checksum: {x}\n", .{tcp_hdr.get_checksum()});
-    print("urgent_ptr: {}\n", .{tcp_hdr.get_urgent_ptr()});
+    try expect(tcp_hdr.get_src_port() == 32657);
+    try expect(tcp_hdr.get_dst_port() == 5005);
+    try expect(tcp_hdr.get_seq_num() == 2773109732);
+    try expect(tcp_hdr.get_ack_num() == 0);
+    try expect(tcp_hdr.get_window() == 65535);
+    try expect(tcp_hdr.get_checksum() == 10193);
+    try expect(tcp_hdr.get_urgent_ptr() == 0);
 
     const tcp_flags = tcp_hdr.get_flags_immutable();
 
-    print("{any}\n", .{tcp_flags});
+    try expect(tcp_flags.cwr == 0);
+    try expect(tcp_flags.ece == 0);
+    try expect(tcp_flags.urg == 0);
+    try expect(tcp_flags.ack == 0);
+    try expect(tcp_flags.psh == 0);
+    try expect(tcp_flags.rst == 0);
+    try expect(tcp_flags.syn == 1);
+    try expect(tcp_flags.fin == 0);
 
     const hdr_length = tcp_hdr.get_hdr_length();
 
-    print("length: {}\n", .{hdr_length});
+    try expect(hdr_length == 32);
 
     tcp_layer.tcpLayer.parse_tcp_options();
 }

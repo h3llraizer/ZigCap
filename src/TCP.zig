@@ -1,8 +1,4 @@
 const std = @import("std");
-const print = std.debug.print;
-const panic = std.debug.print;
-
-const Allocator = std.mem.Allocator;
 
 const ProtocolEnums = @import("ProtocolEnums.zig");
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
@@ -13,6 +9,11 @@ const LayerOwner = @import("Layer.zig").LayerOwner;
 const Packet = @import("Packet.zig");
 
 const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
+
+const print = std.debug.print;
+const panic = std.debug.print;
+
+const Allocator = std.mem.Allocator;
 
 pub const TCPHeaderMinSize = 20;
 pub const TCPHeaderMaxSize = 40;
@@ -36,7 +37,9 @@ const TCPOption = enum(u8) {
     CLARK = 0x09, // Clark's timestamp echo (obsolete)
     TSN = 0x0a, // TCP TSN (Transport Sequence Number, experimental)
     SIG = 0x0b, // TCP Signature (obsolete)
-    UTO = 0x1c, // TCP User Timeout Option (both UTO and SC-PS share 0x1c)
+    //UTO = 0x1c, // TCP User Timeout Option (both UTO and SC-PS share 0x1c)
+
+    _,
 
     pub fn length(self: TCPOption) ?u8 {
         return switch (self) {
@@ -79,7 +82,8 @@ const TCPOption = enum(u8) {
             .CLARK => "Clark's Timestamp Echo",
             .TSN => "Transport Sequence Number",
             .SIG => "TCP Signature",
-            .UTO => "User Timeout",
+            else => "Unknown",
+            //.UTO => "User Timeout",
         };
     }
 };
@@ -262,43 +266,50 @@ pub const TCPLayer = struct {
     pub fn parse_tcp_options(self: *TCPLayer) void {
         var offset: usize = TCPHeaderMinSize; // Start after fixed header
         const header_len = self.get_immutable_header().get_hdr_length();
-        const end = header_len;
 
         const tcp_ops_header = self.get_data();
 
-        while (offset < end) {
-            const kind = tcp_ops_header[offset];
+        while (offset < header_len) {
+            const kind_val = tcp_ops_header[offset];
+
+            const kind: TCPOption = @enumFromInt(kind_val);
+
+            //    const name = kind.name();
+
+            //     print("{s}\n", .{name});
 
             switch (kind) {
-                0x00 => { // EOL
-                    std.debug.print("EOL at offset {}\n", .{offset});
+                .EOL => { // EOL
+                    //           print("EOL at offset {}\n", .{offset});
                     offset += 1; // must increment
                 },
-                0x01 => { // NOP
-                    std.debug.print("NOP padding at offset {}\n", .{offset});
+                .NOP => { // NOP
+                    //          print("NOP padding at offset {}\n", .{offset});
                     offset += 1;
                 },
-                0x02 => { // MSS
+                .MSS => { // MSS
                     const len = tcp_ops_header[offset + 1];
                     if (len >= 4) {
                         const mss: u16 = @as(u16, @intCast(tcp_ops_header[offset + 2])) << 8 | @as(u16, (@intCast(tcp_ops_header[offset + 3])));
-                        std.debug.print("MSS = {} bytes\n", .{mss});
+                        //             print("MSS = {} bytes\n", .{mss});
+                        _ = mss;
                     }
                     offset += len;
                 },
-                0x03 => { // Window Scale
+                .WS => { // Window Scale
                     const len = tcp_ops_header[offset + 1];
                     if (len >= 3) {
                         const shift = tcp_ops_header[offset + 2];
-                        std.debug.print("Window Scale = {}\n", .{shift});
+                        _ = shift;
+                        //print("Window Scale = {}\n", .{shift});
                     }
                     offset += len;
                 },
-                0x04 => { // SACK Permitted
-                    std.debug.print("SACK Permitted\n", .{});
+                .SACK_PERM => { // SACK Permitted
+                    //print("SACK Permitted\n", .{});
                     offset += 2;
                 },
-                0x08 => { // Timestamp
+                .TS => { // Timestamp
                     const len = tcp_ops_header[offset + 1];
                     if (len >= 10) {
                         const tsval = @as(u32, @intCast(tcp_ops_header[offset + 2])) << 24 |
@@ -311,11 +322,14 @@ pub const TCPLayer = struct {
                             @as(u32, @intCast(tcp_ops_header[offset + 8])) << 8 |
                             @as(u32, @intCast(tcp_ops_header[offset + 9]));
 
-                        std.debug.print("TSval={}, TSecr={}\n", .{ tsval, tsecr });
+                        _ = tsval;
+                        _ = tsecr;
+
+                        //print("TSval={}, TSecr={}\n", .{ tsval, tsecr });
                     }
                     offset += len;
                 },
-                else => {
+                else => { // possibly break here to avoid unsafe/innacurate parsing
                     const len = tcp_ops_header[offset + 1];
                     offset += len;
                 },
@@ -331,7 +345,11 @@ pub const TCPLayer = struct {
             return LayerError.BufferTooSmall;
         }
 
-        return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
+        if (self.get_payload().len > 0) {
+            return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
+        }
+
+        return null;
     }
 
     pub fn get_mutable_header(self: *TCPLayer) *TCPHeader {
@@ -361,22 +379,16 @@ pub const TCPLayer = struct {
 
     /// Get slice of data (header + payload)
     pub fn get_data(self: *const TCPLayer) []u8 {
-        switch (self.owner) {
-            .packet_layer => {
-                return self.owner.packet_layer.get_data();
-            },
-            .owned_buffer => {
-                return self.owner.owned_buffer.buffer.items; // standalone layer
-            },
-        }
+        return self.owner.get_data();
     }
 
     /// Get the payload (data after TCP header)
     pub fn get_payload(self: *TCPLayer) []const u8 {
         const data = self.get_data();
+        const hdr_len = self.get_immutable_header().get_hdr_length();
 
-        if (data.len > TCPHeaderMinSize) { // TODO: calculate the TCP header length
-            return data[TCPHeaderMinSize..]; // return remaining bytes after the header
+        if (data.len > hdr_len) { // TODO: calculate the TCP header length
+            return data[hdr_len..]; // return remaining bytes after the header
         } else {
             return "";
         }

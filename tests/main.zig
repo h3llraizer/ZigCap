@@ -3,6 +3,7 @@ test {
     _ = @import("packet_parsing.zig");
     _ = @import("packet_building.zig");
     _ = @import("dns_packet_parsing.zig");
+    _ = @import("tcp_packet_parsing.zig");
     _ = @import("eth.zig");
     _ = @import("arp.zig");
     _ = @import("ipv4.zig");
