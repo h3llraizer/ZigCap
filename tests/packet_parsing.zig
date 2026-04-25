@@ -77,8 +77,6 @@ test "parse udp packet" {
         0x61, // 'a'
     };
 
-    print("start parse of simple UDP packet.\n", .{});
-
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.deinit();
 
@@ -97,34 +95,19 @@ test "parse udp packet" {
 
     try expect(packet.get_layer_count() == 4);
 
-    packet.print_layers_meta();
-
-    if (packet.first_layer) |first| {
-        print("first layer data: {x}\n", .{first.get_data()});
-    }
-
     if (packet.last_layer) |last| {
-        last.print_meta();
-        print("last data len: {}\n", .{last.get_data().len});
         try expect(last.get_data().len == 9);
         try expect(try packet.delete_layer(last));
         try expect(packet.get_layer_count() == 3);
         try expect(packet.get_raw().len == original_raw_packet_buffer_len - 9);
     }
 
-    packet.print_layers_meta();
-
-    print("end of parsing of simple UDP packet.\n", .{});
-
-    print("original_raw_packet_buffer_len: {}\n", .{original_raw_packet_buffer_len});
-
     const original_raw_packet_buffer = raw_packet_buffer.items;
 
     try expect(original_raw_packet_buffer.len == 0);
 
-    print("packet buf: {}\n", .{packet.get_raw().len});
+    //packet.get_raw().len;
 
-    print("original: {x}\n", .{raw_packet_buffer.items});
 }
 
 test "parse icmp packet" {

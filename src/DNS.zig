@@ -448,8 +448,6 @@ pub const DNSLayer = struct {
                     .owner = owner,
                 };
 
-                //try self.get_queries();
-
                 return self;
             },
             .owned_buffer => {
@@ -460,8 +458,6 @@ pub const DNSLayer = struct {
                     const dns_data = try self.owner.owned_buffer.extend(buffer_len, DNSHeaderSize);
 
                     @memset(dns_data, 0);
-                } else {
-                    //try self.get_queries(); // calling this here causes
                 }
 
                 return self;

@@ -44,10 +44,35 @@ const sockaddr_in6 = extern struct {
     sin6_scope_id: u_long,
 };
 
+// TODO: use a tagged union
+
+pub fn open_pcap(ip: IPv4Address, allocator: Allocator) !?*Interface {
+    var interfaces = try Interfaces.init(allocator);
+
+    const device_list = try interfaces.list_all();
+
+    if (device_list.items.len > 0) {
+        const main_iface = try interfaces.find_by_ip(ip);
+        if (main_iface) |iface| {
+            try iface.open(allocator);
+
+            if (iface.isOpened()) {
+                return iface;
+            } else {
+                return null;
+            }
+        } else {
+            return null;
+        }
+    } else {
+        return null;
+    }
+}
+
 pub const Interface = struct {
     name: []const u8,
     desc: []const u8,
-    ipv4: std.ArrayList(IPv4Address),
+    ipv4: std.ArrayList(IPv4Address), // interfaces can have more than one IP
     handle: ?*pcap.pcap_t = null,
     link_type: ?c_int,
 

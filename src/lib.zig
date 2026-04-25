@@ -28,3 +28,4 @@ pub const ProtocolEnums = @import("ProtocolEnums.zig");
 pub const Layer = @import("Layer.zig");
 pub const LayerIface = @import("LayerIface.zig").LayerIface;
 pub const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
+pub const PcapWrapper = @import("PcapWrapper.zig");

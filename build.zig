@@ -48,7 +48,6 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    // IMPORTANT: give tests access to your library module
     tests.root_module.addImport("zigcap", mod);
 
     tests.addIncludePath(.{ .cwd_relative = include_path });

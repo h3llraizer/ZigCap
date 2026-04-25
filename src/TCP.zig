@@ -17,6 +17,84 @@ const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
 pub const TCPHeaderMinSize = 20;
 pub const TCPHeaderMaxSize = 40;
 
+const TCPOption = enum(u8) {
+    EOL = 0x00, // End of Options List
+    NOP = 0x01, // No-Operation (padding)
+    MSS = 0x02, // Maximum Segment Size
+    WS = 0x03, // Window Scale
+    SACK_PERM = 0x04, // SACK Permitted
+    SACK = 0x05, // SACK Block (Selective ACK)
+    TS = 0x08, // Timestamp
+    TCP_FASTOPEN = 0x0f, // TCP Fast Open (TFO)
+    EXP_FASTOPEN = 0x1a, // Experimental Fast Open (draft-ietf-tcp-fastopen)
+    MULTIPATH_TCP = 0x1e, // Multipath TCP (MPTCP)
+    AUTH = 0x1f, // TCP Authentication Option (TCP-AO) - replaces MD5
+    MD5 = 0x13, // TCP MD5 Signature (deprecated by TCP-AO)
+    SC_PS = 0x1c, // Sender - Specific Congestion/Pacing Scheme (experimental)
+    VS_DATA = 0x1d, // VS Data (experimental)
+    NUM = 0x1b, // TCP NUM Option (Nonce Update Mechanism, experimental)
+    CLARK = 0x09, // Clark's timestamp echo (obsolete)
+    TSN = 0x0a, // TCP TSN (Transport Sequence Number, experimental)
+    SIG = 0x0b, // TCP Signature (obsolete)
+    UTO = 0x1c, // TCP User Timeout Option (both UTO and SC-PS share 0x1c)
+
+    pub fn length(self: TCPOption) ?u8 {
+        return switch (self) {
+            .EOL, .NOP => null, // Single byte, no length field
+            .MSS, .WS, .SACK_PERM, .TCP_FASTOPEN, .MD5, .AUTH, .SACK, .TS, .MULTIPATH_TCP, .SC_PS, .VS_DATA, .NUM, .CLARK, .TSN, .SIG, .UTO => null, // Length varies, check actual value
+            // For most options, you need to read the length byte at offset+1
+        };
+    }
+
+    pub fn has_length_byte(self: TCPOption) bool {
+        return self != .EOL and self != .NOP;
+    }
+
+    pub fn minimum_length(self: TCPOption) u8 {
+        return switch (self) {
+            .EOL, .NOP => 1,
+            .SACK_PERM => 2, // Kind + Length only, no value
+            else => 3, // Kind + Length + at least 1 value byte
+        };
+    }
+
+    // Alternative naming aliases (can be added as methods or constants)
+    pub fn name(self: TCPOption) []const u8 {
+        return switch (self) {
+            .EOL => "End of Options",
+            .NOP => "No-Operation",
+            .MSS => "Maximum Segment Size",
+            .WS => "Window Scale",
+            .SACK_PERM => "SACK Permitted",
+            .SACK => "Selective ACK",
+            .TS => "Timestamp",
+            .TCP_FASTOPEN => "TCP Fast Open",
+            .EXP_FASTOPEN => "Experimental Fast Open",
+            .MULTIPATH_TCP => "Multipath TCP",
+            .AUTH => "TCP Authentication",
+            .MD5 => "TCP MD5 Signature",
+            .SC_PS => "Sender-Specific Congestion/Pacing",
+            .VS_DATA => "VS Data",
+            .NUM => "Nonce Update",
+            .CLARK => "Clark's Timestamp Echo",
+            .TSN => "Transport Sequence Number",
+            .SIG => "TCP Signature",
+            .UTO => "User Timeout",
+        };
+    }
+};
+
+const TCPFlags = packed struct {
+    fin: u1,
+    syn: u1,
+    rst: u1,
+    psh: u1,
+    ack: u1,
+    urg: u1,
+    ece: u1,
+    cwr: u1,
+};
+
 /// Standard TCPHeader (20 bytes)
 /// seq and ack num are specified as 4 byte u8 arrays for alignment purposes
 pub const TCPHeader = extern struct {
@@ -24,7 +102,7 @@ pub const TCPHeader = extern struct {
     dst_port: u16,
     seq_num: [4]u8,
     ack_num: [4]u8,
-    data_offset_reserved_flags: u16,
+    data_offset_reserved_flags: [2]u8, // high bit is offset + reserved. low bit is TCPFlags
     window: u16,
     checksum: u16,
     urgent_ptr: u16,
@@ -35,7 +113,7 @@ pub const TCPHeader = extern struct {
             .dst_port = 0,
             .seq_num = [_]u8{0} ** 4,
             .ack_num = [_]u8{0} ** 4,
-            .data_offset_reserved_flags = 0,
+            .data_offset_reserved_flags = [_]u8{0} ** 2,
             .window = 0,
             .checksum = 0,
             .urgent_ptr = 0,
@@ -64,18 +142,33 @@ pub const TCPHeader = extern struct {
         self.dst_port = std.mem.nativeToBig(u16, port);
     }
 
-    pub fn get_seq_num(self: *TCPHeader) u32 {
+    /// returns sequence number in little endian
+    pub fn get_seq_num(self: *const TCPHeader) u32 {
         const sq = self.seq_num;
         const seq_num = std.mem.readInt(u32, &sq, .little);
 
         return seq_num;
     }
 
+    /// writes sequence number in big endian
     pub fn set_seq_num(self: *TCPHeader, seq_num: u32) void {
         std.mem.writeInt(u32, &self.seq_num, seq_num, .big);
     }
 
-    pub fn get_window(self: *TCPHeader) u16 {
+    /// return acknowledgement number in little endian
+    pub fn get_ack_num(self: *const TCPHeader) u32 {
+        const ack = self.ack_num;
+        const ack_num = std.mem.readInt(u32, &ack, .little);
+
+        return ack_num;
+    }
+
+    /// writes acknowledgement number in big endian
+    pub fn set_ack_num(self: *TCPHeader, ack_num: u32) void {
+        std.mem.writeInt(u32, &self.ack_num, ack_num, .big);
+    }
+
+    pub fn get_window(self: *const TCPHeader) u16 {
         return @byteSwap(self.window);
     }
 
@@ -83,12 +176,36 @@ pub const TCPHeader = extern struct {
         self.window = @byteSwap(window);
     }
 
-    pub fn get_urgent_ptr(self: *TCPHeader) u16 {
+    pub fn get_checksum(self: *const TCPHeader) u16 {
+        return @byteSwap(self.checksum);
+    }
+
+    pub fn set_checksum(self: *TCPHeader, checksum: u16) void {
+        self.checksum = @byteSwap(checksum);
+    }
+
+    pub fn get_urgent_ptr(self: *const TCPHeader) u16 {
         return @byteSwap(self.urgent_ptr);
     }
 
     pub fn set_urgent_ptr(self: *TCPHeader, urgent_ptr: u16) void {
         self.urgent_ptr = @byteSwap(urgent_ptr);
+    }
+
+    pub fn get_hdr_length(self: *const TCPHeader) u8 {
+        const high_byte = self.data_offset_reserved_flags[0];
+
+        const data_offset = (high_byte >> 4) & 0xF; // shift down top 4 bits
+        const tcp_header_length = data_offset * 4; // in bytes
+        return tcp_header_length;
+    }
+
+    pub fn get_flags_immutable(self: *const TCPHeader) *const TCPFlags {
+        return @ptrCast(&self.data_offset_reserved_flags[1]);
+    }
+
+    pub fn get_flags_mutable(self: *TCPHeader) *TCPFlags {
+        return @ptrCast(&self.data_offset_reserved_flags[1]);
     }
 };
 
@@ -140,6 +257,70 @@ pub const TCPLayer = struct {
     pub fn calculate_checksum(self: *TCPLayer) void {
         _ = self;
         return;
+    }
+
+    pub fn parse_tcp_options(self: *TCPLayer) void {
+        var offset: usize = TCPHeaderMinSize; // Start after fixed header
+        const header_len = self.get_immutable_header().get_hdr_length();
+        const end = header_len;
+
+        const tcp_ops_header = self.get_data();
+
+        while (offset < end) {
+            const kind = tcp_ops_header[offset];
+
+            switch (kind) {
+                0x00 => { // EOL
+                    std.debug.print("EOL at offset {}\n", .{offset});
+                    offset += 1; // must increment
+                },
+                0x01 => { // NOP
+                    std.debug.print("NOP padding at offset {}\n", .{offset});
+                    offset += 1;
+                },
+                0x02 => { // MSS
+                    const len = tcp_ops_header[offset + 1];
+                    if (len >= 4) {
+                        const mss: u16 = @as(u16, @intCast(tcp_ops_header[offset + 2])) << 8 | @as(u16, (@intCast(tcp_ops_header[offset + 3])));
+                        std.debug.print("MSS = {} bytes\n", .{mss});
+                    }
+                    offset += len;
+                },
+                0x03 => { // Window Scale
+                    const len = tcp_ops_header[offset + 1];
+                    if (len >= 3) {
+                        const shift = tcp_ops_header[offset + 2];
+                        std.debug.print("Window Scale = {}\n", .{shift});
+                    }
+                    offset += len;
+                },
+                0x04 => { // SACK Permitted
+                    std.debug.print("SACK Permitted\n", .{});
+                    offset += 2;
+                },
+                0x08 => { // Timestamp
+                    const len = tcp_ops_header[offset + 1];
+                    if (len >= 10) {
+                        const tsval = @as(u32, @intCast(tcp_ops_header[offset + 2])) << 24 |
+                            @as(u32, @intCast(tcp_ops_header[offset + 3])) << 16 |
+                            @as(u32, @intCast(tcp_ops_header[offset + 4])) << 8 |
+                            @as(u32, @intCast(tcp_ops_header[offset + 5]));
+
+                        const tsecr = @as(u32, @intCast(tcp_ops_header[offset + 6])) << 24 |
+                            @as(u32, @intCast(tcp_ops_header[offset + 7])) << 16 |
+                            @as(u32, @intCast(tcp_ops_header[offset + 8])) << 8 |
+                            @as(u32, @intCast(tcp_ops_header[offset + 9]));
+
+                        std.debug.print("TSval={}, TSecr={}\n", .{ tsval, tsecr });
+                    }
+                    offset += len;
+                },
+                else => {
+                    const len = tcp_ops_header[offset + 1];
+                    offset += len;
+                },
+            }
+        }
     }
 
     /// at the moment, this will always return a generic application layer because no application layer protocols have been fully implemented
@@ -209,42 +390,24 @@ pub const TCPLayer = struct {
         const seq: u32 = std.mem.readInt(u32, &hdr.seq_num, .little);
         const ack: u32 = std.mem.readInt(u32, &hdr.ack_num, .little);
 
-        const data_offset_reserved_flags: u16 = std.mem.bigToNative(u16, hdr.data_offset_reserved_flags);
+        //       const data_offset_reserved_flags: u16 = std.mem.bigToNative(u16, hdr.data_offset_reserved_flags);
+        //
+        //       // TCP data offset is top 4 bits (in 32-bit words)
+        //       const data_offset: u8 = @intCast(data_offset_reserved_flags >> 12);
+        //
+        //       // Lower 12 bits contain flags + reserved bits (depending on your layout)
+        //       const flags: u16 = data_offset_reserved_flags & 0x0FFF;
 
-        // TCP data offset is top 4 bits (in 32-bit words)
-        const data_offset: u8 = @intCast(data_offset_reserved_flags >> 12);
-
-        // Lower 12 bits contain flags + reserved bits (depending on your layout)
-        const flags: u16 = data_offset_reserved_flags & 0x0FFF;
-
+        const data_offset: u16 = 0;
+        const flags: u16 = 0;
         const window_size: u16 = std.mem.bigToNative(u16, hdr.window);
         const checksum: u16 = std.mem.bigToNative(u16, hdr.checksum);
         const urgent_pointer: u16 = std.mem.bigToNative(u16, hdr.urgent_ptr);
 
         const result = std.fmt.allocPrint(
             allocator,
-            \\TCP Layer:
-            \\  src_port: {}
-            \\  dst_port: {}
-            \\  seq: {}
-            \\  ack: {}
-            \\  data_offset: {}
-            \\  flags: 0x{x}
-            \\  window_size: {}
-            \\  checksum: 0x{x}
-            \\  urgent_pointer: {}
-        ,
-            .{
-                src_port,
-                dst_port,
-                seq,
-                ack,
-                data_offset,
-                flags,
-                window_size,
-                checksum,
-                urgent_pointer,
-            },
+            "TCP Layer: src_port: {} dst_port: {} seq: {} ack: {} data_offset: {} flags: 0x{x} window_size: {} checksum: 0x{x} urgent_pointer: {}",
+            .{ src_port, dst_port, seq, ack, data_offset, flags, window_size, checksum, urgent_pointer },
         ) catch |err| {
             std.debug.print("TCP allocPrint failed: {s}\n", .{@errorName(err)});
             return "";
