@@ -6,6 +6,7 @@ const zigcap = @import("zigcap");
 
 const Packet = zigcap.Packet.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
+const IPProtocol = zigcap.ProtocolEnums.IPProtocol;
 const tcp_ip_protocol = zigcap.tcp_ip_protocol;
 
 const Eth = zigcap.Eth;
@@ -74,6 +75,8 @@ test "parse dns packet" {
     try expect(ipv4_layer.get_payload().len == 63);
 
     try expect(ipv4_hdr.get_length() == 83);
+
+    try expect(try ipv4_layer.get_ip_proto() == IPProtocol.UDP);
 
     const udp_layer: *UDP.UDPLayer = packet.get_layer_of_type(UDP.UDPLayer) orelse {
         try expect(false); // packet does not have UDP layer

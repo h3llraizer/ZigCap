@@ -245,6 +245,7 @@ pub const DNSHeader = extern struct {
 
     //TODO: implement get_flags_mutable
     pub fn get_flags(self: *DNSHeader) *DNSHeaderFlags {
+        self.flags = @byteSwap(self.flags);
         return @ptrCast(&self.flags);
     }
 
@@ -532,6 +533,13 @@ pub const DNSLayer = struct {
         }
 
         return count;
+    }
+
+    /// sets DNS Header values to reflect Query and Answer count and perform byte swap for NBE order
+    /// call this if you intend to send dns packet over the network
+    pub fn validate_layer(self: *DNSLayer) void {
+        var hdr = self.get_mutable_header();
+        hdr.flags = @byteSwap(hdr.flags);
     }
 
     pub fn add_query(self: *DNSLayer, query: *DNSQuery) !void {

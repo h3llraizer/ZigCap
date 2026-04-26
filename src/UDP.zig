@@ -147,7 +147,7 @@ pub const UDPHeader = extern struct {
         sum += (dst_ip >> 16) & 0xFFFF;
         sum += dst_ip & 0xFFFF;
         sum += 0x0011; // Protocol = 17
-        sum += self.get_length();
+        sum += self.length;
 
         const words = @as([*]const u16, @ptrCast(self));
         for (0..UDPHeaderSize / 2) |i| {
@@ -280,6 +280,32 @@ pub const UDPLayer = struct {
             },
             else => return,
         }
+    }
+
+    pub fn validate_checksum(self: *const UDPLayer) !bool {
+        const hdr = self.get_immutable_header();
+
+        switch (self.owner) {
+            .packet_layer => |layer| {
+                if (layer.prev_layer) |prev_layer| {
+                    if (prev_layer.layer_iface.get_protocol() == tcp_ip_protocol.ipv4) {
+                        var ipv4_iface: *LayerIface = &prev_layer.layer_iface;
+                        var ipv4_layer: *IPv4.IPv4Layer = &ipv4_iface.ipv4Layer;
+                        const ipv4_hdr: *const IPv4.IPv4Header = ipv4_layer.get_immutable_header();
+
+                        return hdr.validate_checksum(ipv4_hdr.get_src_ip().to_u32(), ipv4_hdr.get_dst_ip().to_u32(), self.get_data()[UDPHeaderSize..]);
+                    } else if (prev_layer.layer_iface.get_protocol() == tcp_ip_protocol.ipv6) {
+                        return error.IPv6NotImplemented;
+                        //prev_protocol = net_protocol.IPv6;
+                    }
+                } else {
+                    return error.NoPrevLayer;
+                }
+            },
+            else => return error.NotAttachedToPacket,
+        }
+
+        return error.Unhandled;
     }
 
     /// caller needs to free

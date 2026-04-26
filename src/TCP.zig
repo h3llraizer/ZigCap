@@ -15,78 +15,11 @@ const panic = std.debug.print;
 
 const Allocator = std.mem.Allocator;
 
+const TCPOptions = @import("TCP_Options.zig");
+pub const TCPOption = TCPOptions.TCPOption;
+
 pub const TCPHeaderMinSize = 20;
 pub const TCPHeaderMaxSize = 40;
-
-const TCPOption = enum(u8) {
-    EOL = 0x00, // End of Options List
-    NOP = 0x01, // No-Operation (padding)
-    MSS = 0x02, // Maximum Segment Size
-    WS = 0x03, // Window Scale
-    SACK_PERM = 0x04, // SACK Permitted
-    SACK = 0x05, // SACK Block (Selective ACK)
-    TS = 0x08, // Timestamp
-    TCP_FASTOPEN = 0x0f, // TCP Fast Open (TFO)
-    EXP_FASTOPEN = 0x1a, // Experimental Fast Open (draft-ietf-tcp-fastopen)
-    MULTIPATH_TCP = 0x1e, // Multipath TCP (MPTCP)
-    AUTH = 0x1f, // TCP Authentication Option (TCP-AO) - replaces MD5
-    MD5 = 0x13, // TCP MD5 Signature (deprecated by TCP-AO)
-    SC_PS = 0x1c, // Sender - Specific Congestion/Pacing Scheme (experimental)
-    VS_DATA = 0x1d, // VS Data (experimental)
-    NUM = 0x1b, // TCP NUM Option (Nonce Update Mechanism, experimental)
-    CLARK = 0x09, // Clark's timestamp echo (obsolete)
-    TSN = 0x0a, // TCP TSN (Transport Sequence Number, experimental)
-    SIG = 0x0b, // TCP Signature (obsolete)
-    //UTO = 0x1c, // TCP User Timeout Option (both UTO and SC-PS share 0x1c)
-
-    _,
-
-    pub fn length(self: TCPOption) ?u8 {
-        return switch (self) {
-            .EOL, .NOP => null, // Single byte, no length field
-            .MSS, .WS, .SACK_PERM, .TCP_FASTOPEN, .MD5, .AUTH, .SACK, .TS, .MULTIPATH_TCP, .SC_PS, .VS_DATA, .NUM, .CLARK, .TSN, .SIG, .UTO => null, // Length varies, check actual value
-            // For most options, you need to read the length byte at offset+1
-        };
-    }
-
-    pub fn has_length_byte(self: TCPOption) bool {
-        return self != .EOL and self != .NOP;
-    }
-
-    pub fn minimum_length(self: TCPOption) u8 {
-        return switch (self) {
-            .EOL, .NOP => 1,
-            .SACK_PERM => 2, // Kind + Length only, no value
-            else => 3, // Kind + Length + at least 1 value byte
-        };
-    }
-
-    // Alternative naming aliases (can be added as methods or constants)
-    pub fn name(self: TCPOption) []const u8 {
-        return switch (self) {
-            .EOL => "End of Options",
-            .NOP => "No-Operation",
-            .MSS => "Maximum Segment Size",
-            .WS => "Window Scale",
-            .SACK_PERM => "SACK Permitted",
-            .SACK => "Selective ACK",
-            .TS => "Timestamp",
-            .TCP_FASTOPEN => "TCP Fast Open",
-            .EXP_FASTOPEN => "Experimental Fast Open",
-            .MULTIPATH_TCP => "Multipath TCP",
-            .AUTH => "TCP Authentication",
-            .MD5 => "TCP MD5 Signature",
-            .SC_PS => "Sender-Specific Congestion/Pacing",
-            .VS_DATA => "VS Data",
-            .NUM => "Nonce Update",
-            .CLARK => "Clark's Timestamp Echo",
-            .TSN => "Transport Sequence Number",
-            .SIG => "TCP Signature",
-            else => "Unknown",
-            //.UTO => "User Timeout",
-        };
-    }
-};
 
 const TCPFlags = packed struct {
     fin: u1,
@@ -243,34 +176,93 @@ pub const TCPLayer = struct {
         }
     }
 
-    /// Get Checksum of the TCPPHeader - converts u16 value from Big to Native and returns
-    pub fn get_checksum(self: *const TCPLayer) u16 {
-        const hdr = self.get_immutable_header();
-
-        return std.mem.bigToNative(u16, hdr.checksum);
-    }
-
-    /// Get Length of the TCPHeader - converts u16 value from Big to Native and returns
-    pub fn get_length(self: *const TCPLayer) u16 {
-        const hdr = self.get_header();
-
-        return std.mem.bigToNative(u16, hdr.length);
-    }
-
     /// Calculate the checksum of the TCPHeader - not yet implemented
     pub fn calculate_checksum(self: *TCPLayer) void {
         _ = self;
         return;
     }
 
+    pub fn has_option(self: *TCPLayer, op: TCPOption) bool {
+        var offset: usize = TCPHeaderMinSize; // Start after fixed header
+        const header_len = self.get_immutable_header().get_hdr_length();
+
+        const tcp_header = self.get_data();
+
+        while (offset < header_len) {
+            const kind_val = tcp_header[offset];
+
+            const kind: TCPOption = @enumFromInt(kind_val);
+
+            if (kind == op) {
+                return true;
+            }
+
+            //    const name = kind.name();
+
+            //     print("{s}\n", .{name});
+
+            switch (kind) {
+                .EOL => {
+                    offset += 1; // must increment
+                },
+                .NOP => {
+                    offset += 1;
+                },
+                .MSS => {
+                    const len = tcp_header[offset + 1];
+                    if (len >= 4) {
+                        const mss: u16 = @as(u16, @intCast(tcp_header[offset + 2])) << 8 | @as(u16, (@intCast(tcp_header[offset + 3])));
+                        _ = mss;
+                    }
+                    offset += len;
+                },
+                .WS => {
+                    const len = tcp_header[offset + 1];
+                    if (len >= 3) {
+                        const shift = tcp_header[offset + 2];
+                        _ = shift;
+                    }
+                    offset += len;
+                },
+                .SACK_PERM => {
+                    offset += 2;
+                },
+                .TS => {
+                    const len = tcp_header[offset + 1];
+                    if (len >= 10) {
+                        const tsval = @as(u32, @intCast(tcp_header[offset + 2])) << 24 |
+                            @as(u32, @intCast(tcp_header[offset + 3])) << 16 |
+                            @as(u32, @intCast(tcp_header[offset + 4])) << 8 |
+                            @as(u32, @intCast(tcp_header[offset + 5]));
+
+                        const tsecr = @as(u32, @intCast(tcp_header[offset + 6])) << 24 |
+                            @as(u32, @intCast(tcp_header[offset + 7])) << 16 |
+                            @as(u32, @intCast(tcp_header[offset + 8])) << 8 |
+                            @as(u32, @intCast(tcp_header[offset + 9]));
+
+                        _ = tsval;
+                        _ = tsecr;
+                    }
+                    offset += len;
+                },
+                else => { // possibly break here to avoid unsafe/innacurate parsing
+                    const len = tcp_header[offset + 1];
+                    offset += len;
+                },
+            } // switch end
+        }
+
+        return false;
+    }
+
     pub fn parse_tcp_options(self: *TCPLayer) void {
         var offset: usize = TCPHeaderMinSize; // Start after fixed header
         const header_len = self.get_immutable_header().get_hdr_length();
 
-        const tcp_ops_header = self.get_data();
+        const tcp_header = self.get_data();
 
         while (offset < header_len) {
-            const kind_val = tcp_ops_header[offset];
+            const kind_val = tcp_header[offset];
 
             const kind: TCPOption = @enumFromInt(kind_val);
 
@@ -279,61 +271,54 @@ pub const TCPLayer = struct {
             //     print("{s}\n", .{name});
 
             switch (kind) {
-                .EOL => { // EOL
-                    //           print("EOL at offset {}\n", .{offset});
+                .EOL => {
                     offset += 1; // must increment
                 },
-                .NOP => { // NOP
-                    //          print("NOP padding at offset {}\n", .{offset});
+                .NOP => {
                     offset += 1;
                 },
-                .MSS => { // MSS
-                    const len = tcp_ops_header[offset + 1];
+                .MSS => {
+                    const len = tcp_header[offset + 1];
                     if (len >= 4) {
-                        const mss: u16 = @as(u16, @intCast(tcp_ops_header[offset + 2])) << 8 | @as(u16, (@intCast(tcp_ops_header[offset + 3])));
-                        //             print("MSS = {} bytes\n", .{mss});
+                        const mss: u16 = @as(u16, @intCast(tcp_header[offset + 2])) << 8 | @as(u16, (@intCast(tcp_header[offset + 3])));
                         _ = mss;
                     }
                     offset += len;
                 },
-                .WS => { // Window Scale
-                    const len = tcp_ops_header[offset + 1];
+                .WS => {
+                    const len = tcp_header[offset + 1];
                     if (len >= 3) {
-                        const shift = tcp_ops_header[offset + 2];
+                        const shift = tcp_header[offset + 2];
                         _ = shift;
-                        //print("Window Scale = {}\n", .{shift});
                     }
                     offset += len;
                 },
-                .SACK_PERM => { // SACK Permitted
-                    //print("SACK Permitted\n", .{});
+                .SACK_PERM => {
                     offset += 2;
                 },
-                .TS => { // Timestamp
-                    const len = tcp_ops_header[offset + 1];
+                .TS => {
+                    const len = tcp_header[offset + 1];
                     if (len >= 10) {
-                        const tsval = @as(u32, @intCast(tcp_ops_header[offset + 2])) << 24 |
-                            @as(u32, @intCast(tcp_ops_header[offset + 3])) << 16 |
-                            @as(u32, @intCast(tcp_ops_header[offset + 4])) << 8 |
-                            @as(u32, @intCast(tcp_ops_header[offset + 5]));
+                        const tsval = @as(u32, @intCast(tcp_header[offset + 2])) << 24 |
+                            @as(u32, @intCast(tcp_header[offset + 3])) << 16 |
+                            @as(u32, @intCast(tcp_header[offset + 4])) << 8 |
+                            @as(u32, @intCast(tcp_header[offset + 5]));
 
-                        const tsecr = @as(u32, @intCast(tcp_ops_header[offset + 6])) << 24 |
-                            @as(u32, @intCast(tcp_ops_header[offset + 7])) << 16 |
-                            @as(u32, @intCast(tcp_ops_header[offset + 8])) << 8 |
-                            @as(u32, @intCast(tcp_ops_header[offset + 9]));
+                        const tsecr = @as(u32, @intCast(tcp_header[offset + 6])) << 24 |
+                            @as(u32, @intCast(tcp_header[offset + 7])) << 16 |
+                            @as(u32, @intCast(tcp_header[offset + 8])) << 8 |
+                            @as(u32, @intCast(tcp_header[offset + 9]));
 
                         _ = tsval;
                         _ = tsecr;
-
-                        //print("TSval={}, TSecr={}\n", .{ tsval, tsecr });
                     }
                     offset += len;
                 },
                 else => { // possibly break here to avoid unsafe/innacurate parsing
-                    const len = tcp_ops_header[offset + 1];
+                    const len = tcp_header[offset + 1];
                     offset += len;
                 },
-            }
+            } // switch end
         }
     }
 
@@ -342,7 +327,7 @@ pub const TCPLayer = struct {
         const data: []const u8 = self.get_data();
 
         if (data.len < TCPHeaderMinSize) {
-            return LayerError.BufferTooSmall;
+            return LayerError.BufferTooSmall; // tcp header has been mutated and now the header length is not minimum size
         }
 
         if (self.get_payload().len > 0) {
@@ -354,6 +339,11 @@ pub const TCPLayer = struct {
 
     pub fn get_mutable_header(self: *TCPLayer) *TCPHeader {
         const data = self.get_data();
+
+        if (data.len < TCPHeaderMinSize) {
+            panic("TCP Raw Data len ({}) less than TCPHeaderSize", .{data.len});
+        }
+
         const aligned_ptr: [*]align(@alignOf(TCPHeader)) u8 = @alignCast(data.ptr);
         return @ptrCast(aligned_ptr);
     }
@@ -367,14 +357,6 @@ pub const TCPLayer = struct {
 
         const aligned_ptr: [*]align(@alignOf(TCPHeader)) const u8 = @alignCast(data.ptr);
         return @ptrCast(aligned_ptr);
-    }
-
-    //// Calculate the length of the TCPHeader
-    pub fn calculate_length(self: *TCPLayer) u16 {
-        const hdr = self.get_immutable_header();
-        const raw = std.mem.bigToNative(u16, hdr.data_offset_reserved_flags);
-        const data_offset = (raw >> 12) & 0xF; // top 4 bits
-        return data_offset * 4; // in bytes
     }
 
     /// Get slice of data (header + payload)

@@ -80,11 +80,8 @@ pub const Packet = struct {
         if (self.buffer.buffer.items.len > 0) {
             return error.PacketBufferNotEmpty;
         }
-
-        self.buffer = try Buffer.init(try buffer.toOwnedSlice(allocator), allocator);
-
         // Take ownership of the ArrayList's memory
-        //        packet.buffer = try Buffer.init(try buffer.toOwnedSlice(allocator), allocator);
+        self.buffer = try Buffer.init(try buffer.toOwnedSlice(allocator), allocator);
 
         const first_layer = try self.layer_allocator.create(Layer);
         const link_layer = try create_first_layer(self.buffer.buffer.items, link_type, first_layer) orelse {

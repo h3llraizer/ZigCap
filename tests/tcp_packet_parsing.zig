@@ -112,4 +112,7 @@ test "parse tcp syn packet" {
     const hdr_length = tcp_hdr.get_hdr_length();
 
     try expect(hdr_length == 32);
+
+    try expect(tcp_layer.has_option(TCP.TCPOption.WS));
+    try expect(tcp_layer.has_option(TCP.TCPOption.MSS));
 }
