@@ -74,23 +74,22 @@ pub const Interface = struct {
     desc: []const u8,
     ipv4: std.ArrayList(IPv4Address), // interfaces can have more than one IP and they could be v4 or v6
     handle: ?*pcap.pcap_t = null,
-    link_type: ?c_int,
+    link_type: ?c_int, // store enum
     allocator: Allocator,
 
     pub fn init(name: []const u8, desc: []const u8, ipv4: std.ArrayList(IPv4Address), allocator: Allocator) !Interface {
         const name_copy = try allocator.alloc(u8, name.len);
-        std.mem.copyForwards(u8, name_copy, name);
+        @memmove(name_copy, name);
 
         print("{s} opened.\n", .{name});
 
         const desc_copy = try allocator.alloc(u8, desc.len);
-        std.mem.copyForwards(u8, desc_copy, desc);
+        @memmove(desc_copy, desc);
 
         return Interface{
             .name = name_copy,
             .desc = desc_copy,
             .ipv4 = ipv4,
-            .handle = undefined,
             .link_type = null,
             .allocator = allocator,
         };
@@ -273,10 +272,10 @@ pub const Interfaces = struct {
             if (d.name) |dev_name| {
                 const name_len = std.mem.len(dev_name);
                 name = buffer[0..name_len];
-                std.mem.copyForwards(u8, name, dev_name[0..name_len]);
+                @memmove(name, dev_name[0..name_len]);
             } else {
                 name = buffer[0..na.len];
-                std.mem.copyForwards(u8, name, na);
+                @memmove(name, na);
             }
 
             var desc_buffer: [MAX_PATH]u8 = undefined;
@@ -286,10 +285,10 @@ pub const Interfaces = struct {
             if (d.description) |dev_desc| {
                 const desc_len = std.mem.len(dev_desc);
                 desc = desc_buffer[0..desc_len];
-                std.mem.copyForwards(u8, desc, dev_desc[0..desc_len]);
+                @memmove(desc, dev_desc[0..desc_len]);
             } else {
                 desc = desc_buffer[0..na.len];
-                std.mem.copyForwards(u8, desc, na);
+                @memmove(desc, na);
             }
 
             var ips = try self.extractIPs(d.addresses);
@@ -315,7 +314,7 @@ pub const Interfaces = struct {
         return null;
     }
 
-    pub fn find_by_ip(self: Interfaces, ip: IPv4Address) !?*Interface {
+    pub fn find_by_ip(self: Interfaces, ip: IPv4Address) ?*Interface {
         for (self.iface_list.items) |*iface| {
             for (iface.ipv4.items) |ip_address| {
                 if (ip.to_u32() == ip_address.to_u32()) {

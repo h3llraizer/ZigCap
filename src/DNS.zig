@@ -514,6 +514,11 @@ pub const DNSLayer = struct {
         return @ptrCast(aligned_ptr);
     }
 
+    pub fn is_response(self: *DNSLayer) bool {
+        const hdr = self.get_mutable_header();
+        return hdr.get_flags().rcode == 1;
+    }
+
     pub fn print_queries_meta(self: *DNSLayer) void {
         var count: usize = 0;
         var cur = self.first_query;
@@ -535,8 +540,8 @@ pub const DNSLayer = struct {
         return count;
     }
 
-    /// sets DNS Header values to reflect Query and Answer count and perform byte swap for NBE order
-    /// call this if you intend to send dns packet over the network
+    /// Sets DNS Header values to reflect Query and Answer count and perform byte swap for NBE order.
+    /// Call this if you intend to send dns packet over the network or you need to undertake further analysis of the DNSHeader post modification
     pub fn validate_layer(self: *DNSLayer) void {
         var hdr = self.get_mutable_header();
         hdr.flags = @byteSwap(hdr.flags);

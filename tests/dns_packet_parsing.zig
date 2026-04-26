@@ -154,6 +154,14 @@ test "parse dns packet" {
 
     try expect(udp_hdr.get_checksum() == 9937); // confirms the ip addressing, udp header and payload have not mutated since parsing
 
+    if (packet.get_layer_of_type(UDP.UDPLayer)) |udp| {
+        udp.calculate_checksum();
+        const udp_header = udp.get_immutable_header();
+        print("recalculated checksum: {}\n", .{udp_header.get_checksum()});
+
+        try expect(udp_header.get_checksum() == 9937);
+    }
+
     //try expect(std.mem.eql(u8, &raw_packet_buffer.items, &ziggit_dev_a_resp));
 
 }
