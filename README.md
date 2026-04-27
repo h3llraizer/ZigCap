@@ -22,14 +22,14 @@ Currently supported functionality:
 - Generic / Application Layer (`src/GenericLayer.zig`)
 
 Note, these protocols are supported but not fully implemented with their extended features:
-- IPv4 base header parsing is completely supported but IPv4 options only have basic support
-- TCP base header parsing is completely supported but TCP options only have basic support (options cannot be added or removed yet)
-- IPv6 extension headers cannot be parsed, added or removed yet
+- IPv4-header options only have basic support to add options only
+- a select few TCP-Header options are parsable (cannot be added or removed from layers yet)
+- a select few IPv6-Header extensions are parsable (cannot be added or removed from layers yet)
 
 
 
 ## Testing
-All tests (other than UDP checksum calculation - see issue 3) are currently passing (`tests/`).
+All tests are currently passing (`tests/`).
 
 ## Contributing
 Contributions are welcome, but note:

@@ -1,6 +1,7 @@
 const std = @import("std");
 const WirePacket = @import("WirePacket.zig").WirePacket;
 const IPv4Address = @import("IPv4.zig").IPv4Address;
+const IPv6Address = @import("IPv6.zig").IPv6Address;
 const pcap = @cImport({
     @cDefine("WIN32", "1"); // needed on Windows
     @cInclude("pcap.h");
@@ -15,11 +16,6 @@ const ver = pcap.pcap_lib_version();
 
 const u_short = u16;
 const u_long = u32;
-
-const sockaddr = extern struct {
-    sa_family: u_short,
-    sa_data: [14]u8,
-};
 
 const in_addr = extern struct {
     S_addr: u_long, // IPv4 address
@@ -69,15 +65,33 @@ pub fn open_pcap(ip: IPv4Address, allocator: Allocator) !?*Interface {
     }
 }
 
+pub const IPAddress = union(enum) {
+    v4: IPv4Address,
+    v6: IPv6Address,
+
+    pub fn eql(self: IPAddress, other: IPAddress) bool {
+        return switch (self) {
+            .v4 => |a| switch (other) {
+                .v4 => |b| a.to_u32() == b.to_u32(),
+                .v6 => false,
+            },
+            .v6 => |a| switch (other) {
+                .v6 => |b| std.mem.eql(u8, &a.array, &b.array),
+                .v4 => false,
+            },
+        };
+    }
+};
+
 pub const Interface = struct {
     name: []const u8,
     desc: []const u8,
-    ipv4: std.ArrayList(IPv4Address), // interfaces can have more than one IP and they could be v4 or v6
+    ips: std.ArrayList(IPAddress), // interfaces can have more than one IP and they could be v4 or v6
     handle: ?*pcap.pcap_t = null,
     link_type: ?c_int, // store enum
     allocator: Allocator,
 
-    pub fn init(name: []const u8, desc: []const u8, ipv4: std.ArrayList(IPv4Address), allocator: Allocator) !Interface {
+    pub fn init(name: []const u8, desc: []const u8, ips: std.ArrayList(IPAddress), allocator: Allocator) !Interface {
         const name_copy = try allocator.alloc(u8, name.len);
         @memmove(name_copy, name);
 
@@ -89,7 +103,7 @@ pub const Interface = struct {
         return Interface{
             .name = name_copy,
             .desc = desc_copy,
-            .ipv4 = ipv4,
+            .ips = ips,
             .link_type = null,
             .allocator = allocator,
         };
@@ -163,44 +177,13 @@ pub const Interface = struct {
         return null;
     }
 
-    pub fn capture(self: Interface, callback_fn: fn (*WirePacket, Allocator) void, allocator: std.mem.Allocator) !void {
-        var captured: usize = 0;
-
-        var total: usize = 0;
-
-        while (total >= 0) : (captured += 1) {
-            var header: [*c]pcap.struct_pcap_pkthdr = null;
-            var pkt_ptr: [*c]const u8 = null;
-
-            const res = pcap.pcap_next_ex(self.handle.?, &header, &pkt_ptr);
-
-            if (res <= 0) {
-                std.debug.print("[ERR] Timeout or no packet.\n", .{});
-                continue;
-            }
-            if (header) |h| {
-                //print("pkt len: {any}\n", .{h.*.len});
-
-                //                print("Link-layer type: {s}\n", pcap.pcap_datalink_val_to_name(dlt));
-
-                const raw_packet = try WirePacket.init(h.*.ts.tv_usec, h.*.ts.tv_sec, pkt_ptr[0..h.*.len], h.*.len, self.link_type.?, allocator);
-
-                // remember to realloc the buffer to avoid wasting memory
-
-                callback_fn(raw_packet, allocator);
-
-                total += 1;
-            }
-        }
-    }
-
     pub fn deinit(self: *Interface) void {
         //        if (self.handle) {
         //pcap.pcap_close(self.handle);
         //       }
         self.allocator.free(self.name);
         self.allocator.free(self.desc);
-        self.ipv4.deinit(self.allocator);
+        self.ips.deinit(self.allocator);
     }
 };
 
@@ -231,12 +214,13 @@ pub const Interfaces = struct {
         };
     }
 
-    fn extractIPs(self: Interfaces, addresses_ptr: ?*pcap.pcap_addr) !std.ArrayList(IPv4Address) {
-        var ips_list: std.ArrayList(IPv4Address) = .empty;
+    fn extractIPs(self: Interfaces, addresses_ptr: ?*pcap.pcap_addr) !std.ArrayList(IPAddress) {
+        var ips_list: std.ArrayList(IPAddress) = .empty;
 
         var address_ptr = addresses_ptr;
         while (address_ptr) |addr| {
             if (addr.*.addr) |sa| {
+                print("sa: {any}\n", .{sa.*.sa_family});
                 if (sa.*.sa_family == 2) { // AF_INET
                     const ipv4: *sockaddr_in = @ptrCast(@alignCast(sa));
 
@@ -248,7 +232,17 @@ pub const Interfaces = struct {
 
                     const ip_address = IPv4Address.init_from_u32(host_u32);
 
-                    try ips_list.append(self.allocator, ip_address);
+                    try ips_list.append(self.allocator, IPAddress{ .v4 = ip_address });
+                }
+
+                if (sa.*.sa_family == 23) { // AF_INET6
+                    const ip: *sockaddr_in6 = @ptrCast(@alignCast(sa));
+
+                    const host: [16]u8 = ip.sin6_addr.u;
+
+                    const ip_address = IPv6Address.init_from_array(host);
+
+                    try ips_list.append(self.allocator, IPAddress{ .v6 = ip_address });
                 }
             }
             address_ptr = addr.next;
@@ -314,12 +308,10 @@ pub const Interfaces = struct {
         return null;
     }
 
-    pub fn find_by_ip(self: Interfaces, ip: IPv4Address) ?*Interface {
+    pub fn find_by_ip(self: Interfaces, ip: IPAddress) ?*Interface {
         for (self.iface_list.items) |*iface| {
-            for (iface.ipv4.items) |ip_address| {
-                if (ip.to_u32() == ip_address.to_u32()) {
-                    return iface;
-                }
+            for (iface.ips.items) |ip_address| {
+                if (ip_address.eql(ip)) return iface;
             }
         }
 
