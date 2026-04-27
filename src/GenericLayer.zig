@@ -72,6 +72,10 @@ pub const ApplicationLayer = struct {
         }
     }
 
+    pub fn validate_layer(self: *ApplicationLayer) void {
+        _ = self;
+    }
+
     pub fn to_string(self: *const ApplicationLayer, allocator: Allocator) []const u8 {
         const data = self.get_data();
         return std.fmt.allocPrint(allocator, "Application Layer: {s}\n", .{

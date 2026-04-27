@@ -70,7 +70,7 @@ test "ipv4 option parse" {
 
     try ipv4_layer_iface.ipv4Layer.add_option(op, allocator);
 
-    try ipv4_layer_iface.ipv4Layer.calculate_checksum();
+    ipv4_layer_iface.ipv4Layer.validate_layer();
 
     //   print("========================== END ==========================\n", .{});
 }

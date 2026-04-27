@@ -12,8 +12,6 @@ const LayerOwner = @import("Layer.zig").LayerOwner;
 
 const Layer = @import("Packet.zig").Layer;
 
-const RawData = @import("RawData.zig").RawData;
-
 const IPv4 = @import("IPv4.zig");
 
 pub const ICMPHeaderSize = 8;
@@ -436,14 +434,7 @@ pub const ICMPLayer = struct {
     /// returns mutable slice of data (hdr+payload).
     /// this will likely be made private in future to avoid accidental mutations
     pub fn get_data(self: *const ICMPLayer) []u8 {
-        switch (self.owner) {
-            .packet_layer => |layer| {
-                return layer.get_data(); // Layer in packet - it might be mutable or immutable
-            },
-            .owned_buffer => |*buffer| {
-                return buffer.buffer.items; // standalone layer - it is mutable by default
-            },
-        }
+        return self.owner.get_data();
     }
 
     /// return immutable slice of the payload
@@ -567,10 +558,10 @@ pub const ICMPLayer = struct {
         return hdr.checksum;
     }
 
-    pub fn calculate_checksum(self: *ICMPLayer) void {
+    pub fn validate_layer(self: *ICMPLayer) void {
         const hdr = self.get_mutable_header();
-        if (self.get_payload()) |payload| {
-            hdr.calculate_checksum(payload);
+        if (self.get_payload().len > 0) {
+            hdr.calculate_checksum(self.get_payload());
         }
     }
 

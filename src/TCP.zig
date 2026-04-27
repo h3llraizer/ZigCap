@@ -177,7 +177,7 @@ pub const TCPLayer = struct {
     }
 
     /// Calculate the checksum of the TCPHeader - not yet implemented
-    pub fn calculate_checksum(self: *TCPLayer) void {
+    pub fn validate_layer(self: *TCPLayer) void {
         _ = self;
         return;
     }

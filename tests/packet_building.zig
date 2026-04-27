@@ -221,11 +221,11 @@ test "IPv4 Packet Router Alert option" {
     //packet.print_layers_meta();
 
     if (packet.get_layer_of_type(UDP.UDPLayer)) |udp| {
-        udp.calculate_checksum();
+        udp.validate_layer();
     }
 
     if (packet.get_layer_of_type(IPv4.IPv4Layer)) |ipv4| {
-        try ipv4.calculate_checksum();
+        ipv4.validate_layer();
     }
 
     //   print("========================== END ==========================\n", .{});
@@ -320,11 +320,11 @@ test "build ipv4 packet with Record Route option" {
     }
 
     if (packet.get_layer_of_type(UDP.UDPLayer)) |udp| {
-        udp.calculate_checksum();
+        udp.validate_layer();
     }
 
     if (packet.get_layer_of_type(IPv4.IPv4Layer)) |ipv4| {
-        try ipv4.calculate_checksum();
+        ipv4.validate_layer();
     }
 
     pkt_data = packet.buffer.buffer.items;
@@ -456,11 +456,11 @@ test "build eth,ipv4,udp,generic_app packet" {
     }
 
     if (packet.get_layer_of_type(UDP.UDPLayer)) |udp| {
-        udp.calculate_checksum();
+        udp.validate_layer();
     }
 
     if (packet.get_layer_of_type(IPv4.IPv4Layer)) |ipv4| {
-        try ipv4.calculate_checksum();
+        ipv4.validate_layer();
     }
 
     //   print("========================== END ==========================\n", .{});

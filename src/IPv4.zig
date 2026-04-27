@@ -1,25 +1,20 @@
 const std = @import("std");
+const ProtocolEnums = @import("ProtocolEnums.zig");
+const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
+const Packet = @import("Packet.zig");
+const UDP = @import("UDP.zig");
+const TCP = @import("TCP.zig");
+const ICMP = @import("ICMP.zig");
+const LayerOwner = @import("Layer.zig").LayerOwner;
+const LayerIface = @import("LayerIface.zig").LayerIface;
+const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
+
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 const panic = std.debug.panic;
 
-const ProtocolEnums = @import("ProtocolEnums.zig");
-const IPProtocol = ProtocolEnums.IPProtocol;
-const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
-
 const LayerError = ProtocolEnums.LayerError;
-
-const Packet = @import("Packet.zig");
-
-const UDP = @import("UDP.zig");
-const TCP = @import("TCP.zig");
-const ICMP = @import("ICMP.zig");
-
-const LayerOwner = @import("Layer.zig").LayerOwner;
-
-const LayerIface = @import("LayerIface.zig").LayerIface;
-
-const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
+const IPProtocol = ProtocolEnums.IPProtocol;
 
 pub const MaxHeaderLength = 60; //IPv4MinHeader Length
 pub const MinHeaderLength = 20;
@@ -319,7 +314,7 @@ pub const IPv4Layer = struct {
     /// calculates checksum by setting ihl (version bit) to header len
     /// calculates total length (ipv4.total_length)
     /// calls the checksum calculation function in the IPv4 header (see IPv4Header.calculate_checksum())
-    pub fn calculate_checksum(self: *IPv4Layer) !void {
+    pub fn validate_layer(self: *IPv4Layer) void {
         var hdr = self.get_mutable_header();
 
         const hdr_len = self.get_header_len(); // temp - need to compute data.len - payload.len

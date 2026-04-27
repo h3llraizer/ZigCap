@@ -252,7 +252,7 @@ pub const UDPLayer = struct {
         hdr.set_length(length);
     }
 
-    pub fn calculate_checksum(self: *UDPLayer) void {
+    pub fn validate_layer(self: *UDPLayer) void {
         //        const hdr = self.get_mutable_header();
         self.calculate_length();
 
@@ -263,9 +263,6 @@ pub const UDPLayer = struct {
                         var ipv4_iface: *LayerIface = &prev_layer.layer_iface;
                         var ipv4_layer: *IPv4.IPv4Layer = &ipv4_iface.ipv4Layer;
                         const ipv4_hdr: *const IPv4.IPv4Header = ipv4_layer.get_immutable_header();
-
-                        print("src ip: {any}\n", .{ipv4_hdr.src_ip});
-                        print("dst ip: {any}\n", .{ipv4_hdr.src_ip});
 
                         self.get_mutable_header().calculate_checksum(ipv4_hdr.get_src_ip().array, ipv4_hdr.get_dst_ip().array, self.get_data()[UDPHeaderSize..]);
                     } else if (prev_layer.layer_iface.get_protocol() == tcp_ip_protocol.ipv6) {

@@ -157,7 +157,7 @@ test "parse dns packet" {
     if (packet.get_layer_of_type(UDP.UDPLayer)) |udp| {
         print("udp data len: {}\n", .{udp.get_data().len});
 
-        udp.calculate_checksum();
+        udp.validate_layer();
         const udp_header = udp.get_immutable_header();
         print("recalculated checksum: {}\n", .{udp_header.get_checksum()});
 

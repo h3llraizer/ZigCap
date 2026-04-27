@@ -287,6 +287,14 @@ pub const Packet = struct {
         return null;
     }
 
+    pub fn validate_packet(self: *Packet) void {
+        var cur = self.last_layer;
+        while (cur) |layer| {
+            layer.layer_iface.validate_layer();
+            cur = layer.prev_layer;
+        }
+    }
+
     fn create_layer(self: *Packet, layer_iface: *LayerIface) !*Layer {
         const data = layer_iface.get_data();
 
@@ -296,7 +304,7 @@ pub const Packet = struct {
         return layer;
     }
 
-    pub fn extend_layer(self: *Packet, layer: *Layer, length: usize) ![]u8 {
+    pub fn extend_layer(self: *Packet, layer: *Layer, length: usize) ![]u8 { // TODO: call proceeding layers calculate_length
         const extend_offset = layer.offset + layer.length;
         const buf = try self.buffer.extend(extend_offset, length);
 
@@ -312,7 +320,7 @@ pub const Packet = struct {
         return buf; // return the extend slice
     }
 
-    pub fn shorten_layer(self: *Packet, layer: *Layer, offset: usize, length: usize) !void {
+    pub fn shorten_layer(self: *Packet, layer: *Layer, offset: usize, length: usize) !void { // TODO: call proceeding layers calculate_length
         const shorten_offset = layer.offset + offset;
 
         try self.buffer.shorten(shorten_offset, length);

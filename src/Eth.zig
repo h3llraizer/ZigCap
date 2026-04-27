@@ -184,6 +184,10 @@ pub const EthLayer = struct {
         }
     }
 
+    pub fn validate_layer(self: *EthLayer) void {
+        _ = self;
+    }
+
     /// return the next layer protocol type
     pub fn get_next_layer_type(self: *EthLayer, layer: *Packet.Layer) !?LayerIface {
         const hdr = self.get_immutable_header();

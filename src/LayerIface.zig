@@ -85,6 +85,12 @@ pub const LayerIface = union(enum) {
         };
     }
 
+    pub fn validate_layer(self: *LayerIface) void {
+        return switch (self.*) {
+            inline else => |*layer| layer.validate_layer(),
+        };
+    }
+
     /// returns the ptr to the concrete layer
     pub fn ptr(self: *LayerIface) *anyopaque {
         return switch (self.*) {

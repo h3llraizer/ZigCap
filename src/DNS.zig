@@ -1,6 +1,4 @@
 const std = @import("std");
-const print = std.debug.print;
-const Allocator = std.mem.Allocator;
 
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerError = @import("ProtocolEnums.zig").LayerError;
@@ -17,6 +15,10 @@ const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
 
 const DNSEnums = @import("DNSEnums.zig");
+
+const print = std.debug.print;
+const Allocator = std.mem.Allocator;
+
 pub const QueryType = DNSEnums.QueryType;
 pub const DnsClass = DNSEnums.DnsClass;
 

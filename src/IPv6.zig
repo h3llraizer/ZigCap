@@ -549,6 +549,11 @@ pub const IPv6Layer = struct {
         });
     }
 
+    pub fn validate_layer(self: *IPv6Layer) void {
+        _ = self;
+        return;
+    }
+
     pub fn get_ip_proto_type(self: *IPv6Layer) !IPProtocol {
         const hdr = self.get_immutable_header();
         return try std.meta.intToEnum(IPProtocol, hdr.next_header);
@@ -588,8 +593,15 @@ pub const IPv6Layer = struct {
         return IPv6Layer.Protocol;
     }
 
-    pub fn deinit(self: *IPv6Layer, allocator: std.mem.Allocator) void {
-        allocator.destroy(self);
+    pub fn deinit(self: *IPv6Layer) void {
+        switch (self.owner) {
+            .packet_layer => {
+                return; // Layer in packet - don't free
+            },
+            .owned_buffer => |*buffer| {
+                return buffer.deinit(); // standalone layer - it is mutable by default
+            },
+        }
     }
 };
 
