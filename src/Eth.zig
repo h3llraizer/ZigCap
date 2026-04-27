@@ -1,32 +1,25 @@
 const std = @import("std");
-const print = std.debug.print;
-const Allocator = std.mem.Allocator;
-
 const Packet = @import("Packet.zig");
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const ProtocolEnums = @import("ProtocolEnums.zig");
-
-const LayerError = ProtocolEnums.LayerError;
-
 const LayerIface = @import("LayerIface.zig").LayerIface;
-
-const IPVersion = ProtocolEnums.IPVersions;
-
-const IPv4Layer = @import("IPv4.zig").IPv4Layer;
-const IPv4Header = @import("IPv4.zig").IPv4Header;
 const IPv4 = @import("IPv4.zig");
+const IPv4Header = IPv4.IPv4Header;
 const IPv6 = @import("IPv6.zig");
 const IPv6HeaderSize = @import("IPv6.zig").IPv6HeaderSize;
 const ARP = @import("ARP.zig");
-
 const Layer = @import("Layer.zig");
-const LayerOwner = Layer.LayerOwner;
-
 const GenericLayer = @import("GenericLayer.zig");
 
-const RawData = @import("RawData.zig").RawData;
-
+const print = std.debug.print;
+const Allocator = std.mem.Allocator;
 const panic = std.debug.panic;
+
+const LayerError = ProtocolEnums.LayerError;
+
+const IPVersion = ProtocolEnums.IPVersions;
+
+const LayerOwner = Layer.LayerOwner;
 
 pub const EthType = enum(u16) {
     IP = 0x0800,
@@ -165,7 +158,7 @@ pub const EthLayer = struct {
 
         const result = std.fmt.allocPrint(
             allocator,
-            "EthType: {s}, src_mac: {s}, dst_mac: {s}",
+            "EthLayer: EthType: {s}, src_mac: {s}, dst_mac: {s}\n",
             .{ eth_type_str, src_mac, dst_mac },
         ) catch |err| {
             std.debug.print("allocPrint failed: {s}\n", .{@errorName(err)});

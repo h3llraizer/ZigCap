@@ -195,10 +195,7 @@ pub const IPv4Layer = struct {
 
         const hdr_len = self.get_header_len();
 
-        //print("hdr_len: {}\n", .{hdr_len});
-
         if (data.len > hdr_len) {
-            //print("IPv4 payload: {x}\n", .{data[hdr_len..]});
             return data[hdr_len..];
         } else {
             return "";
@@ -412,34 +409,10 @@ pub const IPv4Layer = struct {
         const dst_ip_str = hdr.get_dst_ip().to_string(allocator) catch return "";
         defer allocator.free(dst_ip_str);
 
-        const version = (hdr.version_ihl >> 4);
-        const ihl = (hdr.version_ihl & 0x0F);
-        const dscp_ecn: u8 = hdr.dscp_ecn;
-
-        const identification: u16 = std.mem.bigToNative(u16, hdr.identification);
-        const flags_fragment: u16 = std.mem.bigToNative(u16, hdr.flags_fragment);
-        const total_length: u16 = std.mem.bigToNative(u16, hdr.total_length);
-        const checksum: u16 = std.mem.bigToNative(u16, hdr.checksum);
-
-        const ttl: u8 = hdr.ttl;
-        const protocol: u8 = hdr.protocol;
-
         return std.fmt.allocPrint(
             allocator,
-            "IP : ver: {} ihl: {} src: {s} dst: {s} dscp_ecn: {} total_length: {} id: {} flags_frag: {} ttl: {} protocol: {} checksum: 0x{x:0>4}",
-            .{
-                version,
-                ihl,
-                src_ip_str,
-                dst_ip_str,
-                dscp_ecn,
-                total_length,
-                identification,
-                flags_fragment,
-                ttl,
-                protocol,
-                checksum,
-            },
+            "IPv4 Layer : src: {s} dst: {s}\n",
+            .{ src_ip_str, dst_ip_str },
         ) catch {
             return "";
         };

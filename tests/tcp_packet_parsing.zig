@@ -34,8 +34,6 @@ test "parse tcp syn packet" {
     try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.ETHERNET, null);
     defer packet.deinit();
 
-    packet.print_layers_meta();
-
     try expect(packet.get_layer_count() == 3);
 
     try expect(packet.has_protocol_layer(tcp_ip_protocol.eth));

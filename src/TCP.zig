@@ -381,27 +381,15 @@ pub const TCPLayer = struct {
 
         const src_port: u16 = std.mem.bigToNative(u16, hdr.src_port);
         const dst_port: u16 = std.mem.bigToNative(u16, hdr.dst_port);
-        const seq: u32 = std.mem.readInt(u32, &hdr.seq_num, .little);
-        const ack: u32 = std.mem.readInt(u32, &hdr.ack_num, .little);
 
-        //       const data_offset_reserved_flags: u16 = std.mem.bigToNative(u16, hdr.data_offset_reserved_flags);
-        //
-        //       // TCP data offset is top 4 bits (in 32-bit words)
-        //       const data_offset: u8 = @intCast(data_offset_reserved_flags >> 12);
-        //
-        //       // Lower 12 bits contain flags + reserved bits (depending on your layout)
-        //       const flags: u16 = data_offset_reserved_flags & 0x0FFF;
-
-        const data_offset: u16 = 0;
-        const flags: u16 = 0;
-        const window_size: u16 = std.mem.bigToNative(u16, hdr.window);
-        const checksum: u16 = std.mem.bigToNative(u16, hdr.checksum);
-        const urgent_pointer: u16 = std.mem.bigToNative(u16, hdr.urgent_ptr);
-
+        // TODO: add [syn] [syn-ack] [ack] [rst] etc
         const result = std.fmt.allocPrint(
             allocator,
-            "TCP Layer: src_port: {} dst_port: {} seq: {} ack: {} data_offset: {} flags: 0x{x} window_size: {} checksum: 0x{x} urgent_pointer: {}",
-            .{ src_port, dst_port, seq, ack, data_offset, flags, window_size, checksum, urgent_pointer },
+            "TCP Layer: src_port: {} dst_port: {}",
+            .{
+                src_port,
+                dst_port,
+            },
         ) catch |err| {
             std.debug.print("TCP allocPrint failed: {s}\n", .{@errorName(err)});
             return "";

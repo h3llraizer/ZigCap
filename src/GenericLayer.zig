@@ -74,12 +74,9 @@ pub const ApplicationLayer = struct {
 
     pub fn to_string(self: *const ApplicationLayer, allocator: Allocator) []const u8 {
         const data = self.get_data();
-        const label: []const u8 = " Payload: ";
-        const str = allocator.alloc(u8, data.len + label.len) catch return "";
-        @memmove(str[0..label.len], label);
-        @memmove(str[label.len..], data);
-        return str;
-        //        return self.get_data();
+        return std.fmt.allocPrint(allocator, "Application Layer: {s}\n", .{
+            data,
+        }) catch return "";
     }
 
     pub fn get_protocol(self: *ApplicationLayer) tcp_ip_protocol {
