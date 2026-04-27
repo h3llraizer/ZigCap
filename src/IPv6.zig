@@ -17,8 +17,6 @@ const Packet = @import("Packet.zig");
 const Layer = @import("Layer.zig");
 const LayerOwner = Layer.LayerOwner;
 
-const RawData = @import("RawData.zig").RawData;
-
 pub const IPv6HeaderSize = 40;
 
 // IPv6 Next Header Types
@@ -245,16 +243,17 @@ pub const IPv6Header = extern struct {
         return @truncate(self.version_traffic_flow[0] >> 4);
     }
 
-    pub fn set_version(self: *IPv6Header, version: u4) void {
-        self.version_traffic_flow = (self.version_traffic_flow & 0x0FFFFFFF) | (@as(u32, version) << 28);
-    }
+    //   pub fn set_version(self: *IPv6Header, version: u4) void {
+    //       self.version_traffic_flow = (self.version_traffic_flow & 0x0FFFFFFF) | (@as(u32, version) << 28);
+    //   }
 
     pub fn get_traffic_class(self: *const IPv6Header) u8 {
         return self.version_traffic_flow[1];
     }
 
     pub fn set_traffic_class(self: *IPv6Header, tc: u8) void {
-        self.version_traffic_flow = (self.version_traffic_flow & 0xF00FFFFF) | (@as(u32, tc) << 20);
+        //        self.version_traffic_flow = (self.version_traffic_flow & 0xF00FFFFF) | (@as(u32, tc) << 20);
+        self.version_traffic_flow[1] = tc;
     }
 
     pub fn get_flow_label(self: *const IPv6Header) u20 {
@@ -282,15 +281,15 @@ pub const IPv6Header = extern struct {
     }
 
     pub fn init_default() IPv6Header {
-        var hdr = IPv6Header{
-            .version_traffic_flow = 0x60000000,
+        const hdr = IPv6Header{
+            .version_traffic_flow = .{ 0x60, 0x0, 0x0, 0x0 },
             .payload_length = 0,
             .next_header = 0,
             .hop_limit = 64,
             .src_ip = .{0} ** 16,
             .dst_ip = .{0} ** 16,
         };
-        hdr.set_version(6);
+        //hdr.set_version(6);
         return hdr;
     }
 };
@@ -306,20 +305,20 @@ pub const IPv6Layer = struct {
                     .owner = owner,
                 };
             },
-            .allocator_owned => {
+            .owned_buffer => {
                 var self = IPv6Layer{ .owner = owner };
-                // Allocate directly into the struct's data field
-                if (owner.allocator_owned.data.len < IPv6HeaderSize) {
-                    self.owner.allocator_owned.data = try self.owner.allocator_owned.allocator.alloc(u8, IPv6HeaderSize);
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < IPv6HeaderSize) {
+                    const ipv4_data = try self.owner.owned_buffer.extend(buffer_len, IPv6HeaderSize);
+
+                    @memset(ipv4_data, 0);
+
+                    var header = IPv6Header.init_default();
+
+                    @memcpy(ipv4_data[0..IPv6HeaderSize], std.mem.asBytes(&header));
                 }
 
-                //var header = IPv6Header.init_default();
-                //@memcpy(self.owner.allocator_owned.data[0..@sizeOf(IPv6Header)], std.mem.asBytes(&header));
-
                 return self;
-            },
-            .immutable_layer => return {
-                return IPv6Layer{ .owner = owner };
             },
         }
     }
@@ -409,19 +408,7 @@ pub const IPv6Layer = struct {
 
     /// get slice of data (hdr+payload)
     pub fn get_data(self: *const IPv6Layer) []u8 {
-        switch (self.owner) {
-            .packet_layer => {
-                print("getting data from packet.\n", .{});
-
-                return self.owner.packet_layer.get_data(); // Layer in packet - it might be mutable or immutable
-            },
-            .allocator_owned => {
-                return RawData{ .mutable = self.owner.allocator_owned.data }; // standalone layer - it is mutable by default
-            },
-            .immutable_layer => {
-                return RawData{ .immutable = self.owner.immutable_layer.raw_data };
-            },
-        }
+        return self.owner.get_data();
     }
 
     /// return mutable slice of the payload
