@@ -328,7 +328,7 @@ pub const ICMPHeader = struct {
         _ = old_checksum;
     }
 
-    /// Validate ICMP checksum
+    /// Validate ICMP checksum - doesn't work. don't use it
     pub fn validate_checksum(self: *const ICMPHeader, payload: []const u8) bool {
         var sum: u32 = 0;
 
@@ -565,6 +565,7 @@ pub const ICMPLayer = struct {
         }
     }
 
+    /// doesn't work - don't use it
     pub fn validate_checksum(self: *ICMPLayer) bool {
         const hdr = self.get_immutable_header();
         if (self.get_payload()) |payload| {

@@ -287,6 +287,7 @@ pub const Packet = struct {
         return null;
     }
 
+    /// calls each layers validate_layer method in backwards traversal
     pub fn validate_packet(self: *Packet) void {
         var cur = self.last_layer;
         while (cur) |layer| {

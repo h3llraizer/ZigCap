@@ -5,17 +5,14 @@ const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerError = ProtocolEnums.LayerError;
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const LayerOwner = @import("Layer.zig").LayerOwner;
-
 const Packet = @import("Packet.zig");
-
 const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
+const TCPOptions = @import("TCP_Options.zig");
+const IPv4 = @import("IPv4.zig");
 
 const print = std.debug.print;
 const panic = std.debug.print;
-
 const Allocator = std.mem.Allocator;
-
-const TCPOptions = @import("TCP_Options.zig");
 pub const TCPOption = TCPOptions.TCPOption;
 
 pub const TCPHeaderMinSize = 20;
@@ -117,8 +114,67 @@ pub const TCPHeader = extern struct {
         return @byteSwap(self.checksum);
     }
 
-    pub fn set_checksum(self: *TCPHeader, checksum: u16) void {
-        self.checksum = @byteSwap(checksum);
+    /// Calculate UDP checksum (requires pseudo-header and payload)
+    /// For IPv4, the pseudo-header includes: source IP, dest IP, protocol, UDP length
+    pub fn calculate_checksum(self: *TCPHeader, src_ip: [4]u8, dst_ip: [4]u8, payload: []const u8) void {
+        self.checksum = 0;
+
+        var sum: u32 = 0;
+
+        const src_w1 = (@as(u16, src_ip[0]) << 8) | src_ip[1];
+        const src_w2 = (@as(u16, src_ip[2]) << 8) | src_ip[3];
+
+        sum += src_w1;
+        sum += src_w2;
+
+        const dst_w1 = (@as(u16, dst_ip[0]) << 8) | dst_ip[1];
+        const dst_w2 = (@as(u16, dst_ip[2]) << 8) | dst_ip[3];
+
+        sum += dst_w1;
+        sum += dst_w2;
+
+        sum += 0x0011;
+
+        const h_src = self.get_src_port();
+        const h_dst = self.get_dst_port();
+        const h_seq = self.get_seq_num();
+        const h_ack = self.get_ack_num();
+        const off = std.mem.bytesAsValue(u16, self.data_offset_reserved_flags[0..]).*;
+        const h_off = @byteSwap(off);
+        const h_win = self.get_window();
+        const h_urg = self.get_urgent_ptr();
+        const h_chk = self.get_checksum();
+
+        sum += h_src;
+        sum += h_dst;
+        sum += h_seq;
+        sum += h_ack;
+        sum += h_off;
+        sum += h_win;
+        sum += h_urg;
+        sum += h_chk;
+
+        var i: usize = 0;
+        while (i + 1 < payload.len) {
+            const word = (@as(u16, payload[i]) << 8) | payload[i + 1];
+            sum += word;
+            i += 2;
+        }
+
+        if (i < payload.len) {
+            const last = @as(u16, payload[i]) << 8;
+            sum += last;
+        }
+
+        while (sum > 0xFFFF) {
+            sum = (sum & 0xFFFF) + (sum >> 16);
+        }
+
+        self.checksum = @byteSwap(~@as(u16, @intCast(sum)));
+
+        if (self.checksum == 0) {
+            self.checksum = 0xFFFF;
+        }
     }
 
     pub fn get_urgent_ptr(self: *const TCPHeader) u16 {
@@ -178,7 +234,27 @@ pub const TCPLayer = struct {
 
     /// Calculate the checksum of the TCPHeader - not yet implemented
     pub fn validate_layer(self: *TCPLayer) void {
-        _ = self;
+        switch (self.owner) {
+            .packet_layer => |layer| {
+                if (layer.prev_layer) |prev_layer| {
+                    if (prev_layer.layer_iface.get_protocol() == tcp_ip_protocol.ipv4) {
+                        var ipv4_iface: *LayerIface = &prev_layer.layer_iface;
+                        var ipv4_layer: *IPv4.IPv4Layer = &ipv4_iface.ipv4Layer;
+                        const ipv4_hdr: *const IPv4.IPv4Header = ipv4_layer.get_immutable_header();
+
+                        const hdr_length = self.get_immutable_header().get_hdr_length();
+
+                        self.get_mutable_header().calculate_checksum(ipv4_hdr.get_src_ip().array, ipv4_hdr.get_dst_ip().array, self.get_data()[hdr_length..]);
+                    } else if (prev_layer.layer_iface.get_protocol() == tcp_ip_protocol.ipv6) {
+                        return;
+                        //prev_protocol = net_protocol.IPv6;
+                    }
+                } else {
+                    print("no prev layer.\n", .{});
+                }
+            },
+            else => return,
+        }
         return;
     }
 

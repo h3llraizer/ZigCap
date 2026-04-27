@@ -103,6 +103,10 @@ test "parse tcp layer" {
     try expect(hdr_length == 32);
 
     tcp_layer.tcpLayer.parse_tcp_options();
+
+    tcp_layer.validate_layer();
+
+    try expect(tcp_layer.tcpLayer.get_immutable_header().get_checksum() == 10193);
 }
 
 test "build tcp layer independant" {

@@ -310,10 +310,7 @@ pub const UDPLayer = struct {
         const src_port = hdr.get_src_port();
         const dst_port = hdr.get_dst_port();
 
-        return std.fmt.allocPrint(allocator, "UDP Layer: src_port: {} dst_port: {}\n", .{
-            src_port,
-            dst_port,
-        }) catch return "";
+        return std.fmt.allocPrint(allocator, "UDP Layer: src_port: {} dst_port: {}\n", .{ src_port, dst_port }) catch return "";
     }
 
     pub fn get_next_layer_type(self: *UDPLayer, layer: *Packet.Layer) !?LayerIface {
