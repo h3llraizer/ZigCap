@@ -88,6 +88,10 @@ test "parse tcp syn packet" {
 
     var tcp_hdr = tcp_layer.get_immutable_header();
 
+    const hdr_length = tcp_hdr.get_hdr_length();
+
+    try expect(hdr_length == 32);
+
     try expect(tcp_hdr.get_src_port() == 32657);
     try expect(tcp_hdr.get_dst_port() == 5005);
     try expect(tcp_hdr.get_seq_num() == 2773109732);
@@ -107,10 +111,16 @@ test "parse tcp syn packet" {
     try expect(tcp_flags.syn == 1);
     try expect(tcp_flags.fin == 0);
 
-    const hdr_length = tcp_hdr.get_hdr_length();
-
-    try expect(hdr_length == 32);
-
     try expect(tcp_layer.has_option(TCP.TCPOption.WS));
     try expect(tcp_layer.has_option(TCP.TCPOption.MSS));
+
+    print("tcp data: {x}\n", .{tcp_layer.get_data()});
+
+    print("checksum pre recalc: {}\n", .{tcp_hdr.get_checksum()});
+
+    tcp_layer.validate_layer(); // doesn't do anything for independant layer
+
+    print("checksum: post recalc {}\n", .{tcp_layer.get_immutable_header().get_checksum()});
+
+    try expect(tcp_layer.get_immutable_header().get_checksum() == 10193);
 }

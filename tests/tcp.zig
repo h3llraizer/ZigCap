@@ -104,7 +104,7 @@ test "parse tcp layer" {
 
     tcp_layer.tcpLayer.parse_tcp_options();
 
-    tcp_layer.validate_layer();
+    //    tcp_layer.tcpLayer.validate_layer(); // doesn't do anything for independant layer currently
 
     try expect(tcp_layer.tcpLayer.get_immutable_header().get_checksum() == 10193);
 }

@@ -42,7 +42,7 @@ pub const TCPHeader = extern struct {
     urgent_ptr: u16,
 
     pub fn init_default() TCPHeader {
-        return .{
+        var tcp_hdr = TCPHeader{
             .src_port = 0,
             .dst_port = 0,
             .seq_num = [_]u8{0} ** 4,
@@ -52,18 +52,22 @@ pub const TCPHeader = extern struct {
             .checksum = 0,
             .urgent_ptr = 0,
         };
+
+        tcp_hdr.set_hdr_length(20);
+
+        return tcp_hdr;
     }
 
     /// Get Source Port of the TCPHeader - converts u16 value from Big to Native and returns
     pub fn get_src_port(self: *const TCPHeader) u16 {
         const src_port = self.src_port;
-        return std.mem.bigToNative(u16, src_port);
+        return @byteSwap(src_port);
     }
 
     /// Get Destination Port of the TCPHeader - converts u16 value from Big to Native and returns
     pub fn get_dst_port(self: *const TCPHeader) u16 {
         const dst_port = self.dst_port;
-        return std.mem.bigToNative(u16, dst_port);
+        return @byteSwap(dst_port);
     }
 
     /// Get Source Port of the TCPHeader - converts u16 value from Big to Native and returns
@@ -103,7 +107,8 @@ pub const TCPHeader = extern struct {
     }
 
     pub fn get_window(self: *const TCPHeader) u16 {
-        return @byteSwap(self.window);
+        const window = self.window;
+        return @byteSwap(window);
     }
 
     pub fn set_window(self: *TCPHeader, window: u16) void {
@@ -114,45 +119,62 @@ pub const TCPHeader = extern struct {
         return @byteSwap(self.checksum);
     }
 
-    /// Calculate UDP checksum (requires pseudo-header and payload)
-    /// For IPv4, the pseudo-header includes: source IP, dest IP, protocol, UDP length
+    /// Calculate TCP checksum (requires pseudo-header and payload)
+    /// For IPv4, the pseudo-header includes: source IP, dest IP, protocol, TCP length
     pub fn calculate_checksum(self: *TCPHeader, src_ip: [4]u8, dst_ip: [4]u8, payload: []const u8) void {
         self.checksum = 0;
-
         var sum: u32 = 0;
 
         const src_w1 = (@as(u16, src_ip[0]) << 8) | src_ip[1];
         const src_w2 = (@as(u16, src_ip[2]) << 8) | src_ip[3];
-
         sum += src_w1;
         sum += src_w2;
 
         const dst_w1 = (@as(u16, dst_ip[0]) << 8) | dst_ip[1];
         const dst_w2 = (@as(u16, dst_ip[2]) << 8) | dst_ip[3];
-
         sum += dst_w1;
         sum += dst_w2;
 
-        sum += 0x0011;
+        sum += @as(u16, 0x0006); // TCP protocol number
 
-        const h_src = self.get_src_port();
-        const h_dst = self.get_dst_port();
-        const h_seq = self.get_seq_num();
-        const h_ack = self.get_ack_num();
-        const off = std.mem.bytesAsValue(u16, self.data_offset_reserved_flags[0..]).*;
-        const h_off = @byteSwap(off);
-        const h_win = self.get_window();
-        const h_urg = self.get_urgent_ptr();
-        const h_chk = self.get_checksum();
+        const total_length = @as(u16, self.get_hdr_length() + @as(u16, @intCast(payload.len)));
+
+        sum += total_length;
+
+        const h_src = @byteSwap(self.src_port);
+        const h_dst = @byteSwap(self.dst_port);
+        const h_off = (@as(u16, self.data_offset_reserved_flags[0]) << 8) | self.data_offset_reserved_flags[1];
+        const h_win = @byteSwap(self.window);
+        const h_urg = @byteSwap(self.urgent_ptr);
 
         sum += h_src;
         sum += h_dst;
-        sum += h_seq;
-        sum += h_ack;
+        const h_seq_bytes = self.seq_num;
+        sum += (@as(u16, h_seq_bytes[0]) << 8) | h_seq_bytes[1];
+        sum += (@as(u16, h_seq_bytes[2]) << 8) | h_seq_bytes[3];
+        const h_ack_bytes = self.ack_num;
+        sum += (@as(u16, h_ack_bytes[0]) << 8) | h_ack_bytes[1];
+        sum += (@as(u16, h_ack_bytes[2]) << 8) | h_ack_bytes[3];
         sum += h_off;
         sum += h_win;
         sum += h_urg;
-        sum += h_chk;
+
+        const hdr_len = self.get_hdr_length();
+        if (hdr_len > 20) {
+            // Get options bytes starting after the 20-byte fixed header
+            const opt_bytes = @as([*]u8, @ptrCast(self))[20..hdr_len];
+            var i: usize = 0;
+            while (i + 1 < opt_bytes.len) {
+                const word = (@as(u16, opt_bytes[i]) << 8) | opt_bytes[i + 1];
+                sum += word;
+                i += 2;
+            }
+            // Handle odd byte (should not happen with TCP options)
+            if (i < opt_bytes.len) {
+                const last = @as(u16, opt_bytes[i]) << 8;
+                sum += last;
+            }
+        }
 
         var i: usize = 0;
         while (i + 1 < payload.len) {
@@ -183,6 +205,27 @@ pub const TCPHeader = extern struct {
 
     pub fn set_urgent_ptr(self: *TCPHeader, urgent_ptr: u16) void {
         self.urgent_ptr = @byteSwap(urgent_ptr);
+    }
+
+    pub fn set_hdr_length(self: *TCPHeader, length: u8) void {
+        if (length < 20) {
+            print("invalid tcp header length.\n", .{});
+            return;
+        }
+
+        // length in 32-bit words
+        const byte_len = length / 4;
+
+        if (byte_len > 0xF) {
+            print("header length too large.\n", .{});
+            return;
+        }
+
+        // preserve lower 4 bits (reserved + flags)
+        const low_nibble = self.data_offset_reserved_flags[0] & 0x0F;
+
+        // set top 4 bits to data offset
+        self.data_offset_reserved_flags[0] = (byte_len << 4) | low_nibble;
     }
 
     pub fn get_hdr_length(self: *const TCPHeader) u8 {
