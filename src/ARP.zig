@@ -224,7 +224,7 @@ pub const ARPLayer = struct {
         }
     }
 
-    pub fn get_mutable_header(self: *const ARPLayer) *ARPHeader {
+    pub fn get_mutable_header(self: *ARPLayer) *ARPHeader {
         const data = self.get_data();
 
         if (data.len < ARPHeaderSize) {

@@ -114,13 +114,7 @@ test "parse tcp syn packet" {
     try expect(tcp_layer.has_option(TCP.TCPOption.WS));
     try expect(tcp_layer.has_option(TCP.TCPOption.MSS));
 
-    print("tcp data: {x}\n", .{tcp_layer.get_data()});
-
-    print("checksum pre recalc: {}\n", .{tcp_hdr.get_checksum()});
-
     tcp_layer.validate_layer(); // doesn't do anything for independant layer
-
-    print("checksum: post recalc {}\n", .{tcp_layer.get_immutable_header().get_checksum()});
 
     try expect(tcp_layer.get_immutable_header().get_checksum() == 10193);
 }
