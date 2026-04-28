@@ -30,21 +30,21 @@ test "parse vlan_tagged_tcp_syn_ack" {
     packet.print_layers_meta();
 }
 
-//   test "build independant vlan layer" {
-//       var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
-//
-//       defer _ = debug_allocator.detectLeaks();
-//
-//       const allocator = debug_allocator.allocator();
-//
-//       const tmp = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-//
-//       var vlan_iface: LayerIface = try LayerIface.init(VLAN.VlanLayer, tmp);
-//       defer vlan_iface.deinit();
-//
-//       var vlan_hdr = vlan_iface.vlanLayer.get_mutable_header();
-//
-//       vlan_hdr.set_tpi(Eth.EthType.IP);
-//
-//       try expect(vlan_hdr.get_tpi() == Eth.EthType.IP);
-//   }
+test "build independant vlan layer" {
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+
+    defer _ = debug_allocator.detectLeaks();
+
+    const allocator = debug_allocator.allocator();
+
+    const tmp = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+
+    var vlan_iface: LayerIface = try LayerIface.init(VLAN.VlanLayer, tmp);
+    defer vlan_iface.deinit();
+
+    var vlan_hdr = vlan_iface.vlanLayer.get_mutable_header();
+
+    vlan_hdr.set_tpi(Eth.EthType.IP);
+
+    try expect(vlan_hdr.get_tpi() == Eth.EthType.IP);
+}

@@ -44,7 +44,6 @@ pub const VlanHeader = extern struct {
     }
 
     pub fn get_tpi(self: *const VlanHeader) EthType {
-        print("vlan tag proto: {any}\n", .{self.tpi});
         return @enumFromInt(@byteSwap(self.tpi));
     }
 
