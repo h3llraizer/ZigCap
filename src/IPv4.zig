@@ -393,6 +393,9 @@ pub const IPv4Layer = struct {
             IPProtocol.UDP => {
                 return try LayerIface.init(UDP.UDPLayer, LayerOwner{ .packet_layer = layer });
             },
+            else => {
+                return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
+            },
         }
     }
 

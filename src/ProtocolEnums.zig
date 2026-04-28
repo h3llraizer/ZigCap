@@ -6,6 +6,7 @@ pub const IPProtocol = enum(u8) {
     ICMP = 1,
     TCP = 6,
     UDP = 17,
+    ICMPv6 = 58,
 };
 
 pub const IPVersions = enum(u4) {

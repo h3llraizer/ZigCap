@@ -20,6 +20,17 @@ pub const LayerOwner = union(enum) {
         };
     }
 
+    fn get_allocator(self: *LayerOwner) Allocator {
+        switch (self.*) {
+            .packet_layer => |layer| {
+                return layer.packet.layer_allocator;
+            },
+            .owned_buffer => |*buffer| {
+                return buffer.allocator;
+            },
+        }
+    }
+
     pub fn deinit(self: *LayerOwner) void {
         switch (self.*) {
             .packet_layer => {

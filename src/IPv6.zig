@@ -330,6 +330,12 @@ pub const IPv6Header = extern struct {
     }
 };
 
+const IPv6LayerMeta = struct {
+    ext_count: usize, // total extension headers
+    ext_total_len: usize, // the total length of the extended headers from first header to last (not including IPProtocol layer)
+    ip_proto: IPProtocol, // the IP protocol this layer uses
+};
+
 pub const IPv6Layer = struct {
     owner: LayerOwner,
     ext_header: ?*ExtensionHeader = null,
@@ -417,6 +423,104 @@ pub const IPv6Layer = struct {
                 return buffer.allocator;
             },
         }
+    }
+
+    fn get_meta(self: *const IPv6Layer) IPv6LayerMeta {
+        var offset: usize = IPv6HeaderSize;
+        var current_next: u8 = self.get_immutable_header().next_header;
+        const data = self.get_data();
+
+        var ext_total_len: usize = 0;
+        var ext_count: usize = 0;
+
+        while (current_next != @intFromEnum(NextHeader.NoNext) and
+            current_next != @intFromEnum(NextHeader.TCP) and
+            current_next != @intFromEnum(NextHeader.UDP) and
+            current_next != @intFromEnum(NextHeader.ICMP) and
+            current_next != @intFromEnum(NextHeader.ICMPv6))
+        {
+            if (offset >= data.len) break;
+
+            const next_header_type: NextHeader = @enumFromInt(current_next);
+
+            print("next header type: {any}\n", .{next_header_type});
+
+            switch (next_header_type) {
+                .HopByHop => {
+                    const hbh = @as(*HopByHopHeader, @ptrCast(data[offset..].ptr));
+                    const ext_len = (hbh.hdr_ext_len + 1) * 8;
+
+                    current_next = hbh.next_header;
+                    offset += ext_len;
+                    ext_total_len += ext_len;
+                    ext_count += 1;
+                },
+                .Routing => {
+                    const routing = @as(*RoutingHeader, @ptrCast(data[offset..].ptr));
+                    const ext_len = (routing.hdr_ext_len + 1) * 8;
+
+                    current_next = routing.next_header;
+                    offset += ext_len;
+                    ext_total_len += ext_len;
+                    ext_count += 1;
+                },
+                .Fragment => {
+                    const frag: *FragmentHeader = @ptrCast(@alignCast(data[offset..].ptr));
+
+                    current_next = frag.next_header;
+                    offset += @sizeOf(FragmentHeader);
+                    ext_count += 1;
+                    ext_total_len += @sizeOf(FragmentHeader);
+                },
+                .DestOpts => {
+                    const dest = @as(*DestOptsHeader, @ptrCast(data[offset..].ptr));
+                    const ext_len = (dest.hdr_ext_len + 1) * 8;
+
+                    current_next = dest.next_header;
+                    offset += ext_len;
+                    ext_count += 1;
+                    ext_total_len += ext_len;
+                },
+                .AH, .ESP => {
+                    // Authentication Header or Encapsulating Security Payload
+                    // These have variable length, simplified for now
+                    const len = @as(u8, data[offset + 1]);
+                    const ext_len = (len + 2) * 4;
+
+                    current_next = data[offset];
+                    offset += ext_len;
+                    ext_count += 1;
+                    ext_total_len += ext_len;
+                },
+                else => {
+                    // Unknown extension header, stop parsing
+                    print("unknown ext.\n", .{});
+                    break;
+                },
+            }
+        }
+
+        // Now convert the final current_next to IPProtocol
+        const ip_proto: u8 = switch (current_next) {
+            @intFromEnum(NextHeader.TCP) => @intFromEnum(IPProtocol.TCP),
+            @intFromEnum(NextHeader.UDP) => @intFromEnum(IPProtocol.UDP),
+            @intFromEnum(NextHeader.ICMP) => @intFromEnum(IPProtocol.ICMP),
+            @intFromEnum(NextHeader.ICMPv6) => @intFromEnum(IPProtocol.ICMPv6),
+            else => {
+                print("Unexpected final next header: {}\n", .{current_next});
+                @panic("malformed packet.\n");
+            },
+        };
+
+        print("ip_proto: {}\n", .{ip_proto});
+
+        print("ip_proto: {}\n", .{ip_proto});
+
+        if (ip_proto == 0) {
+            @panic("malformed packet.\n");
+        }
+
+        return IPv6LayerMeta{ .ext_count = ext_count, .ip_proto = @enumFromInt(ip_proto), .ext_total_len = ext_total_len };
     }
 
     /// gets the full len of this layer including IPv6 base header + any extensions (not the proceeding payload)
@@ -639,9 +743,15 @@ pub const IPv6Layer = struct {
 
         if (data.len < @sizeOf(IPv6Header)) return error.BufferTooSmall;
 
-        const hdr = self.get_immutable_header();
+        //        const hdr = self.get_immutable_header();
 
-        switch (hdr.get_next_header()) {
+        const meta = self.get_meta();
+
+        print("{any}\n", .{meta});
+
+        const ip_proto = meta.ip_proto;
+
+        switch (ip_proto) {
             .ICMP => {
                 return try LayerIface.init(ICMP.ICMPLayer, LayerOwner{ .packet_layer = layer });
             },
