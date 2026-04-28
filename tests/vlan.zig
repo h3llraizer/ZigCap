@@ -27,7 +27,7 @@ test "parse vlan_tagged_tcp_syn_ack" {
     try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.ETHERNET, null);
     defer packet.deinit();
 
-    packet.print_layers_meta();
+    //    packet.print_layers_meta();
 }
 
 test "build independant vlan layer" {

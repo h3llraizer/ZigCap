@@ -376,8 +376,9 @@ pub const IPv4Layer = struct {
 
         const hdr = self.get_immutable_header();
 
-        const ip_protocol = std.meta.intToEnum(IPProtocol, hdr.protocol) catch {
+        const ip_protocol = std.enums.fromInt(IPProtocol, hdr.protocol) orelse {
             print("unknown protocol: {x}\n", .{hdr.protocol});
+            print("src: {any} dst: {any}\n", .{ hdr.get_src_ip(), hdr.get_dst_ip() });
             return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
         };
 

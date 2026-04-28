@@ -12,10 +12,12 @@ const IPProtocol = @import("ProtocolEnums.zig").IPProtocol;
 const ICMP = @import("ICMP.zig");
 const TCP = @import("TCP.zig");
 const UDP = @import("UDP.zig");
+const GenericLayer = @import("GenericLayer.zig");
 const Packet = @import("Packet.zig");
 
 const Layer = @import("Layer.zig");
 const LayerOwner = Layer.LayerOwner;
+const ApplicationLayer = GenericLayer.ApplicationLayer;
 
 pub const IPv6HeaderSize = 40;
 
@@ -267,10 +269,6 @@ pub const IPv6Header = extern struct {
         return @truncate(self.version_traffic_flow[0] >> 4);
     }
 
-    //   pub fn set_version(self: *IPv6Header, version: u4) void {
-    //       self.version_traffic_flow = (self.version_traffic_flow & 0x0FFFFFFF) | (@as(u32, version) << 28);
-    //   }
-
     pub fn get_traffic_class(self: *const IPv6Header) u8 {
         return self.version_traffic_flow[1];
     }
@@ -289,7 +287,7 @@ pub const IPv6Header = extern struct {
     }
 
     pub fn get_payload_length(self: *const IPv6Header) u16 {
-        return std.mem.bigToNative(u16, self.payload_length);
+        return @byteSwap(self.payload_length);
     }
 
     pub fn set_payload_length(self: *IPv6Header, len: u16) void {
@@ -400,10 +398,11 @@ pub const IPv6Layer = struct {
     }
 
     /// return mutable slice of the payload
-    pub fn get_payload(self: *const IPv6Layer) []const u8 { // needs to return RawData
+    pub fn get_payload(self: *const IPv6Layer) []const u8 {
         const data = self.get_data();
-        if (data.len > IPv6HeaderSize) {
-            return data[IPv6HeaderSize..];
+        const total_len = self.get_layer_len();
+        if (data.len > total_len) {
+            return data[total_len..];
         } else {
             return "";
         }
@@ -418,6 +417,70 @@ pub const IPv6Layer = struct {
                 return buffer.allocator;
             },
         }
+    }
+
+    /// gets the full len of this layer including IPv6 base header + any extensions (not the proceeding payload)
+    fn get_layer_len(self: *const IPv6Layer) usize {
+        var offset: usize = IPv6HeaderSize;
+        var current_next: u8 = self.get_immutable_header().next_header;
+        const data = self.get_data();
+
+        while (current_next != @intFromEnum(NextHeader.NoNext) and
+            current_next != @intFromEnum(NextHeader.TCP) and
+            current_next != @intFromEnum(NextHeader.UDP) and
+            current_next != @intFromEnum(NextHeader.ICMP) and
+            current_next != @intFromEnum(NextHeader.ICMPv6))
+        {
+            if (offset >= data.len) break;
+
+            const next_header_type: NextHeader = @enumFromInt(current_next);
+
+            switch (next_header_type) {
+                .HopByHop => {
+                    const hbh = @as(*HopByHopHeader, @ptrCast(data[offset..].ptr));
+                    const ext_len = (hbh.hdr_ext_len + 1) * 8;
+
+                    current_next = hbh.next_header;
+                    offset += ext_len;
+                },
+                .Routing => {
+                    const routing = @as(*RoutingHeader, @ptrCast(data[offset..].ptr));
+                    const ext_len = (routing.hdr_ext_len + 1) * 8;
+
+                    current_next = routing.next_header;
+                    offset += ext_len;
+                },
+                .Fragment => {
+                    const frag: *FragmentHeader = @ptrCast(@alignCast(data[offset..].ptr));
+
+                    current_next = frag.next_header;
+                    offset += @sizeOf(FragmentHeader);
+                },
+                .DestOpts => {
+                    const dest = @as(*DestOptsHeader, @ptrCast(data[offset..].ptr));
+                    const ext_len = (dest.hdr_ext_len + 1) * 8;
+
+                    current_next = dest.next_header;
+                    offset += ext_len;
+                },
+                .AH, .ESP => {
+                    // Authentication Header or Encapsulating Security Payload
+                    // These have variable length, simplified for now
+                    const len = @as(u8, data[offset + 1]);
+                    const ext_len = (len + 2) * 4;
+
+                    current_next = data[offset];
+                    offset += ext_len;
+                },
+                else => {
+                    // Unknown extension header, stop parsing
+                    print("unknown ext.\n", .{});
+                    break;
+                },
+            }
+        }
+
+        return offset;
     }
 
     pub fn parse_extensions(self: *IPv6Layer) !void {
@@ -588,7 +651,7 @@ pub const IPv6Layer = struct {
             .UDP => {
                 return try LayerIface.init(UDP.UDPLayer, LayerOwner{ .packet_layer = layer });
             },
-            else => return null,
+            else => return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer }),
         }
     }
 
@@ -611,14 +674,7 @@ pub const IPv6Layer = struct {
 
     pub fn deinit(self: *IPv6Layer) void {
         self.destroy_ext_headers();
-        switch (self.owner) {
-            .packet_layer => {
-                return; // Layer in packet - don't free
-            },
-            .owned_buffer => |*buffer| {
-                return buffer.deinit(); // standalone layer - it is mutable by default
-            },
-        }
+        self.owner.deinit();
     }
 };
 

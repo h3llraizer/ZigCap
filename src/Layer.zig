@@ -19,4 +19,15 @@ pub const LayerOwner = union(enum) {
             .owned_buffer => |buffer| buffer.buffer.items,
         };
     }
+
+    pub fn deinit(self: *LayerOwner) void {
+        switch (self.*) {
+            .packet_layer => {
+                return; // Layer in packet - don't free
+            },
+            .owned_buffer => |*buffer| {
+                return buffer.deinit(); // standalone layer - it is mutable by default
+            },
+        }
+    }
 };

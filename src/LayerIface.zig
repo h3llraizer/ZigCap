@@ -139,7 +139,7 @@ pub const LayerIface = union(enum) {
 };
 
 // Layer interface using vtable polymorphism - currently unused in the library
-pub const LayerInterface = struct {
+const LayerInterface = struct {
     impl: *anyopaque,
     v_get_next_layer_type: *const fn (*anyopaque, *Packet.Layer) LayerError!?LayerIface,
     v_get_protocol: *const fn (*anyopaque) tcp_ip_protocol,
