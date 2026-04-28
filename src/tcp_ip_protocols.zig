@@ -13,17 +13,18 @@ const DNS = @import("DNS.zig");
 pub const tcp_ip_protocol = enum(u32) {
     generic = 0,
     eth = 1,
-    loopback = 2,
-    icmp = 3,
-    ipv4 = 4,
-    ipv6 = 5,
-    arp = 6,
+    vlan = 2,
+    loopback = 3,
+    icmp = 4,
+    ipv4 = 5,
+    ipv6 = 6,
+    arp = 7,
 
-    http = 7,
-    dns = 8,
+    http = 8,
+    dns = 9,
 
-    tcp = 9,
-    udp = 10,
+    tcp = 10,
+    udp = 11,
 };
 
 pub fn get_layer_type_enum(value: type) !tcp_ip_protocol {

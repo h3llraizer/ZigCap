@@ -2,6 +2,9 @@ const std = @import("std");
 const WirePacket = @import("WirePacket.zig").WirePacket;
 const IPv4Address = @import("IPv4.zig").IPv4Address;
 const IPv6Address = @import("IPv6.zig").IPv6Address;
+
+const link_layer_type = @import("ProtocolEnums.zig").link_layer_type;
+
 const pcap = @cImport({
     @cDefine("WIN32", "1"); // needed on Windows
     @cInclude("pcap.h");
@@ -40,31 +43,6 @@ const sockaddr_in6 = extern struct {
     sin6_scope_id: u_long,
 };
 
-// TODO: use a tagged union for IP Address type
-
-pub fn open_pcap(ip: IPv4Address, allocator: Allocator) !?*Interface {
-    var interfaces = try Interfaces.init(allocator);
-
-    const device_list = try interfaces.list_all();
-
-    if (device_list.items.len > 0) {
-        const main_iface = try interfaces.find_by_ip(ip);
-        if (main_iface) |iface| {
-            try iface.open(allocator);
-
-            if (iface.isOpened()) {
-                return iface;
-            } else {
-                return null;
-            }
-        } else {
-            return null;
-        }
-    } else {
-        return null;
-    }
-}
-
 pub const IPAddress = union(enum) {
     v4: IPv4Address,
     v6: IPv6Address,
@@ -88,14 +66,12 @@ pub const Interface = struct {
     desc: []const u8,
     ips: std.ArrayList(IPAddress), // interfaces can have more than one IP and they could be v4 or v6
     handle: ?*pcap.pcap_t = null,
-    link_type: ?c_int, // store enum
+    link_type: ?link_layer_type, // store enum
     allocator: Allocator,
 
     pub fn init(name: []const u8, desc: []const u8, ips: std.ArrayList(IPAddress), allocator: Allocator) !Interface {
         const name_copy = try allocator.alloc(u8, name.len);
         @memmove(name_copy, name);
-
-        print("{s} opened.\n", .{name});
 
         const desc_copy = try allocator.alloc(u8, desc.len);
         @memmove(desc_copy, desc);
@@ -134,7 +110,7 @@ pub const Interface = struct {
         }
 
         self.handle = handle;
-        self.link_type = pcap.pcap_datalink(handle);
+        self.link_type = @enumFromInt(pcap.pcap_datalink(handle));
     }
 
     pub fn isOpened(self: Interface) bool {
@@ -144,6 +120,7 @@ pub const Interface = struct {
         return false;
     }
 
+    /// caller needs to free returned slice
     pub fn to_string(self: Interface, allocator: Allocator) []const u8 {
         const s = allocPrint(allocator, "Name: {s} Description: {s}", .{ self.name, self.desc }) catch |err| {
             return @errorName(err);
@@ -178,8 +155,8 @@ pub const Interface = struct {
     }
 
     pub fn deinit(self: *Interface) void {
-        //        if (self.handle) {
-        //pcap.pcap_close(self.handle);
+        //if (self.handle) {
+        //        pcap.pcap_close(self.handle);
         //       }
         self.allocator.free(self.name);
         self.allocator.free(self.desc);
@@ -220,7 +197,6 @@ pub const Interfaces = struct {
         var address_ptr = addresses_ptr;
         while (address_ptr) |addr| {
             if (addr.*.addr) |sa| {
-                print("sa: {any}\n", .{sa.*.sa_family});
                 if (sa.*.sa_family == 2) { // AF_INET
                     const ipv4: *sockaddr_in = @ptrCast(@alignCast(sa));
 

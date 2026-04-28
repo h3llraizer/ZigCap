@@ -5,6 +5,7 @@ test {
     _ = @import("dns_packet_parsing.zig");
     _ = @import("tcp_packet_parsing.zig");
     _ = @import("eth.zig");
+    _ = @import("vlan.zig");
     _ = @import("arp.zig");
     _ = @import("ipv4.zig");
     _ = @import("ipv6.zig");

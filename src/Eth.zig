@@ -10,6 +10,7 @@ const IPv6HeaderSize = @import("IPv6.zig").IPv6HeaderSize;
 const ARP = @import("ARP.zig");
 const Layer = @import("Layer.zig");
 const GenericLayer = @import("GenericLayer.zig");
+const VLAN = @import("VLAN.zig");
 
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
@@ -39,6 +40,7 @@ pub const EthType = enum(u16) {
     ROCEV1 = 0x8915,
     IEEE_802_1AD = 0x88A8,
     WAKE_ON_LAN = 0x0842,
+    Unknown = 0,
 };
 
 pub const EthHeaderSize = 14;
@@ -226,8 +228,11 @@ pub const EthLayer = struct {
             EthType.ARP => {
                 return try LayerIface.init(ARP.ARPLayer, LayerOwner{ .packet_layer = layer });
             },
+            EthType.VLAN => {
+                return try LayerIface.init(VLAN.VlanLayer, LayerOwner{ .packet_layer = layer });
+            },
             else => {
-                print("couldn't get Eth protocol.\n", .{});
+                print("couldn't get Eth {any} protocol.\n", .{eth_type});
                 return null;
             },
         }

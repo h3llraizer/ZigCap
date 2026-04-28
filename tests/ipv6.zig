@@ -38,9 +38,6 @@ test "parse ipv6 layer" {
     const dst_ip = try hdr.get_dst_ip().to_string(allocator);
     defer allocator.free(dst_ip);
 
-    print("src: {s}\n", .{src_str});
-    print("src: {s}\n", .{dst_ip});
-
     try ipv6_iface.ipv6Layer.parse_extensions();
 }
 

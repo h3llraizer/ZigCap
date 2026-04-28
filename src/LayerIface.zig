@@ -12,6 +12,7 @@ const ARP = @import("ARP.zig");
 const ICMP = @import("ICMP.zig");
 const DNS = @import("DNS.zig");
 const GenericLayer = @import("GenericLayer.zig");
+const VLAN = @import("VLAN.zig"); // remember to expose through pub API
 
 const LayerOwner = @import("Layer.zig").LayerOwner;
 
@@ -24,6 +25,7 @@ const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 /// soon to be converted to a vtable style polymorphic interface to handle protocol plugins
 pub const LayerIface = union(enum) {
     ethLayer: Eth.EthLayer,
+    vlanLayer: VLAN.VlanLayer,
     //  loopbackLayer: LoopBack.LoopBackLayer,
     ipv4Layer: IPv4.IPv4Layer,
     ipv6Layer: IPv6.IPv6Layer,
@@ -39,6 +41,7 @@ pub const LayerIface = union(enum) {
     pub fn init(choice: type, owner: LayerOwner) LayerError!LayerIface {
         switch (choice) {
             Eth.EthLayer => return LayerIface{ .ethLayer = try Eth.EthLayer.init(owner) },
+            VLAN.VlanLayer => return LayerIface{ .vlanLayer = try VLAN.VlanLayer.init(owner) },
             //         LoopBack.LoopBackLayer => return LayerIface{ .loopbackLayer = try LoopBack.LoopBackLayer.init(owner) },
             IPv4.IPv4Layer => return LayerIface{ .ipv4Layer = try IPv4.IPv4Layer.init(owner) },
             IPv6.IPv6Layer => return LayerIface{ .ipv6Layer = try IPv6.IPv6Layer.init(owner) },
@@ -55,6 +58,7 @@ pub const LayerIface = union(enum) {
     pub fn reinit(self: *LayerIface, owner: LayerOwner) LayerError!void {
         const new_instance = switch (self.*) {
             .ethLayer => LayerIface{ .ethLayer = try Eth.EthLayer.init(owner) },
+            .vlanLayer => LayerIface{ .vlanLayer = try VLAN.VlanLayer.init(owner) },
             //        .loopbackLayer => LayerIface{ .loopbackLayer = try LoopBack.LoopBackLayer.init(owner) },
             .ipv4Layer => LayerIface{ .ipv4Layer = try IPv4.IPv4Layer.init(owner) },
             .ipv6Layer => LayerIface{ .ipv6Layer = try IPv6.IPv6Layer.init(owner) },

@@ -321,7 +321,7 @@ pub const IPv6Header = extern struct {
     }
 
     pub fn init_default() IPv6Header {
-        const hdr = IPv6Header{
+        return IPv6Header{
             .version_traffic_flow = .{ 0x60, 0x0, 0x0, 0x0 },
             .payload_length = 0,
             .next_header = 0,
@@ -329,7 +329,6 @@ pub const IPv6Header = extern struct {
             .src_ip = .{0} ** 16,
             .dst_ip = .{0} ** 16,
         };
-        return hdr;
     }
 };
 
@@ -425,7 +424,6 @@ pub const IPv6Layer = struct {
         var offset: usize = IPv6HeaderSize;
         var current_next: u8 = self.get_immutable_header().next_header;
         const allocator = self.get_allocator();
-
         const data = self.get_data();
 
         if (data.len <= IPv6HeaderSize) {
@@ -523,8 +521,6 @@ pub const IPv6Layer = struct {
                 },
             }
 
-            print("{any} offset={} length={} ext_length={} data: {x}\n", .{ ext_hdr.header_type, ext_hdr.offset, ext_hdr.length, ext_hdr.ext_length, self.get_data()[ext_hdr.offset .. ext_hdr.offset + ext_hdr.length] });
-
             var cur = self.ext_header;
             if (cur == null) {
                 self.ext_header = ext_hdr;
@@ -580,20 +576,12 @@ pub const IPv6Layer = struct {
 
         if (data.len < @sizeOf(IPv6Header)) return error.BufferTooSmall;
 
-        //       const alignment = @alignOf(IPv4Header);
-        //       const addr = @intFromPtr(data.ptr);
-        //
-        //       if (addr % alignment != 0) {
-        //           return error.MisalignedBuffer;
-        //       }
-        //       const aligned_ptr: [*]align(@alignOf(IPv4Header)) u8 = @alignCast(data.ptr);
         const hdr = self.get_immutable_header();
 
         switch (hdr.get_next_header()) {
             .ICMP => {
                 return try LayerIface.init(ICMP.ICMPLayer, LayerOwner{ .packet_layer = layer });
             },
-
             .TCP => {
                 return try LayerIface.init(TCP.TCPLayer, LayerOwner{ .packet_layer = layer });
             },
@@ -609,7 +597,7 @@ pub const IPv6Layer = struct {
         return IPv6Layer.Protocol;
     }
 
-    /// doesn't actually destroy the headers data, just the structs which store them
+    /// doesn't actually destroy the headers data, just the structs which store their type, offset, length
     fn destroy_ext_headers(self: *IPv6Layer) void {
         var allocator = self.get_allocator();
         var cur = self.ext_header;

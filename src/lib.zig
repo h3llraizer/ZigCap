@@ -17,6 +17,7 @@ pub const version = Version{
 pub const ARP = @import("ARP.zig");
 pub const DNS = @import("DNS.zig");
 pub const Eth = @import("Eth.zig");
+pub const VLAN = @import("VLAN.zig");
 pub const ICMP = @import("ICMP.zig");
 pub const IPv4 = @import("IPv4.zig");
 pub const IPv6 = @import("IPv6.zig");

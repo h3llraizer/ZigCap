@@ -1,8 +1,9 @@
 const std = @import("std");
+const link_layer_type = @import("ProtocolEnums.zig").link_layer_type;
 const PacketStructs = @import("PacketStructs.zig");
-const RawPacket = PacketStructs.RawPacket;
 const print = std.debug.print;
-const LinkLayerType = @import("ProtocolEnums.zig").LinkLayerType;
+
+const Allocator = std.mem.Allocator;
 
 const c = @cImport({
     @cInclude("WinDivert.h");
@@ -32,6 +33,11 @@ pub const CaptureMode = enum(u64) {
     WINDIVERT_FLAG_SEND_ONLY = 8,
 };
 
+pub const WDPacket = struct {
+    raw: []align(2) u8,
+    wd_addr: *WINDIVERT_ADDRESS,
+};
+
 pub const WinDivert = struct {
     handle: ?*anyopaque,
 
@@ -39,7 +45,7 @@ pub const WinDivert = struct {
         var self = WinDivert{ .handle = null };
         self.handle = c.WinDivertOpen(
             filter.ptr,
-            @intFromEnum(layer), // intFromEnum ?
+            @intFromEnum(layer),
             priority,
             flags,
         );
@@ -51,29 +57,46 @@ pub const WinDivert = struct {
         return self;
     }
 
-    pub fn capture(self: WinDivert, allocator: std.mem.Allocator, callback: fn (*RawPacket, std.mem.Allocator) void) !void {
-        const pkt_buf = try allocator.alloc(u8, 1024);
+    pub fn capture_one_raw(self: WinDivert, max_pkt_size: usize, allocator: Allocator) !?WDPacket {
+        const pkt_buf: []align(2) u8 = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", max_pkt_size);
 
         const windivert_addr: *WINDIVERT_ADDRESS = try allocator.create(WINDIVERT_ADDRESS);
 
         var recvLen: c_uint = 0;
 
         if (c.WinDivertRecv(self.handle, pkt_buf.ptr, @intCast(pkt_buf.len), &recvLen, @ptrCast(windivert_addr)) == 0) {
-            return error.WinDivertRecvFailed;
+            print("WinDivertRecvFailed.\n", .{});
+            return null;
         }
 
-        print("captured packet len: {d}\n", .{recvLen});
+        const wdpacket = WDPacket{ .raw = pkt_buf, .wd_addr = windivert_addr };
 
-        const buf = try allocator.realloc(pkt_buf, @intCast(recvLen));
-
-        var raw_pkt = try allocator.create(RawPacket);
-
-        raw_pkt = try RawPacket.init(std.time.microTimestamp(), std.time.timestamp(), buf, recvLen, LinkLayerType.RAW, allocator);
-
-        raw_pkt.additional = windivert_addr;
-
-        callback(raw_pkt, allocator);
+        return wdpacket;
     }
+
+    //pub fn capture(self: WinDivert, allocator: std.mem.Allocator, callback: fn (*RawPacket, std.mem.Allocator) void) !void {
+    //    const pkt_buf = try allocator.alloc(u8, 1024);
+
+    //    const windivert_addr: *WINDIVERT_ADDRESS = try allocator.create(WINDIVERT_ADDRESS);
+
+    //    var recvLen: c_uint = 0;
+
+    //    if (c.WinDivertRecv(self.handle, pkt_buf.ptr, @intCast(pkt_buf.len), &recvLen, @ptrCast(windivert_addr)) == 0) {
+    //        return error.WinDivertRecvFailed;
+    //    }
+
+    //    print("captured packet len: {d}\n", .{recvLen});
+
+    //    const buf = try allocator.realloc(pkt_buf, @intCast(recvLen));
+
+    //    var raw_pkt = try allocator.create(RawPacket);
+
+    //    raw_pkt = try RawPacket.init(std.time.microTimestamp(), std.time.timestamp(), buf, recvLen, LinkLayerType.RAW, allocator);
+
+    //    raw_pkt.additional = windivert_addr;
+
+    //    callback(raw_pkt, allocator);
+    //}
 
     pub fn deinit(self: WinDivert) void {
         _ = c.WinDivertClose(self.handle);
