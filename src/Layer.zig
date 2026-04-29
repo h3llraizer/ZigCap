@@ -20,7 +20,9 @@ pub const LayerOwner = union(enum) {
         };
     }
 
-    fn get_allocator(self: *LayerOwner) Allocator {
+    /// gets the allocator which the owner provides - this is used for creating structs to aid managing the data the protocol has beyound it's standard/base header
+    /// e.g. DNS has variable length data in the form of queries and answers (RRData), the owners allocator will be used to create the Query and ResponseRecord structs to parse and potentially mutate
+    pub fn get_allocator(self: *LayerOwner) Allocator {
         switch (self.*) {
             .packet_layer => |layer| {
                 return layer.packet.layer_allocator;
