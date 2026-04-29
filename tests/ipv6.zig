@@ -29,7 +29,7 @@ test "parse ipv6 with hop-by-hop ext and ICMPv6 listen report" {
     try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.ETHERNET, null);
     defer packet.deinit();
 
-    //    packet.print_layers_meta();
+    packet.print_layers_meta();
 
     if (packet.get_layer_of_type(IPv6.IPv6Layer)) |ipv6| {
         const ipv6_layer: *IPv6.IPv6Layer = ipv6;
@@ -37,7 +37,18 @@ test "parse ipv6 with hop-by-hop ext and ICMPv6 listen report" {
         print("payload length: {}\n", .{hdr.get_payload_length()});
         try ipv6.parse_extensions();
 
-        ipv6_layer.get_ext_header(IPv6.NextHeader.HopByHop);
+        try expect(ipv6_layer.get_ext_header(IPv6.NextHeader.HopByHop) != null);
+
+        if (ipv6_layer.get_ext_header(IPv6.NextHeader.HopByHop)) |hbh| {
+            const hbh_ext: *IPv6.HobByHop = &hbh.hbh;
+            try expect(hbh_ext.get_action() == IPv6.OptionType.ROUTER_ALERT);
+
+            print("{x}\n", .{hbh_ext.get_data()});
+
+            //          hbh_ext.set_action(IPv6.OptionType.QUICK_START);
+
+            //            try expect(hbh_ext.get_action() == IPv6.OptionType.QUICK_START);
+        }
     }
 }
 

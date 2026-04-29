@@ -330,7 +330,6 @@ pub const AnswerRecord = union(enum) {
         }
     }
 
-    /// broken - needs to use compression ptrs if they are there
     pub fn get_name(self: *AnswerRecord, allocator: Allocator) ![]u8 {
         const data = self.get_data();
         // the length of the name is not known so just take use the offset of this RR

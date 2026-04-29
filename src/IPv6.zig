@@ -16,72 +16,22 @@ const GenericLayer = @import("GenericLayer.zig");
 const Packet = @import("Packet.zig");
 
 const Layer = @import("Layer.zig");
+const IPv6Ext = @import("IPv6_Ext.zig");
+
 const LayerOwner = Layer.LayerOwner;
 const ApplicationLayer = GenericLayer.ApplicationLayer;
 
+pub const NextHeader = IPv6Ext.NextHeader;
+pub const ExtensionHeader = IPv6Ext.ExtensionHeader;
+pub const HobByHop = IPv6Ext.HopByHop;
+pub const OptionType = IPv6Ext.OptionType;
+
 pub const IPv6HeaderSize = 40;
 
-// IPv6 Next Header Types
-pub const NextHeader = enum(u8) {
-    HopByHop = 0,
-    ICMP = 1,
-    IGMP = 2,
-    TCP = 6,
-    UDP = 17,
-    IPv6 = 41,
-    Routing = 43,
-    Fragment = 44,
-    ESP = 50,
-    AH = 51,
-    ICMPv6 = 58,
-    NoNext = 59,
-    DestOpts = 60,
-    Mobility = 135,
-    HostIdentity = 139,
-    Shim6 = 140,
-    Reserved = 253,
-    Experimental1 = 254,
-    Experimental2 = 255,
-
-    pub fn to_string(self: NextHeader) []const u8 {
-        return switch (self) {
-            .HopByHop => "Hop-by-Hop Options",
-            .ICMP => "ICMP",
-            .IGMP => "IGMP",
-            .TCP => "TCP",
-            .UDP => "UDP",
-            .IPv6 => "IPv6",
-            .Routing => "Routing",
-            .Fragment => "Fragment",
-            .ESP => "ESP",
-            .AH => "AH",
-            .ICMPv6 => "ICMPv6",
-            .NoNext => "No Next Header",
-            .DestOpts => "Destination Options",
-            .Mobility => "Mobility",
-            .HostIdentity => "Host Identity",
-            .Shim6 => "SHIM6",
-            .Reserved => "Reserved",
-            .Experimental1 => "Experimental 1",
-            .Experimental2 => "Experimental 2",
-        };
-    }
-};
-
-// IPv6 Extension Header Types
-pub const ExtensionHeader = struct {
-    header_type: NextHeader,
-    offset: usize,
-    length: usize,
-    ext_length: u8, // Length in 8-octet units, not including first 8 octets
-    next_ext: ?*ExtensionHeader = null,
-};
-
 // IPv6 Hop-by-Hop Options Header
-pub const HopByHopHeader = extern struct {
+const HopByHopHeader = extern struct {
     next_header: u8 = 0,
     hdr_ext_len: u8 = 0, // Length in 8-octet units, not including first 8 octets
-    // Options follow...
 
     comptime {
         if (@sizeOf(HopByHopHeader) != 2) {
@@ -108,7 +58,7 @@ pub const RoutingType = enum(u8) {
 };
 
 // IPv6 Routing Header
-pub const RoutingHeader = extern struct {
+const RoutingHeader = extern struct {
     next_header: u8 = 0,
     hdr_ext_len: u8 = 0, // Length in 8-octet units, not including first 8 octets
     routing_type: u8 = 0,
@@ -127,7 +77,7 @@ const IPV6_FRAG_RES_MASK: u16 = 0x0006; // next 2 bits
 const IPV6_FRAG_M_MASK: u16 = 0x0001; // last bit
 
 // IPv6 Fragment Header
-pub const FragmentHeader = extern struct {
+const FragmentHeader = extern struct {
     next_header: u8 = 0,
     reserved: u8 = 0,
     fragment_off_flags: u16 = 0,
@@ -177,7 +127,7 @@ pub const FragmentHeader = extern struct {
 };
 
 // IPv6 Destination Options Header (similar to Hop-by-Hop)
-pub const DestOptsHeader = extern struct {
+const DestOptsHeader = extern struct {
     next_header: u8 = 0,
     hdr_ext_len: u8 = 0,
     // Options follow...
@@ -190,7 +140,7 @@ pub const DestOptsHeader = extern struct {
 };
 
 // IPv6 Option (for Hop-by-Hop and Destination Options)
-pub const IPv6Option = struct {
+const IPv6Option = struct {
     type: u8,
     length: u8, // Length of option data in octets
     data: []u8,
@@ -286,6 +236,8 @@ pub const IPv6Header = extern struct {
         self.version_traffic_flow = (self.version_traffic_flow & 0xFFF00000) | (label & 0xFFFFF);
     }
 
+    /// returns the payload length set in the header (can be inaccurate due to malformed packet / incomplete layers etc)
+    /// first extension to payload length
     pub fn get_payload_length(self: *const IPv6Header) u16 {
         return @byteSwap(self.payload_length);
     }
@@ -409,7 +361,7 @@ pub const IPv6Layer = struct {
     /// return mutable slice of the payload
     pub fn get_payload(self: *const IPv6Layer) []const u8 {
         const data = self.get_data();
-        const total_len = self.get_layer_len();
+        const total_len = IPv6HeaderSize + self.get_layer_len();
         if (data.len > total_len) {
             return data[total_len..];
         } else {
@@ -421,6 +373,8 @@ pub const IPv6Layer = struct {
         var offset: usize = IPv6HeaderSize;
         var current_next: u8 = self.get_immutable_header().next_header;
         const data = self.get_data();
+
+        print("next_header: {}\n", .{current_next});
 
         var ext_total_len: usize = 0;
         var ext_count: usize = 0;
@@ -491,7 +445,6 @@ pub const IPv6Layer = struct {
         }
 
         // convert the final current_next to IPProtocol
-
         const ip_proto: u8 = switch (current_next) {
             @intFromEnum(NextHeader.TCP) => @intFromEnum(IPProtocol.TCP),
             @intFromEnum(NextHeader.UDP) => @intFromEnum(IPProtocol.UDP),
@@ -500,7 +453,11 @@ pub const IPv6Layer = struct {
             else => @intFromEnum(IPProtocol.Unknown), // unknown protocol, next layer will be resolved as Application Layer
         };
 
-        return IPv6LayerMeta{ .ext_count = ext_count, .ip_proto = @enumFromInt(ip_proto), .ext_total_len = ext_total_len };
+        const meta = IPv6LayerMeta{ .ext_count = ext_count, .ip_proto = @enumFromInt(ip_proto), .ext_total_len = ext_total_len };
+
+        print("meta: {any}\n", .{meta});
+
+        return meta;
     }
 
     /// gets the full len of this layer including IPv6 base header + any extensions (not the proceeding payload)
@@ -537,12 +494,7 @@ pub const IPv6Layer = struct {
                     const hbh = @as(*HopByHopHeader, @ptrCast(data[offset..].ptr));
                     const ext_len = (hbh.hdr_ext_len + 1) * 8;
 
-                    try self.add_next_ext_header(ExtensionHeader{
-                        .header_type = next_header_type,
-                        .offset = offset,
-                        .ext_length = ext_len,
-                        .length = ext_len,
-                    });
+                    try self.add_next_ext_header(ExtensionHeader.init(next_header_type, offset, ext_len, self));
 
                     current_next = hbh.next_header;
                     offset += ext_len;
@@ -551,12 +503,14 @@ pub const IPv6Layer = struct {
                     const routing = @as(*RoutingHeader, @ptrCast(data[offset..].ptr));
                     const ext_len = (routing.hdr_ext_len + 1) * 8;
 
-                    try self.add_next_ext_header(ExtensionHeader{
-                        .header_type = next_header_type,
-                        .offset = offset,
-                        .ext_length = ext_len,
-                        .length = ext_len,
-                    });
+                    //                   try self.add_next_ext_header(ExtensionHeader{
+                    //                       .header_type = next_header_type,
+                    //                       .offset = offset,
+                    //                       .ext_length = ext_len,
+                    //                       .length = ext_len,
+                    //                   });
+
+                    try self.add_next_ext_header(ExtensionHeader.init(next_header_type, offset, ext_len, self));
 
                     current_next = routing.next_header;
                     offset += ext_len;
@@ -564,12 +518,14 @@ pub const IPv6Layer = struct {
                 .Fragment => {
                     const frag: *FragmentHeader = @ptrCast(@alignCast(data[offset..].ptr));
 
-                    try self.add_next_ext_header(ExtensionHeader{
-                        .header_type = next_header_type,
-                        .offset = offset,
-                        .ext_length = @sizeOf(FragmentHeader),
-                        .length = @sizeOf(FragmentHeader),
-                    });
+                    //                   try self.add_next_ext_header(ExtensionHeader{
+                    //                       .header_type = next_header_type,
+                    //                       .offset = offset,
+                    //                       .ext_length = @sizeOf(FragmentHeader),
+                    //                       .length = @sizeOf(FragmentHeader),
+                    //                   });
+
+                    try self.add_next_ext_header(ExtensionHeader.init(next_header_type, offset, @sizeOf(ExtensionHeader), self));
 
                     current_next = frag.next_header;
                     offset += @sizeOf(FragmentHeader);
@@ -578,12 +534,7 @@ pub const IPv6Layer = struct {
                     const dest = @as(*DestOptsHeader, @ptrCast(data[offset..].ptr));
                     const ext_len = (dest.hdr_ext_len + 1) * 8;
 
-                    try self.add_next_ext_header(ExtensionHeader{
-                        .header_type = next_header_type,
-                        .offset = offset,
-                        .ext_length = ext_len,
-                        .length = ext_len,
-                    });
+                    try self.add_next_ext_header(ExtensionHeader.init(next_header_type, offset, ext_len, self));
 
                     current_next = dest.next_header;
                     offset += ext_len;
@@ -594,12 +545,14 @@ pub const IPv6Layer = struct {
                     const len = @as(u8, data[offset + 1]);
                     const ext_len = (len + 2) * 4;
 
-                    try self.add_next_ext_header(ExtensionHeader{
-                        .header_type = next_header_type,
-                        .offset = offset,
-                        .ext_length = ext_len,
-                        .length = ext_len,
-                    });
+                    //                   try self.add_next_ext_header(ExtensionHeader{
+                    //                       .header_type = next_header_type,
+                    //                       .offset = offset,
+                    //                       .ext_length = ext_len,
+                    //                       .length = ext_len,
+                    //                   });
+
+                    try self.add_next_ext_header(ExtensionHeader.init(next_header_type, offset, ext_len, self));
 
                     current_next = data[offset];
                     offset += ext_len;
@@ -627,6 +580,7 @@ pub const IPv6Layer = struct {
         return cur;
     }
 
+    /// internal use to add an extension header when parsing
     fn add_next_ext_header(self: *IPv6Layer, ext_hdr: ExtensionHeader) !void {
         const allocator = self.owner.get_allocator();
 
@@ -640,50 +594,34 @@ pub const IPv6Layer = struct {
 
         var cur = self.ext_header;
         while (cur) |next| {
-            if (next.next_ext == null) {
-                next.next_ext = ext_;
+            if (next.get_next_extension() == null) {
+                next.set_next_extension(ext_);
                 return;
             }
-            cur = next.next_ext;
+            cur = next.get_next_extension();
         }
     }
 
-    pub fn get_ext_header(self: *IPv6Layer, header_type: NextHeader) void {
+    /// get a specific IPv6 extension header
+    pub fn get_ext_header(self: *IPv6Layer, header_type: NextHeader) ?*ExtensionHeader {
         var cur = self.ext_header;
         while (cur) |ext| {
-            if (ext.header_type == header_type) {
-                print("found header.\n", .{});
-                const data = self.get_data();
-                print("{x}\n", .{data[ext.offset .. ext.offset + ext.length]});
+            if (ext.get_type() == header_type) {
+                return ext;
+                //               print("found header.\n", .{});
+                //               const data = self.get_data();
+                //               print("{x}\n", .{data[ext.get_offset() .. ext.get_offset() + ext.get_length()]});
             }
 
-            cur = ext.next_ext;
-        }
-    }
-
-    pub fn add_extension_header(self: *IPv6Layer, next_header: NextHeader, data: []const u8, allocator: Allocator) !void {
-        const old_len = self.data.len;
-        const new_len = old_len + data.len;
-
-        self.data = try allocator.realloc(self.data, new_len);
-        @memcpy(self.data[old_len..][0..data.len], data);
-
-        // Update the previous header's next_header field
-        if (self.extensions.items.len == 0) {
-            var hdr = self.get_mutable_header();
-            hdr.set_next_header(next_header);
-        } else {
-            const last_ext = &self.extensions.items[self.extensions.items.len - 1];
-            var last_ext_header = @as(*HopByHopHeader, @ptrCast(last_ext.data.ptr));
-            last_ext_header.next_header = @intFromEnum(next_header);
+            cur = ext.get_next_extension();
         }
 
-        try self.extensions.append(ExtensionHeader{
-            .next_header = next_header,
-            .length = @intCast(data.len),
-            .data = self.data[old_len..new_len],
-        });
+        return null;
     }
+
+    //   pub fn add_extension_header(self: *IPv6Layer, next_header: NextHeader, data: []const u8, allocator: Allocator) !void {
+    //
+    //   }
 
     pub fn validate_layer(self: *IPv6Layer) void {
         _ = self;
@@ -701,6 +639,8 @@ pub const IPv6Layer = struct {
         if (data.len < @sizeOf(IPv6Header)) return error.BufferTooSmall;
 
         const meta = self.get_meta();
+
+        print("meta: {}\n", .{meta});
 
         const ip_proto = meta.ip_proto;
 
@@ -723,15 +663,14 @@ pub const IPv6Layer = struct {
         return IPv6Layer.Protocol;
     }
 
-    /// doesn't actually destroy the headers data, just the structs which store their type, offset, length
+    /// doesn't actually destroy the headers data, just the linkedlist nodes
     fn destroy_ext_headers(self: *IPv6Layer) void {
         var allocator = self.owner.get_allocator();
 
         var cur = self.ext_header;
 
         while (cur) |ext| {
-            const next = ext.next_ext;
-            print("destroying {any}\n", .{ext.header_type});
+            const next = ext.get_next_extension();
             allocator.destroy(ext);
             cur = next;
         }
