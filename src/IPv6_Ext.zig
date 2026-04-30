@@ -52,6 +52,7 @@ pub const NextHeader = enum(u8) {
 pub const ExtensionHeader = union(enum) {
     hbh: HopByHop,
     dst: DestinationOpts,
+    // TODO: add RoutingHeader next
 
     pub fn init(header_type: NextHeader, offset: usize, length: usize, layer: *IPv6.IPv6Layer) ExtensionHeader {
         switch (header_type) {

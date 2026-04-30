@@ -2,7 +2,7 @@ const std = @import("std");
 const Packet = @import("Packet.zig");
 const Layer = @import("Packet.zig").Layer;
 const Eth = @import("Eth.zig");
-const LoopBack = @import("Loopback.zig");
+const Loopback = @import("Loopback.zig");
 
 const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
@@ -26,7 +26,7 @@ const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 pub const LayerIface = union(enum) {
     ethLayer: Eth.EthLayer,
     vlanLayer: VLAN.VlanLayer,
-    //  loopbackLayer: LoopBack.LoopBackLayer,
+    loopbackLayer: Loopback.LoopbackLayer,
     ipv4Layer: IPv4.IPv4Layer,
     ipv6Layer: IPv6.IPv6Layer,
     udpLayer: UDP.UDPLayer,
@@ -42,7 +42,7 @@ pub const LayerIface = union(enum) {
         switch (choice) {
             Eth.EthLayer => return LayerIface{ .ethLayer = try Eth.EthLayer.init(owner) },
             VLAN.VlanLayer => return LayerIface{ .vlanLayer = try VLAN.VlanLayer.init(owner) },
-            //         LoopBack.LoopBackLayer => return LayerIface{ .loopbackLayer = try LoopBack.LoopBackLayer.init(owner) },
+            Loopback.LoopbackLayer => return LayerIface{ .loopbackLayer = try Loopback.LoopbackLayer.init(owner) },
             IPv4.IPv4Layer => return LayerIface{ .ipv4Layer = try IPv4.IPv4Layer.init(owner) },
             IPv6.IPv6Layer => return LayerIface{ .ipv6Layer = try IPv6.IPv6Layer.init(owner) },
             UDP.UDPLayer => return LayerIface{ .udpLayer = try UDP.UDPLayer.init(owner) },
@@ -59,7 +59,7 @@ pub const LayerIface = union(enum) {
         const new_instance = switch (self.*) {
             .ethLayer => LayerIface{ .ethLayer = try Eth.EthLayer.init(owner) },
             .vlanLayer => LayerIface{ .vlanLayer = try VLAN.VlanLayer.init(owner) },
-            //        .loopbackLayer => LayerIface{ .loopbackLayer = try LoopBack.LoopBackLayer.init(owner) },
+            .loopbackLayer => LayerIface{ .loopbackLayer = try Loopback.LoopbackLayer.init(owner) },
             .ipv4Layer => LayerIface{ .ipv4Layer = try IPv4.IPv4Layer.init(owner) },
             .ipv6Layer => LayerIface{ .ipv6Layer = try IPv6.IPv6Layer.init(owner) },
             .udpLayer => LayerIface{ .udpLayer = try UDP.UDPLayer.init(owner) },

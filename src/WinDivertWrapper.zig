@@ -1,6 +1,5 @@
 const std = @import("std");
 const link_layer_type = @import("ProtocolEnums.zig").link_layer_type;
-const PacketStructs = @import("PacketStructs.zig");
 const print = std.debug.print;
 
 const Allocator = std.mem.Allocator;
@@ -39,7 +38,7 @@ pub const WDPacket = struct {
 };
 
 pub const WinDivert = struct {
-    handle: ?*anyopaque,
+    handle: ?*anyopaque, // windows handle are just opaque ptrs (in c/c++ they're void*)
 
     pub fn init(filter: []const u8, layer: CaptureLayer, priority: i16, flags: u64) !WinDivert {
         var self = WinDivert{ .handle = null };
@@ -69,34 +68,19 @@ pub const WinDivert = struct {
             return null;
         }
 
-        const wdpacket = WDPacket{ .raw = pkt_buf, .wd_addr = windivert_addr };
+        const trimmed = try allocator.realloc(pkt_buf, recvLen);
+
+        const wdpacket = WDPacket{ .raw = trimmed, .wd_addr = windivert_addr };
 
         return wdpacket;
     }
 
-    //pub fn capture(self: WinDivert, allocator: std.mem.Allocator, callback: fn (*RawPacket, std.mem.Allocator) void) !void {
-    //    const pkt_buf = try allocator.alloc(u8, 1024);
+    pub fn inject_one(self: WinDivert, packet: WDPacket) void {
+        var send_len: c_uint = 0;
+        const res = c.WinDivertSend(self.handle, packet.raw.ptr, @intCast(packet.raw.len), &send_len, @ptrCast(packet.wd_addr));
 
-    //    const windivert_addr: *WINDIVERT_ADDRESS = try allocator.create(WINDIVERT_ADDRESS);
-
-    //    var recvLen: c_uint = 0;
-
-    //    if (c.WinDivertRecv(self.handle, pkt_buf.ptr, @intCast(pkt_buf.len), &recvLen, @ptrCast(windivert_addr)) == 0) {
-    //        return error.WinDivertRecvFailed;
-    //    }
-
-    //    print("captured packet len: {d}\n", .{recvLen});
-
-    //    const buf = try allocator.realloc(pkt_buf, @intCast(recvLen));
-
-    //    var raw_pkt = try allocator.create(RawPacket);
-
-    //    raw_pkt = try RawPacket.init(std.time.microTimestamp(), std.time.timestamp(), buf, recvLen, LinkLayerType.RAW, allocator);
-
-    //    raw_pkt.additional = windivert_addr;
-
-    //    callback(raw_pkt, allocator);
-    //}
+        _ = res;
+    }
 
     pub fn deinit(self: WinDivert) void {
         _ = c.WinDivertClose(self.handle);

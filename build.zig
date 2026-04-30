@@ -14,25 +14,37 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
 
-    // Optional C library artifact
     const lib = b.addLibrary(.{
         .name = "zigcap",
         .linkage = .static,
         .root_module = mod,
     });
 
-    // important line
     const npcap_path =
         b.option([]const u8, "npcap-sdk", "Path to Npcap SDK") orelse "third_party/npcap-sdk-1.15";
 
-    const include_path = b.pathJoin(&.{ npcap_path, "Include" });
-    const lib_path = b.pathJoin(&.{ npcap_path, "Lib", "x64" });
+    const np_include_path = b.pathJoin(&.{ npcap_path, "Include" });
+    const np_lib_path = b.pathJoin(&.{ npcap_path, "Lib", "x64" });
 
-    mod.addIncludePath(.{ .cwd_relative = include_path });
-    mod.addLibraryPath(.{ .cwd_relative = lib_path });
+    mod.addIncludePath(.{ .cwd_relative = np_include_path });
+    mod.addLibraryPath(.{ .cwd_relative = np_lib_path });
 
     mod.linkSystemLibrary("wpcap", .{});
     mod.linkSystemLibrary("Packet", .{});
+
+    const wind_path =
+        b.option([]const u8, "wind_sdk", "Path to WinDivert SDK") orelse "third_party/WinDivert-2.2.2-A/";
+
+    const wd_include_path = b.pathJoin(&.{ wind_path, "include" });
+    const wd_lib_path = b.pathJoin(&.{ wind_path, "x64" });
+
+    mod.addIncludePath(.{ .cwd_relative = wd_include_path });
+    mod.addLibraryPath(.{ .cwd_relative = wd_lib_path });
+
+    mod.linkSystemLibrary("ws2_32", .{});
+    mod.linkSystemLibrary("Advapi32", .{});
+    mod.linkSystemLibrary("WinDivert", .{});
+    mod.linkSystemLibrary("iphlpapi", .{});
 
     b.installArtifact(lib);
 
@@ -50,11 +62,19 @@ pub fn build(b: *std.Build) void {
 
     tests.root_module.addImport("zigcap", mod);
 
-    tests.addIncludePath(.{ .cwd_relative = include_path });
-    tests.addLibraryPath(.{ .cwd_relative = lib_path });
+    tests.addIncludePath(.{ .cwd_relative = np_include_path });
+    tests.addLibraryPath(.{ .cwd_relative = np_lib_path });
 
     tests.linkSystemLibrary("wpcap");
     tests.linkSystemLibrary("Packet");
+
+    tests.addIncludePath(.{ .cwd_relative = wd_include_path });
+    tests.addLibraryPath(.{ .cwd_relative = wd_lib_path });
+
+    tests.linkSystemLibrary("ws2_32");
+    tests.linkSystemLibrary("Advapi32");
+    tests.linkSystemLibrary("WinDivert");
+    tests.linkSystemLibrary("iphlpapi");
 
     const run_tests = b.addRunArtifact(tests);
 

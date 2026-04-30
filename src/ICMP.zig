@@ -19,7 +19,7 @@ pub const ICMPHeaderSize = 8;
 pub const ICMPType = enum(u8) {
     EchoReply = 0,
     DestinationUnreachable = 3,
-    SourceQuench = 4,
+    SourceQuench = 4, // not used often - need to get working example first
     Redirect = 5,
     EchoRequest = 8,
     RouterAdvertisement = 9,
@@ -32,29 +32,9 @@ pub const ICMPType = enum(u8) {
     InformationReply = 16,
     AddressMaskRequest = 17,
     AddressMaskReply = 18,
-
-    pub fn to_string(self: ICMPType) []const u8 {
-        return switch (self) {
-            .EchoReply => "Echo Reply",
-            .DestinationUnreachable => "Destination Unreachable",
-            .SourceQuench => "Source Quench",
-            .Redirect => "Redirect",
-            .EchoRequest => "Echo Request",
-            .RouterAdvertisement => "Router Advertisement",
-            .RouterSolicitation => "Router Solicitation",
-            .TimeExceeded => "Time Exceeded",
-            .ParameterProblem => "Parameter Problem",
-            .TimestampRequest => "Timestamp Request",
-            .TimestampReply => "Timestamp Reply",
-            .InformationRequest => "Information Request",
-            .InformationReply => "Information Reply",
-            .AddressMaskRequest => "Address Mask Request",
-            .AddressMaskReply => "Address Mask Reply",
-        };
-    }
 };
 
-pub const ICMPDestinationUnreachableCode = enum(u8) {
+pub const DestinationUnreachableCode = enum(u8) {
     NetUnreachable = 0,
     HostUnreachable = 1,
     ProtocolUnreachable = 2,
@@ -71,81 +51,40 @@ pub const ICMPDestinationUnreachableCode = enum(u8) {
     CommunicationAdministrativelyProhibited = 13,
     HostPrecedenceViolation = 14,
     PrecedenceCutoffInEffect = 15,
-
-    pub fn to_string(self: ICMPDestinationUnreachableCode) []const u8 {
-        return switch (self) {
-            .NetUnreachable => "Network Unreachable",
-            .HostUnreachable => "Host Unreachable",
-            .ProtocolUnreachable => "Protocol Unreachable",
-            .PortUnreachable => "Port Unreachable",
-            .FragmentationNeeded => "Fragmentation Needed",
-            .SourceRouteFailed => "Source Route Failed",
-            .DestinationNetworkUnknown => "Destination Network Unknown",
-            .DestinationHostUnknown => "Destination Host Unknown",
-            .SourceHostIsolated => "Source Host Isolated",
-            .NetworkAdministrativelyProhibited => "Network Administratively Prohibited",
-            .HostAdministrativelyProhibited => "Host Administratively Prohibited",
-            .NetworkUnreachableForTOS => "Network Unreachable For TOS",
-            .HostUnreachableForTOS => "Host Unreachable For TOS",
-            .CommunicationAdministrativelyProhibited => "Communication Administratively Prohibited",
-            .HostPrecedenceViolation => "Host Precedence Violation",
-            .PrecedenceCutoffInEffect => "Precedence Cutoff In Effect",
-        };
-    }
 };
 
-pub const ICMPRedirectCode = enum(u8) {
+pub const RedirectCode = enum(u8) {
     RedirectForNetwork = 0,
     RedirectForHost = 1,
     RedirectForTOSAndNetwork = 2,
     RedirectForTOSAndHost = 3,
-
-    pub fn to_string(self: ICMPRedirectCode) []const u8 {
-        return switch (self) {
-            .RedirectForNetwork => "Redirect For Network",
-            .RedirectForHost => "Redirect For Host",
-            .RedirectForTOSAndNetwork => "Redirect For TOS And Network",
-            .RedirectForTOSAndHost => "Redirect For TOS And Host",
-        };
-    }
 };
 
-pub const ICMPTimeExceededCode = enum(u8) {
+pub const TimeExceededCode = enum(u8) {
     TTLExceeded = 0,
     FragmentReassemblyTimeExceeded = 1,
-
-    pub fn to_string(self: ICMPTimeExceededCode) []const u8 {
-        return switch (self) {
-            .TTLExceeded => "TTL Exceeded",
-            .FragmentReassemblyTimeExceeded => "Fragment Reassembly Time Exceeded",
-        };
-    }
 };
 
-pub const ICMPParameterProblemCode = enum(u8) {
+pub const ParameterProblemCode = enum(u8) {
     PointerIndicatesError = 0,
     MissingOption = 1,
     BadLength = 2,
-
-    pub fn to_string(self: ICMPParameterProblemCode) []const u8 {
-        return switch (self) {
-            .PointerIndicatesError => "Pointer Indicates Error",
-            .MissingOption => "Missing Option",
-            .BadLength => "Bad Length",
-        };
-    }
 };
 
-pub const ICMPNoCode = enum(u8) {
+pub const NoCode = enum(u8) {
     None = 0,
-
-    pub fn to_string(self: ICMPNoCode) []const u8 {
-        _ = self;
-        return "None";
-    }
 };
 
-pub const ICMPEcho = struct {
+pub const ICMPCode = union(enum) {
+    no: NoCode,
+    param_problem: ParameterProblemCode,
+    time_exceeded: TimeExceededCode,
+    redirect: RedirectCode,
+    dest_unreachable: DestinationUnreachableCode,
+};
+
+/// ICMP Echo (Request/Response)
+pub const ICMPEcho = extern struct {
     identifier: u16,
     sequence: u16,
 
@@ -166,23 +105,27 @@ pub const ICMPEcho = struct {
     }
 };
 
-pub const ICMPDestUnr = struct {
+/// ICMP Destination Unreachable
+/// used in TTL timeouts
+pub const ICMPDestUnr = extern struct {
     unused: [4]u8,
 };
 
-pub const ICMPRedirect = struct {
+/// ICMP Redirect
+pub const ICMPRedirect = extern struct {
     gateway: [4]u8,
 
-    pub fn set_gateway(self: *ICMPHeader, gateway: IPv4.IPv4Address) void { // TODO: use Ipv4 address struct instead
+    pub fn set_gateway(self: *ICMPRedirect, gateway: IPv4.IPv4Address) void {
         self.redirect.gateway = gateway.array;
     }
 
-    pub fn get_gateway(self: *const ICMPHeader) IPv4.IPv4Address { // TODO: use Ipv4 address struct instead
+    pub fn get_gateway(self: *const ICMPRedirect) IPv4.IPv4Address {
         return IPv4.IPv4Address.init_from_array(self.redirect.gateway);
     }
 };
 
-pub const ICMPParamProb = struct {
+/// ICMP Parameter Problem
+pub const ICMPParamProb = extern struct {
     pointer: u8,
     unused: [3]u8,
 
@@ -195,7 +138,8 @@ pub const ICMPParamProb = struct {
     }
 };
 
-pub const ICMPRouterAd = struct {
+/// ICMP Router Advertisement
+pub const ICMPRouterAd = extern struct {
     num_addresses: u8,
     addr_entry_size: u8,
     lifetime: u16,
@@ -225,7 +169,8 @@ pub const ICMPRouterAd = struct {
     }
 };
 
-pub const ICMPRouterSol = struct {
+/// ICMP Router Solicitation
+pub const ICMPRouterSol = extern struct {
     reserved: [4]u8,
 };
 
@@ -239,7 +184,7 @@ pub const ICMP_type = union(enum) {
 };
 
 /// Acts as the base header for ICMP
-pub const ICMPHeader = struct {
+pub const ICMPHeader = extern struct {
     type: u8,
     code: u8,
     checksum: u16,
@@ -260,29 +205,8 @@ pub const ICMPHeader = struct {
         return @enumFromInt(self.type);
     }
 
-    // Type-safe code setters/getters
-    pub fn set_dest_unreachable_code(self: *ICMPHeader, code: ICMPDestinationUnreachableCode) void {
-        self.code = @intFromEnum(code);
-    }
-
-    pub fn get_dest_unreachable_code(self: *const ICMPHeader) ICMPDestinationUnreachableCode {
-        return @enumFromInt(self.code);
-    }
-
-    pub fn set_redirect_code(self: *ICMPHeader, code: ICMPRedirectCode) void {
-        self.code = @intFromEnum(code);
-    }
-
-    pub fn get_redirect_code(self: *const ICMPHeader) ICMPRedirectCode {
-        return @enumFromInt(self.code);
-    }
-
-    pub fn set_time_exceeded_code(self: *ICMPHeader, code: ICMPTimeExceededCode) void {
-        self.code = @intFromEnum(code);
-    }
-
-    pub fn get_time_exceeded_code(self: *const ICMPHeader) ICMPTimeExceededCode {
-        return @enumFromInt(self.code);
+    pub fn set_code(self: *ICMPHeader, code: u8) void {
+        self.code = code;
     }
 
     // Calculate ICMP checksum (covers header + payload)
@@ -323,7 +247,7 @@ pub const ICMPHeader = struct {
         }
 
         // Take one's complement
-        self.checksum = ~@as(u16, @intCast(sum));
+        self.checksum = @byteSwap(~@as(u16, @intCast(sum)));
 
         _ = old_checksum;
     }
@@ -378,7 +302,8 @@ pub const ICMPLayer = struct {
                 var self = ICMPLayer{ .owner = owner };
                 const buffer_len = self.owner.owned_buffer.buffer.items.len;
                 if (buffer_len < ICMPHeaderSize) {
-                    const icmp_data = try self.owner.owned_buffer.extend(buffer_len, ICMPHeaderSize);
+                    const diff = ICMPHeaderSize - buffer_len;
+                    const icmp_data = try self.owner.owned_buffer.extend(buffer_len, diff);
 
                     @memset(icmp_data, 0);
 
@@ -398,14 +323,39 @@ pub const ICMPLayer = struct {
         const data = self.get_data();
 
         switch (base_hdr.get_type()) {
-            .EchoReply => {
+            .EchoReply, .EchoRequest => {
                 const echo_hdr_start = data[4..];
                 const aligned_ptr: [*]align(@alignOf(ICMPEcho)) u8 = @alignCast(echo_hdr_start.ptr);
                 const icmp_echo_hdr: *ICMPEcho = @ptrCast(aligned_ptr);
                 return ICMP_type{ .icmpEcho = icmp_echo_hdr };
             },
+            .DestinationUnreachable, .TimeExceeded => {
+                const te_hdr_start = data[4..];
+                const aligned_ptr: [*]align(@alignOf(ICMPDestUnr)) u8 = @alignCast(te_hdr_start.ptr);
+                const icmp_te_hdr: *ICMPDestUnr = @ptrCast(aligned_ptr);
+                return ICMP_type{ .icmpDestUnreachable = icmp_te_hdr };
+            },
+            .Redirect => {
+                const rd_hdr_start = data[4..];
+                const aligned_ptr: [*]align(@alignOf(ICMPRedirect)) u8 = @alignCast(rd_hdr_start.ptr);
+                const icmp_rd_hdr: *ICMPRedirect = @ptrCast(aligned_ptr);
+                return ICMP_type{ .icmpRedirect = icmp_rd_hdr };
+            },
 
-            else => return null,
+            .ParameterProblem => {
+                const hdr: *ICMPParamProb = @ptrCast(@alignCast(data[4..].ptr));
+                return ICMP_type{ .icmpParamProbl = hdr };
+            },
+            .RouterAdvertisement => {
+                const hdr: *ICMPRouterAd = @ptrCast(@alignCast(data[4..].ptr));
+                return ICMP_type{ .icmpRouterAd = hdr };
+            },
+            .RouterSolicitation => {
+                const hdr: *ICMPRouterSol = @ptrCast(@alignCast(data[4..].ptr));
+                return ICMP_type{ .icmpRouterSoli = hdr };
+            },
+
+            else => return null, // Timestamp, Information, AddressMask types need structs
         }
     }
 
@@ -456,71 +406,6 @@ pub const ICMPLayer = struct {
         hdr.set_type(icmp_type);
     }
 
-    // Type-safe code getters/setters based on ICMP type
-    pub fn get_dest_unreachable_code(self: *ICMPLayer) !ICMPDestinationUnreachableCode {
-        const hdr = self.get_immutable_header();
-        if (hdr.get_type() != .DestinationUnreachable) {
-            return LayerError.InvalidOperation;
-        }
-        return hdr.get_dest_unreachable_code();
-    }
-
-    pub fn set_dest_unreachable_code(self: *ICMPLayer, code: ICMPDestinationUnreachableCode) !void {
-        var hdr = self.get_mutable_header();
-        if (hdr.get_type() != .DestinationUnreachable) {
-            return LayerError.InvalidOperation;
-        }
-        hdr.set_dest_unreachable_code(code);
-    }
-
-    pub fn get_redirect_code(self: *ICMPLayer) !ICMPRedirectCode {
-        const hdr = self.get_immutable_header();
-        if (hdr.get_type() != .Redirect) {
-            return LayerError.InvalidOperation;
-        }
-        return hdr.get_redirect_code();
-    }
-
-    pub fn set_redirect_code(self: *ICMPLayer, code: ICMPRedirectCode) !void {
-        var hdr = self.get_mutable_header();
-        if (hdr.get_type() != .Redirect) {
-            return LayerError.InvalidOperation;
-        }
-        hdr.set_redirect_code(code);
-    }
-
-    pub fn get_time_exceeded_code(self: *ICMPLayer) !ICMPTimeExceededCode {
-        const hdr = self.get_immutable_header();
-        if (hdr.get_type() != .TimeExceeded) {
-            return LayerError.InvalidOperation;
-        }
-        return hdr.get_time_exceeded_code();
-    }
-
-    pub fn set_time_exceeded_code(self: *ICMPLayer, code: ICMPTimeExceededCode) !void {
-        var hdr = self.get_mutable_header();
-        if (hdr.get_type() != .TimeExceeded) {
-            return LayerError.InvalidOperation;
-        }
-        hdr.set_time_exceeded_code(code);
-    }
-
-    pub fn get_param_problem_code(self: *ICMPLayer) !ICMPParameterProblemCode {
-        const hdr = self.get_immutable_header();
-        if (hdr.get_type() != .ParameterProblem) {
-            return LayerError.InvalidOperation;
-        }
-        return hdr.get_param_problem_code();
-    }
-
-    pub fn set_param_problem_code(self: *ICMPLayer, code: ICMPParameterProblemCode) !void {
-        var hdr = self.get_mutable_header();
-        if (hdr.get_type() != .ParameterProblem) {
-            return LayerError.InvalidOperation;
-        }
-        hdr.set_param_problem_code(code);
-    }
-
     // Generic code getter (returns raw u8, use with caution)
     pub fn get_code_raw(self: *ICMPLayer) u8 {
         const hdr = self.get_immutable_header();
@@ -558,11 +443,13 @@ pub const ICMPLayer = struct {
         return hdr.checksum;
     }
 
+    //fn account_options(self: *ICMPLayer) !void {
+    //
+    //}
+
     pub fn validate_layer(self: *ICMPLayer) void {
         const hdr = self.get_mutable_header();
-        if (self.get_payload().len > 0) {
-            hdr.calculate_checksum(self.get_payload());
-        }
+        hdr.calculate_checksum(self.get_payload());
     }
 
     /// doesn't work - don't use it
@@ -576,105 +463,9 @@ pub const ICMPLayer = struct {
     pub fn to_string(self: *ICMPLayer, allocator: std.mem.Allocator) []const u8 {
         const hdr = self.get_immutable_header();
 
-        return std.fmt.allocPrint(allocator, "{s}", .{@tagName(hdr.get_type())}) catch {
+        return std.fmt.allocPrint(allocator, "{any}", .{hdr.get_type()}) catch {
             return "";
         };
-
-        //       const icmp_type = hdr.get_type();
-        //
-        //       var code_string: []const u8 = undefined;
-        //       var code_value: u8 = undefined;
-        //
-        //       switch (icmp_type) {
-        //           .DestinationUnreachable => {
-        //               if (self.get_dest_unreachable_code()) |code| {
-        //                   code_string = code.to_string();
-        //                   code_value = @intFromEnum(code);
-        //               } else |_| {
-        //                   code_string = "Error";
-        //                   code_value = hdr.code;
-        //               }
-        //           },
-        //           .Redirect => {
-        //               if (self.get_redirect_code()) |code| {
-        //                   code_string = code.to_string();
-        //                   code_value = @intFromEnum(code);
-        //               } else |_| {
-        //                   code_string = "Error";
-        //                   code_value = hdr.code;
-        //               }
-        //           },
-        //           .TimeExceeded => {
-        //               if (self.get_time_exceeded_code()) |code| {
-        //                   code_string = code.to_string();
-        //                   code_value = @intFromEnum(code);
-        //               } else |_| {
-        //                   code_string = "Error";
-        //                   code_value = hdr.code;
-        //               }
-        //           },
-        //           .ParameterProblem => {
-        //               if (self.get_param_problem_code()) |code| {
-        //                   code_string = code.to_string();
-        //                   code_value = @intFromEnum(code);
-        //               } else |_| {
-        //                   code_string = "Error";
-        //                   code_value = hdr.code;
-        //               }
-        //           },
-        //           else => {
-        //               code_string = "None";
-        //               code_value = hdr.code;
-        //           },
-        //       }
-        //
-        //       const checksum = hdr.checksum;
-        //
-        //       var buf = std.ArrayList(u8).empty;
-        //       defer buf.deinit(allocator);
-        //
-        //       const writer = buf.writer(allocator);
-        //
-        //       // Base info (using catch to handle any print errors)
-        //       _ = writer.print(
-        //           \\ICMP Layer:
-        //           \\  Type: {s} ({})
-        //           \\  Code: {s} ({})
-        //           \\  Checksum: 0x{x:0>4}
-        //           \\
-        //       , .{
-        //           icmp_type.to_string(),
-        //           @intFromEnum(icmp_type),
-        //           code_string,
-        //           code_value,
-        //           checksum,
-        //       }) catch {};
-        //
-        //       // Type-specific fields
-        //       switch (icmp_type) {
-        //           .EchoRequest, .EchoReply, .TimestampRequest, .TimestampReply, .InformationRequest, .InformationReply, .AddressMaskRequest, .AddressMaskReply => {
-        //               const identifier = self.get_identifier();
-        //               const sequence = self.get_sequence();
-        //               _ = writer.print("  Identifier: {}\n  Sequence: {}\n", .{ identifier, sequence }) catch {};
-        //           },
-        //           .Redirect => {
-        //               const gateway = self.get_gateway() catch 0;
-        //               _ = writer.print("  Gateway: {}\n", .{gateway}) catch {};
-        //           },
-        //           .ParameterProblem => {
-        //               const pointer = self.get_pointer() catch 0;
-        //               _ = writer.print("  Pointer: {}\n", .{pointer}) catch {};
-        //           },
-        //           else => {},
-        //       }
-        //
-        //       // Payload
-        //       const payload = self.get_payload();
-        //       if (payload) |p| {
-        //           _ = writer.print("  Payload Length: {} bytes\n", .{p.len}) catch {};
-        //       }
-        //
-        //       return buf.toOwnedSlice(allocator) catch return &[_]u8{};
     }
 
     pub fn get_protocol(self: *ICMPLayer) tcp_ip_protocol {
@@ -685,18 +476,17 @@ pub const ICMPLayer = struct {
     pub fn get_next_layer_type(self: *ICMPLayer, layer: *Layer) !?LayerIface {
         _ = self;
         _ = layer;
+        // these types can include original packet copy
+        // dest Unreachable
+        // time exceeded
+        // param Problem
+        // source quench
+        //
         return null;
     }
 
     pub fn deinit(self: *ICMPLayer) void {
-        switch (self.owner) {
-            .packet_layer => {
-                return; // Layer in packet - don't free
-            },
-            .owned_buffer => |*buffer| {
-                return buffer.deinit(); // standalone layer - it is mutable by default
-            },
-        }
+        self.owner.deinit();
     }
 };
 
@@ -704,4 +494,4 @@ pub const ICMPLayer = struct {
 //       if (@sizeOf(ICMPHeader) != 8) {
 //           @compileError("ICMPHeader size must be 8 bytes");
 //       }
-//   }
+//

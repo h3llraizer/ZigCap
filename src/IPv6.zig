@@ -374,8 +374,6 @@ pub const IPv6Layer = struct {
         var current_next: u8 = self.get_immutable_header().next_header;
         const data = self.get_data();
 
-        print("next_header: {}\n", .{current_next});
-
         var ext_total_len: usize = 0;
         var ext_count: usize = 0;
 
@@ -454,8 +452,6 @@ pub const IPv6Layer = struct {
         };
 
         const meta = IPv6LayerMeta{ .ext_count = ext_count, .ip_proto = @enumFromInt(ip_proto), .ext_total_len = ext_total_len };
-
-        print("meta: {any}\n", .{meta});
 
         return meta;
     }
@@ -639,8 +635,6 @@ pub const IPv6Layer = struct {
         if (data.len < @sizeOf(IPv6Header)) return error.BufferTooSmall;
 
         const meta = self.get_meta();
-
-        print("meta: {}\n", .{meta});
 
         const ip_proto = meta.ip_proto;
 

@@ -1,5 +1,5 @@
 const Eth = @import("Eth.zig");
-const LoopBack = @import("Loopback.zig");
+const Loopback = @import("Loopback.zig");
 
 const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
@@ -27,10 +27,15 @@ pub const tcp_ip_protocol = enum(u32) {
     udp = 11,
 };
 
+pub const TransportLayer = union(enum) {
+    tcp: TCP.TCPLayer,
+    udp: UDP.UDPLayer,
+};
+
 pub fn get_layer_type_enum(value: type) !tcp_ip_protocol {
     switch (value) {
         Eth.EthLayer => return tcp_ip_protocol.eth,
-        LoopBack.LoopBackLayer => return tcp_ip_protocol.loopback,
+        Loopback.LoopbackLayer => return tcp_ip_protocol.loopback,
         IPv4.IPv4Layer => return tcp_ip_protocol.ipv4,
         IPv6.IPv6Layer => return tcp_ip_protocol.ipv6,
         UDP.UDPLayer => return tcp_ip_protocol.udp,

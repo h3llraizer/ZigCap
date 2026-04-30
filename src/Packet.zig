@@ -14,7 +14,7 @@ const link_layer_type = ProtocolEnums.link_layer_type;
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const Eth = @import("Eth.zig");
 const EthLayer = Eth.EthLayer;
-const LoopBack = @import("Loopback.zig");
+const Loopback = @import("Loopback.zig");
 const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
 const GenericLayer = @import("GenericLayer.zig");
@@ -151,7 +151,7 @@ pub const Packet = struct {
                 return try create_ip_layer(raw, layer);
             },
             .LOOP, .NULL => {
-                return try LayerIface.init(LoopBack.LoopBackLayer, LayerOwner{ .packet_layer = layer });
+                return try LayerIface.init(Loopback.LoopbackLayer, LayerOwner{ .packet_layer = layer });
             },
             else => {
                 return error.LinkLayerUnknown;
