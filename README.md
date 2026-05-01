@@ -9,14 +9,16 @@ Currently supported functionality:
 - Build packets
 - Parse and modify existing packets
 - Build standalone layers (not attached to Packet)
-- Sniff and Inject packets with the PcapWrapper and WinDivertWrapper (only tested on Windows)
+- Sniff and Inject packets with the PcapWrapper (tested on Windows)
+- Sniff, Block, Modify or Drop Packets with the WinDivertWrapper (Windows)
 
 ## Supported Protocols
+- Loopback (`src/Loopback.zig`)
 - Ethernet (`src/Eth.zig`)
+- ARP (`src/ARP.zig`)
 - IPv4 (`src/IPv4.zig`)
 - IPv6 (`src/IPv6.zig`)
 - UDP (`src/UDP.zig`)
-- ARP (`src/ARP.zig`)
 - ICMP (`src/ICMP.zig`)
 - DNS (`src/DNS.zig`)
 - Generic / Application Layer (`src/GenericLayer.zig`)

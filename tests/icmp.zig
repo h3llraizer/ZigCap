@@ -69,10 +69,6 @@ test "build icmp request" {
     };
 
     icmp_type_hdr.icmpRedirect.gateway = (try IPv4.IPv4Address.init_from_string("192.168.1.254")).array;
-
-    const data = icmp_layer_iface.get_data();
-
-    print("{x}\n", .{data});
 }
 
 test "build icmp request with redirect" {
@@ -122,6 +118,4 @@ test "build icmp request with redirect" {
     _ = try packet.add_layer(&eth_layer_iface);
     _ = try packet.add_layer(&ipv4_layer_iface);
     _ = try packet.add_layer(&icmp_layer_iface);
-
-    packet.print_layers_meta();
 }

@@ -1,12 +1,11 @@
 const std = @import("std");
-const link_layer_type = @import("ProtocolEnums.zig").link_layer_type;
-const print = std.debug.print;
-
-const Allocator = std.mem.Allocator;
-
 const c = @cImport({
     @cInclude("WinDivert.h");
 });
+
+const link_layer_type = @import("ProtocolEnums.zig").link_layer_type;
+const print = std.debug.print;
+const Allocator = std.mem.Allocator;
 
 pub const WINDIVERT_ADDRESS = extern struct {
     Timestamp: i64,
@@ -30,6 +29,23 @@ pub const CaptureMode = enum(u64) {
     WINDIVERT_FLAG_DROP = 2,
     WINDIVERT_FLAG_RECV_ONLY = 4,
     WINDIVERT_FLAG_SEND_ONLY = 8,
+};
+
+///  SniffRecvOnly   -  Sniffing with receive-only restriction
+///  SniffNoDrvrInst -  Sniffing without driver installation
+///  RecvNoDrvrInst  -  Receive-only without driver installation
+///  SendNoDrvrInst  -  Send-only without driver installation
+///  SniffWithIPFrag -  Sniffing with IP fragment capture
+///  RecvWithIPFrag  -  Receive-only with IP fragment capture
+///  CaptureAndBlock -  Capture packets and block until reinjected
+const CaptureModeCombo = enum(u64) {
+    SniffRecvOnly = (@intFromEnum(CaptureMode.WINDIVERT_FLAG_SNIFF) | @intFromEnum(CaptureMode.WINDIVERT_FLAG_RECV_ONLY)), //       Sniffing with receive-only restriction
+    //   SniffNoDrvrInst = (@intFromEnum(CaptureMode.WINDIVERT_FLAG_SNIFF) | @intFromEnum(CaptureMode.WINDIVERT_FLAG_NO_INSTALL)), //    Sniffing without driver installation
+    //   RecvNoDrvrInst = (@intFromEnum(CaptureMode.WINDIVERT_FLAG_RECV_ONLY) | @intFromEnum(CaptureMode.WINDIVERT_FLAG_NO_INSTALL)), // Receive-only without driver installation
+    //   SendNoDrvrInst = (@intFromEnum(CaptureMode.WINDIVERT_FLAG_SEND_ONLY) | @intFromEnum(CaptureMode.WINDIVERT_FLAG_NO_INSTALL)), // Send-only without driver installation
+    //SniffWithIPFrag = (@intFromEnum(CaptureMode.WINDIVERT_FLAG_SNIFF) | @intFromEnum(CaptureMode.WINDIVERT_FLAG_FRAGMENTS)), //  -  Sniffing with IP fragment capture
+    //RecvWithIPFrag = (@intFromEnum(CaptureMode.WINDIVERT_FLAG_RECV_ONLY) | @intFromEnum(CaptureMode.WINDIVERT_FLAG_FRAGMENTS)), //  Receive-only with IP fragment capture
+
 };
 
 pub const WDPacket = struct {
@@ -68,7 +84,7 @@ pub const WinDivert = struct {
             return null;
         }
 
-        const trimmed = try allocator.realloc(pkt_buf, recvLen);
+        const trimmed = try allocator.realloc(pkt_buf, recvLen); // trim the allocation to the actual size recieved
 
         const wdpacket = WDPacket{ .raw = trimmed, .wd_addr = windivert_addr };
 

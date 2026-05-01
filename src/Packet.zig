@@ -75,7 +75,6 @@ pub const Packet = struct {
     /// Parses a packet from an existing slice (data).
     /// Each layer is parsed until optional tcp_ip_protocol specified or until last layer in packet.
     /// Takes ownership of the buffer provided.
-    ///
     pub fn from_raw(self: *Packet, allocator: Allocator, buffer: *std.array_list.Aligned(u8, .@"2"), link_type: link_layer_type, parse_until: ?tcp_ip_protocol) !void {
         if (self.buffer.buffer.items.len > 0) {
             return error.PacketBufferNotEmpty;
@@ -94,22 +93,8 @@ pub const Packet = struct {
         try self.accumulate_layers(parse_until);
     }
 
-    pub fn get_raw(self: *Packet) []align(2) u8 {
+    pub fn get_raw(self: *Packet) []align(2) const u8 {
         return self.buffer.buffer.items;
-    }
-
-    fn parse_raw(self: *Packet, link_type: link_layer_type, parse_until: ?tcp_ip_protocol) !void {
-        const first_layer = try self.layer_allocator.create(Layer); // create layer struct
-
-        const link_layer = try create_first_layer(self.buffer.buffer.items, link_type, first_layer) orelse {
-            return error.LinkLayerCreationFailed;
-        };
-
-        first_layer.* = Layer.init(0, self.buffer.buffer.items.len, link_layer, self);
-
-        self.first_layer = first_layer;
-
-        try self.accumulate_layers(parse_until);
     }
 
     fn create_ip_layer(raw: []const u8, layer: *Layer) !?LayerIface {
@@ -162,12 +147,7 @@ pub const Packet = struct {
     fn accumulate_layers(self: *Packet, parse_until: ?tcp_ip_protocol) !void {
         var cur = self.first_layer;
 
-        //defer self.last_layer = cur;
-
         while (cur) |current_layer| {
-            //print("current layer: ", .{});
-            //current_layer.print_meta();
-
             const next_layer: *Layer = try self.layer_allocator.create(Layer);
 
             const impl_layer = blk: {
@@ -189,16 +169,11 @@ pub const Packet = struct {
 
             const current_layer_payload = current_layer.layer_iface.get_payload();
 
-            //print("current layer payload len: {}\n", .{current_layer_payload.len});
-
             current_layer.length -= current_layer_payload.len;
 
             const next_layer_offset = current_layer.offset + current_layer.length;
 
             next_layer.* = Layer.init(next_layer_offset, current_layer_payload.len, impl_layer, self);
-
-            //print("next layer: ", .{});
-            //next_layer.print_meta();
 
             // Set up the linked list pointers
             next_layer.prev_layer = current_layer;
@@ -275,7 +250,7 @@ pub const Packet = struct {
         return false;
     }
 
-    pub fn search_layers(self: *Packet, target: tcp_ip_protocol) ?*Layer {
+    pub fn search_layers(self: *Packet, target: tcp_ip_protocol) ?*Layer { // this should return a const ptr
         var cur = self.first_layer;
         while (cur) |layer| {
             if (layer.layer_iface.get_protocol() == target) {
@@ -294,15 +269,6 @@ pub const Packet = struct {
             layer.layer_iface.validate_layer();
             cur = layer.prev_layer;
         }
-    }
-
-    fn create_layer(self: *Packet, layer_iface: *LayerIface) !*Layer {
-        const data = layer_iface.get_data();
-
-        const layer: *Layer = try self.allocator.create(Layer);
-        layer.* = Layer.init(data, layer_iface.*, self); // deref and set the values
-
-        return layer;
     }
 
     pub fn extend_layer(self: *Packet, layer: *Layer, length: usize) ![]u8 { // TODO: call proceeding layers calculate_length
@@ -492,7 +458,6 @@ pub const Packet = struct {
             defer allocator.free(returned_str);
             try buffer.appendSlice(allocator, returned_str);
 
-            // TODO: add the defer free of the returned slice - why is it causing double free?
             cur = layer.next_layer;
         }
 

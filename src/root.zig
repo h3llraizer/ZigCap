@@ -1,23 +1,33 @@
-//! By convention, root.zig is the root source file when making a library.
+// src/lib.zig - Main entry point for ZigCap library
 const std = @import("std");
 
-pub fn bufferedPrint() !void {
-    // Stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    var stdout_buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-    const stdout = &stdout_writer.interface;
+// This will be your public API
+pub const Version = struct {
+    major: u32,
+    minor: u32,
+    patch: u32,
+};
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
-
-    try stdout.flush(); // Don't forget to flush!
-}
-
-pub fn add(a: i32, b: i32) i32 {
-    return a + b;
-}
-
-test "basic add functionality" {
-    try std.testing.expect(add(3, 7) == 10);
-}
+pub const version = Version{
+    .major = 0,
+    .minor = 1,
+    .patch = 0,
+};
+pub const Eth = @import("Eth.zig");
+pub const VLAN = @import("VLAN.zig");
+pub const Loopback = @import("Loopback.zig");
+pub const ARP = @import("ARP.zig");
+pub const DNS = @import("DNS.zig");
+pub const ICMP = @import("ICMP.zig");
+pub const IPv4 = @import("IPv4.zig");
+pub const IPv6 = @import("IPv6.zig");
+pub const Packet = @import("Packet.zig");
+pub const TCP = @import("TCP.zig");
+pub const UDP = @import("UDP.zig");
+pub const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
+pub const ProtocolEnums = @import("ProtocolEnums.zig");
+pub const Layer = @import("Layer.zig");
+pub const LayerIface = @import("LayerIface.zig").LayerIface;
+pub const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
+pub const PcapWrapper = @import("PcapWrapper.zig");
+pub const WinDivertWrapper = @import("WinDivertWrapper.zig");

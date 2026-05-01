@@ -13,4 +13,5 @@ test {
     _ = @import("udp.zig");
     _ = @import("tcp.zig");
     _ = @import("application_layer.zig");
+    _ = @import("packet.zig");
 }
