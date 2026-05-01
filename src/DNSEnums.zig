@@ -52,6 +52,7 @@ pub const QueryType = enum(u16) {
     DHCID = 49, // DHCP identifier record
     NSEC3 = 50, // NSEC record version 3
     NSEC3PARAM = 51, // NSEC3 parameters
+    HTTPS = 65,
     ALL = 255, // All cached records
     GENERIC = 256,
 

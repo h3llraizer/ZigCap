@@ -1,20 +1,14 @@
 const std = @import("std");
-
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerError = @import("ProtocolEnums.zig").LayerError;
-
 const LayerOwner = @import("Layer.zig").LayerOwner;
-
 const Layer = @import("Packet.zig").Layer;
-
 const LayerIface = @import("LayerIface.zig").LayerIface;
-
 const Buffer = @import("Buffer.zig").Buffer;
-
 const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
-
 const DNSEnums = @import("DNSEnums.zig");
+const DNSRecordTypes = @import("DNSRecordTypes.zig");
 
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
@@ -22,7 +16,6 @@ const Allocator = std.mem.Allocator;
 pub const QueryType = DNSEnums.QueryType;
 pub const DnsClass = DNSEnums.DnsClass;
 
-const DNSRecordTypes = @import("DNSRecordTypes.zig");
 const GenericRecord = DNSRecordTypes.GenericRecord;
 const ARecord = DNSRecordTypes.ARecord;
 const AAAARecord = DNSRecordTypes.AAAARecord;
@@ -30,12 +23,6 @@ const CNAMERecord = DNSRecordTypes.CNAMERecord;
 const TXTRecord = DNSRecordTypes.TXTRecord;
 const MXRecord = DNSRecordTypes.MXRecord;
 const PTRRecord = DNSRecordTypes.PTRRecord;
-
-// TODO: assess if this is needed
-pub const QueryOwner = union(enum) {
-    dns_layer: *DNSLayer,
-    buffer: Buffer,
-};
 
 /// Use to build a DNSQuery.
 /// Buffer struct is created using the allocator which you provide
@@ -145,14 +132,22 @@ pub const DNSAnswer = struct {
 };
 
 pub const DNSHeaderFlags = packed struct {
-    rcode: u4 = 0, // Response Code
-    z: u3 = 0, // Reserved (must be 0)
-    ra: u1 = 0, // Recursion Available
-    rd: u1 = 0, // Recursion Desired
-    tc: u1 = 0, // Truncation
-    aa: u1 = 0, // Authoritative Answer
-    opcode: u4 = 0, // Operaiton Code
-    qr: u1 = 0, // Query/Response
+    /// Response Code
+    rcode: u4 = 0,
+    /// Reserved (must be 0)
+    z: u3 = 0,
+    /// Recursion Available
+    ra: u1 = 0,
+    /// Recursion Desired
+    rd: u1 = 0,
+    /// Truncation
+    tc: u1 = 0,
+    /// Authoritative Answer
+    aa: u1 = 0,
+    /// Operaiton Code
+    opcode: u4 = 0,
+    // Query/Response
+    qr: u1 = 0,
 
     /// Set the Response Code of the DNSHeader
     /// Common resonse codes can be found in DNS.DNSRcode
@@ -195,13 +190,22 @@ pub const DNSHeaderFlags = packed struct {
 
 pub const DNSHeaderSize: usize = 12;
 
+/// Standard DNS Header.
+/// Setters take native values and byteswap before set
+/// Getters return byteswapped values
 pub const DNSHeader = extern struct {
-    id: u16, // Identification
-    flags: u16, // QR, Opcode, AA, TC, RD, RA, Z, RCODE packed
-    qdcount: u16, // Number of questions
-    ancount: u16, // Number of answer RRs
-    nscount: u16, // Number of authority RRs
-    arcount: u16, // Number of additional RRs
+    /// Identification / Transaction ID
+    id: u16,
+    /// QR, Opcode, AA, TC, RD, RA, Z, RCODE packed - see DNSHeaderFlags
+    flags: u16,
+    /// Number of questions
+    qdcount: u16,
+    /// Number of answer ResponseRecords
+    ancount: u16,
+    /// Number of authority ResponseRecords
+    nscount: u16,
+    /// Number of additional ResponseRecords
+    arcount: u16,
 
     pub fn set_id(self: *DNSHeader, id: u16) void {
         self.id = @byteSwap(id);
@@ -251,7 +255,11 @@ pub const DNSHeader = extern struct {
         return @ptrCast(&self.flags);
     }
 
-    //TODO: implement get_flags_immutable
+    pub fn get_flags_immutable(self: *DNSHeader) *const DNSHeaderFlags {
+        self.flags = @byteSwap(self.flags);
+        const flags: *const DNSHeaderFlags = @ptrCast(&self.flags);
+        return flags;
+    }
 };
 
 /// Different to the DNSQuery struct which you create a query from scratch with (see DNSQuery)
@@ -601,7 +609,7 @@ pub const DNSLayer = struct {
         }
     }
 
-    pub fn extend_payload(self: *DNSLayer, offset: usize, extend_len: usize) ![]u8 {
+    fn extend_payload(self: *DNSLayer, offset: usize, extend_len: usize) ![]u8 {
         var buf: []u8 = undefined;
         switch (self.owner) {
             .packet_layer => |layer| {
@@ -615,7 +623,7 @@ pub const DNSLayer = struct {
         return buf;
     }
 
-    pub fn shorten_payload(self: *DNSLayer, offset: usize, shorten_len: usize) !void {
+    fn shorten_payload(self: *DNSLayer, offset: usize, shorten_len: usize) !void {
         switch (self.owner) {
             .packet_layer => |layer| {
                 try layer.packet.shorten_layer(layer, offset, shorten_len);
@@ -834,7 +842,7 @@ pub const DNSLayer = struct {
         }
     }
 
-    pub fn decompress(self: *DNSLayer) !void {
+    fn decompress(self: *DNSLayer) !void {
         self.find_cmprs_ptrs();
     }
 

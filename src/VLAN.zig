@@ -195,13 +195,6 @@ pub const VlanLayer = struct {
     }
 
     pub fn deinit(self: *VlanLayer) void {
-        switch (self.owner) {
-            .packet_layer => {
-                return; // Layer in packet - don't free
-            },
-            .owned_buffer => |*buffer| {
-                return buffer.deinit(); // standalone layer - it is mutable by default
-            },
-        }
+        self.owner.deinit();
     }
 };
