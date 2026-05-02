@@ -133,22 +133,39 @@ pub const Interface = struct {
         print("{s}\n", .{self.desc});
     }
 
+    pub fn set_filter(self: *Interface, filter_str: []const u8) !void {
+        var fp: pcap.bpf_program = .{};
+        const net: pcap.bpf_u_int32 = 0;
+
+        if (self.handle) |handle| {
+            if (pcap.pcap_compile(handle, &fp, filter_str.ptr, 0, net) == -1) {
+                return error.FilterParseFailed;
+            } else {
+                if (pcap.pcap_setfilter(handle, &fp) == -1) {
+                    return error.FilterSetFailed;
+                }
+            }
+        } else {
+            return error.DeviceNotOpen;
+        }
+    }
+
     pub fn capture_one_raw(self: Interface, allocator: Allocator) !?[]align(2) u8 {
         var header: [*c]pcap.struct_pcap_pkthdr = null;
         var pkt_ptr: [*c]const u8 = null;
 
-        if (self.handle) |handle| {
-            const res = pcap.pcap_next_ex(handle, &header, &pkt_ptr);
-            if (res <= 0) {
-                std.debug.print("[ERR] Timeout or no packet.\n", .{});
-                return null;
-            }
+        var res: c_int = 0;
 
-            if (header) |h| {
-                const captured: []align(2) u8 = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", h.*.len);
-                @memmove(captured, pkt_ptr);
-                return captured;
+        if (self.handle) |handle| {
+            while (res <= 0) {
+                res = pcap.pcap_next_ex(handle, &header, &pkt_ptr);
             }
+        }
+
+        if (header) |h| {
+            const captured: []align(2) u8 = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", h.*.len);
+            @memmove(captured, pkt_ptr);
+            return captured;
         }
 
         return null;

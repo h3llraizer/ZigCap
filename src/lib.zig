@@ -18,6 +18,7 @@ pub const VLAN = @import("VLAN.zig");
 pub const Loopback = @import("Loopback.zig");
 pub const ARP = @import("ARP.zig");
 pub const DNS = @import("DNS.zig");
+pub const DHCP = @import("DHCP.zig");
 pub const ICMP = @import("ICMP.zig");
 pub const IPv4 = @import("IPv4.zig");
 pub const IPv6 = @import("IPv6.zig");

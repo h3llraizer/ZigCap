@@ -3,7 +3,7 @@ const Packet = @import("Packet.zig");
 const Layer = @import("Packet.zig").Layer;
 const Eth = @import("Eth.zig");
 const Loopback = @import("Loopback.zig");
-
+const DHCP = @import("DHCP.zig");
 const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
 const UDP = @import("UDP.zig");
@@ -34,6 +34,7 @@ pub const LayerIface = union(enum) {
     arpLayer: ARP.ARPLayer,
     icmpLayer: ICMP.ICMPLayer,
     dnsLayer: DNS.DNSLayer,
+    dhcpLayer: DHCP.DHCPLayer,
     genericAppLayer: GenericLayer.ApplicationLayer,
 
     /// inits the layer
@@ -50,6 +51,7 @@ pub const LayerIface = union(enum) {
             ARP.ARPLayer => return LayerIface{ .arpLayer = try ARP.ARPLayer.init(owner) },
             ICMP.ICMPLayer => return LayerIface{ .icmpLayer = try ICMP.ICMPLayer.init(owner) },
             DNS.DNSLayer => return LayerIface{ .dnsLayer = try DNS.DNSLayer.init(owner) },
+            DHCP.DHCPLayer => return LayerIface{ .dhcpLayer = try DHCP.DHCPLayer.init(owner) },
             GenericLayer.ApplicationLayer => return LayerIface{ .genericAppLayer = try GenericLayer.ApplicationLayer.init(owner) },
             else => return LayerError.LayerInvalid,
         }
@@ -67,6 +69,7 @@ pub const LayerIface = union(enum) {
             .arpLayer => LayerIface{ .arpLayer = try ARP.ARPLayer.init(owner) },
             .icmpLayer => LayerIface{ .icmpLayer = try ICMP.ICMPLayer.init(owner) },
             .dnsLayer => LayerIface{ .dnsLayer = try DNS.DNSLayer.init(owner) },
+            .dhcpLayer => LayerIface{ .dhcpLayer = try DHCP.DHCPLayer.init(owner) },
             .genericAppLayer => LayerIface{ .genericAppLayer = try GenericLayer.ApplicationLayer.init(owner) },
         };
         self.* = new_instance;
