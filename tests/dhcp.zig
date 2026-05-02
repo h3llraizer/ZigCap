@@ -94,15 +94,21 @@ test "build dhcp" {
 
     try dhcp_layer_iface.dhcpLayer.add_option(DHCP.Option.ParameterRequestList, param_list_opt);
 
-    if (dhcp_layer_iface.dhcpLayer.find_param_list_op()) |pb| {
-        print("found param byte at: {}\n", .{pb});
-    } else {
-        print("no param byte.\n", .{});
-    }
-
     const param_list_opt_sub = DHCP.OptionValues{ .paramListOpt = .SubnetMask };
 
     try dhcp_layer_iface.dhcpLayer.add_option(DHCP.Option.ParameterRequestList, param_list_opt_sub);
+
+    if (dhcp_layer_iface.dhcpLayer.find_op(DHCP.Option.SubnetMask)) |op_offset| {
+        print("subnet mask offset: {}\n", .{op_offset});
+    }
+
+    try dhcp_layer_iface.dhcpLayer.remove_option(DHCP.Option.SubnetMask);
+
+    if (dhcp_layer_iface.dhcpLayer.find_op(DHCP.Option.SubnetMask)) |op_offset| {
+        print("subnet mask offset: {}\n", .{op_offset});
+    } else {
+        print("no subnet mask offset found.\n", .{});
+    }
 }
 
 test "parse dhcp layer" {

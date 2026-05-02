@@ -463,6 +463,17 @@ pub const DHCPLayer = struct {
         return buf;
     }
 
+    fn shorten_payload(self: *DHCPLayer, offset: usize, shorten_len: usize) !void {
+        switch (self.owner) {
+            .packet_layer => |layer| {
+                try layer.packet.shorten_layer(layer, offset, shorten_len);
+            },
+            .owned_buffer => |*buffer| {
+                try buffer.shorten(offset, shorten_len);
+            },
+        }
+    }
+
     fn fitUnsigned(n: u64) usize {
         if (n <= 0xFF) return 1;
         if (n <= 0xFFFF) return 2;
@@ -470,8 +481,8 @@ pub const DHCPLayer = struct {
         return 8;
     }
 
-    pub fn find_param_list_op(self: DHCPLayer) ?usize {
-        const param_opt_byte_val = @intFromEnum(Option.ParameterRequestList);
+    pub fn find_op(self: DHCPLayer, opt: Option) ?usize {
+        const param_opt_byte_val = @intFromEnum(opt);
         const data = self.get_data();
 
         if (data.len > DHCPHeaderSize) {
@@ -501,7 +512,7 @@ pub const DHCPLayer = struct {
     pub fn add_param_option(self: *DHCPLayer, opt: Option) !void {
         const data = self.get_data();
 
-        if (self.find_param_list_op()) |pb| {
+        if (self.find_op(Option.ParameterRequestList)) |pb| {
             const length_offset = pb + 1;
             const length: usize = @intCast(data[length_offset]);
             var opt_buf_byte = try self.extend_payload(length_offset + length, 1);
@@ -510,9 +521,22 @@ pub const DHCPLayer = struct {
         }
     }
 
+    pub fn remove_option(self: *DHCPLayer, opt: Option) !void {
+        if (self.find_op(opt)) |op_offset| {
+            const data = self.get_data();
+            const length_offset = op_offset + 1;
+            const value_length = data[length_offset];
+
+            // Total option size: opcode(1) + length(1) + value_length
+            const total_option_size = 2 + value_length;
+
+            try self.shorten_payload(op_offset, total_option_size);
+        }
+    }
+
     pub fn add_option(self: *DHCPLayer, opt: Option, value: OptionValues) !void {
         if (Option.ParameterRequestList.get_value() == opt.get_value()) {
-            if (self.find_param_list_op()) |pb| {
+            if (self.find_op(Option.ParameterRequestList)) |pb| {
                 _ = pb;
                 try self.add_param_option(@enumFromInt(value.paramListOpt.get_value()));
                 return;
