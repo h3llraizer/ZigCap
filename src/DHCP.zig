@@ -72,6 +72,7 @@ pub const SubnetMask = enum(u8) {
     n31 = 31,
     n32 = 32,
 
+    /// return the mask as a full u32 value
     pub fn toU32(self: SubnetMask) u32 {
         const p: u32 = @intCast(@intFromEnum(self));
 
@@ -81,14 +82,42 @@ pub const SubnetMask = enum(u8) {
             (~@as(u32, 0)) << @intCast(32 - p);
     }
 
+    /// returns full IPv4 subnet mask e.g. 255.255.255.0
     pub fn get_value(self: SubnetMask) u32 {
         return @byteSwap(IPv4Address.init_from_u32(self.toU32()).to_u32());
+    }
+};
+
+pub const DNSServer = struct {
+    ip: IPv4Address,
+
+    pub fn get_value(self: DNSServer) u32 {
+        return @byteSwap(self.ip.to_u32());
+    }
+};
+
+pub const Router = struct {
+    ip: IPv4Address,
+
+    pub fn get_value(self: Router) u32 {
+        return @byteSwap(self.ip.to_u32());
+    }
+};
+
+pub const LeaseTime = struct {
+    time: u32,
+
+    pub fn get_value(self: LeaseTime) u32 {
+        return @byteSwap(self.time);
     }
 };
 
 pub const OptionValues = union(enum) {
     msgType: MessageType,
     subnetMask: SubnetMask,
+    dnsServer: DNSServer,
+    router: Router,
+    leaseTime: LeaseTime,
 
     pub fn get_value(self: OptionValues) u64 {
         return switch (self) {
@@ -100,6 +129,9 @@ pub const OptionValues = union(enum) {
         return switch (self) {
             .msgType => return @sizeOf(u8),
             .subnetMask => return @sizeOf(u32),
+            .dnsServer => return @sizeOf(u32),
+            .leaseTime => return @sizeOf(u32),
+            .router => return @sizeOf(u32),
         };
     }
 };
@@ -425,11 +457,7 @@ pub const DHCPLayer = struct {
 
         const val = value.get_value();
 
-        print("fit: {}\n", .{fit});
-
         const tmp = std.mem.toBytes(val);
-
-        print("tmp: {x}\n", .{tmp});
 
         @memmove(opt_buf[2..], tmp[0..fit]);
     }

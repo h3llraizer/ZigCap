@@ -67,8 +67,6 @@ test "build dhcp" {
 
     print("{x}\n", .{dhcp_layer_iface.get_data()});
 
-    print("{x}\n", .{dhcp_layer_iface.get_data()});
-
     const mask = DHCP.OptionValues{ .subnetMask = .n24 };
 
     const mask_ip = IPv4.IPv4Address.init_from_u32(mask.subnetMask.toU32());
@@ -78,6 +76,27 @@ test "build dhcp" {
     print("{s}\n", .{mask_str});
 
     try dhcp_layer_iface.dhcpLayer.add_option(DHCP.Option.SubnetMask, mask);
+
+    print("{x}\n", .{dhcp_layer_iface.get_data()});
+
+    const dns_server = DHCP.DNSServer{ .ip = try .init_from_string("192.168.1.254") };
+
+    const dns_op = DHCP.OptionValues{ .dnsServer = dns_server };
+
+    try dhcp_layer_iface.dhcpLayer.add_option(DHCP.Option.DomainNameServer, dns_op);
+
+    print("{x}\n", .{dhcp_layer_iface.get_data()});
+
+    const lease_time = DHCP.OptionValues{ .leaseTime = .{ .time = @as(u32, 86400) } };
+    try dhcp_layer_iface.dhcpLayer.add_option(DHCP.Option.IPAddressLeaseTime, lease_time);
+
+    print("{x}\n", .{dhcp_layer_iface.get_data()});
+
+    const router = DHCP.Router{ .ip = try .init_from_string("192.168.1.254") };
+
+    const router_op = DHCP.OptionValues{ .router = router };
+
+    try dhcp_layer_iface.dhcpLayer.add_option(DHCP.Option.Router, router_op);
 
     print("{x}\n", .{dhcp_layer_iface.get_data()});
 }
