@@ -39,8 +39,6 @@ test "build dhcp" {
 
     const dhcp_hdr: *DHCP.DHCPHeader = dhcp_layer_iface.dhcpLayer.get_mutable_header();
 
-    print("{x}\n", .{dhcp_layer_iface.get_data()});
-
     dhcp_hdr.set_op(DHCP.OPCode.BootRequest);
     dhcp_hdr.set_htype(DHCP.HWTYPE.Eth);
     dhcp_hdr.set_xid(try create_random_u32());
@@ -57,27 +55,13 @@ test "build dhcp" {
 
     try dhcp_hdr.set_sname("serv01.dhcp.local");
 
-    print("{x}\n", .{dhcp_layer_iface.get_data()});
-
     const req = DHCP.OptionValues{ .msgType = .DHCPREQUEST };
-
-    print("req: {}\n", .{req.get_value()});
 
     try dhcp_layer_iface.dhcpLayer.add_option(DHCP.Option.DHCPMessageType, req);
 
-    print("{x}\n", .{dhcp_layer_iface.get_data()});
-
     const mask = DHCP.OptionValues{ .subnetMask = .n24 };
 
-    const mask_ip = IPv4.IPv4Address.init_from_u32(mask.subnetMask.toU32());
-
-    const mask_str = try mask_ip.to_string(allocator);
-    defer allocator.free(mask_str);
-    print("{s}\n", .{mask_str});
-
     try dhcp_layer_iface.dhcpLayer.add_option(DHCP.Option.SubnetMask, mask);
-
-    print("{x}\n", .{dhcp_layer_iface.get_data()});
 
     const dns_server = DHCP.DNSServer{ .ip = try .init_from_string("192.168.1.254") };
 
@@ -85,12 +69,8 @@ test "build dhcp" {
 
     try dhcp_layer_iface.dhcpLayer.add_option(DHCP.Option.DomainNameServer, dns_op);
 
-    print("{x}\n", .{dhcp_layer_iface.get_data()});
-
     const lease_time = DHCP.OptionValues{ .leaseTime = .{ .time = @as(u32, 86400) } };
     try dhcp_layer_iface.dhcpLayer.add_option(DHCP.Option.IPAddressLeaseTime, lease_time);
-
-    print("{x}\n", .{dhcp_layer_iface.get_data()});
 
     const router = DHCP.Router{ .ip = try .init_from_string("192.168.1.254") };
 
@@ -98,7 +78,31 @@ test "build dhcp" {
 
     try dhcp_layer_iface.dhcpLayer.add_option(DHCP.Option.Router, router_op);
 
-    print("{x}\n", .{dhcp_layer_iface.get_data()});
+    const req_ip = DHCP.RequestedIPAddress{ .ip = try .init_from_string("192.168.1.225") };
+
+    const req_ip_op = DHCP.OptionValues{ .requestIp = req_ip };
+
+    try dhcp_layer_iface.dhcpLayer.add_option(DHCP.Option.RequestedIPAddress, req_ip_op);
+
+    const server_id = DHCP.ServerIdentifier{ .ip = try .init_from_string("192.168.1.254") };
+
+    const server_id_op = DHCP.OptionValues{ .serverId = server_id };
+
+    try dhcp_layer_iface.dhcpLayer.add_option(DHCP.Option.ServerIdentifier, server_id_op);
+
+    const param_list_opt = DHCP.OptionValues{ .paramListOpt = .Router };
+
+    try dhcp_layer_iface.dhcpLayer.add_option(DHCP.Option.ParameterRequestList, param_list_opt);
+
+    if (dhcp_layer_iface.dhcpLayer.find_param_list_op()) |pb| {
+        print("found param byte at: {}\n", .{pb});
+    } else {
+        print("no param byte.\n", .{});
+    }
+
+    const param_list_opt_sub = DHCP.OptionValues{ .paramListOpt = .SubnetMask };
+
+    try dhcp_layer_iface.dhcpLayer.add_option(DHCP.Option.ParameterRequestList, param_list_opt_sub);
 }
 
 test "parse dhcp layer" {

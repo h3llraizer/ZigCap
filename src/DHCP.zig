@@ -104,6 +104,22 @@ pub const Router = struct {
     }
 };
 
+pub const RequestedIPAddress = struct {
+    ip: IPv4Address,
+
+    pub fn get_value(self: RequestedIPAddress) u32 {
+        return @byteSwap(self.ip.to_u32());
+    }
+};
+
+pub const ServerIdentifier = struct {
+    ip: IPv4Address,
+
+    pub fn get_value(self: ServerIdentifier) u32 {
+        return @byteSwap(self.ip.to_u32());
+    }
+};
+
 pub const LeaseTime = struct {
     time: u32,
 
@@ -118,6 +134,9 @@ pub const OptionValues = union(enum) {
     dnsServer: DNSServer,
     router: Router,
     leaseTime: LeaseTime,
+    requestIp: RequestedIPAddress,
+    serverId: ServerIdentifier,
+    paramListOpt: Option,
 
     pub fn get_value(self: OptionValues) u64 {
         return switch (self) {
@@ -132,6 +151,9 @@ pub const OptionValues = union(enum) {
             .dnsServer => return @sizeOf(u32),
             .leaseTime => return @sizeOf(u32),
             .router => return @sizeOf(u32),
+            .requestIp => return @sizeOf(u32),
+            .serverId => return @sizeOf(u32),
+            .paramListOpt => return @sizeOf(u8),
         };
     }
 };
@@ -147,6 +169,11 @@ pub const Option = enum(u8) {
     ServerIdentifier = 54,
     ParameterRequestList = 55,
     End = 255,
+
+    pub fn get_value(self: Option) u8 {
+        print("option: {}\n", .{@intFromEnum(self)});
+        return @intFromEnum(self);
+    }
 };
 
 pub const DHCPHeader = extern struct {
@@ -443,9 +470,58 @@ pub const DHCPLayer = struct {
         return 8;
     }
 
+    pub fn find_param_list_op(self: DHCPLayer) ?usize {
+        const param_opt_byte_val = @intFromEnum(Option.ParameterRequestList);
+        const data = self.get_data();
+
+        if (data.len > DHCPHeaderSize) {
+            var offset: usize = DHCPHeaderSize;
+            while (offset < data.len) {
+                const opcode = data[offset];
+
+                if (opcode == 0xff) break; // End option
+                if (opcode == 0x00) { // Pad option
+                    offset += 1;
+                    continue;
+                }
+
+                if (opcode == param_opt_byte_val) {
+                    return offset;
+                }
+
+                // Skip this option: opcode(1) + length(1) + value_length
+                if (offset + 1 >= data.len) break;
+                const length = data[offset + 1];
+                offset += 2 + length;
+            }
+        }
+        return null;
+    }
+
+    pub fn add_param_option(self: *DHCPLayer, opt: Option) !void {
+        const data = self.get_data();
+
+        if (self.find_param_list_op()) |pb| {
+            const length_offset = pb + 1;
+            const length: usize = @intCast(data[length_offset]);
+            var opt_buf_byte = try self.extend_payload(length_offset + length, 1);
+            opt_buf_byte[0] = @intFromEnum(opt);
+            data[length_offset] += 1;
+        }
+    }
+
     pub fn add_option(self: *DHCPLayer, opt: Option, value: OptionValues) !void {
+        if (Option.ParameterRequestList.get_value() == opt.get_value()) {
+            if (self.find_param_list_op()) |pb| {
+                _ = pb;
+                try self.add_param_option(@enumFromInt(value.paramListOpt.get_value()));
+                return;
+            }
+        }
+
         const data = self.get_data();
         const opt_length = value.get_opt_length();
+        print("extending from offset: {}\n", .{data.len});
         var opt_buf = try self.extend_payload(
             data.len, // last byte - //TODO: handle last byte
             1 + 1 + opt_length, // opcode, len byte, opt_length
@@ -453,13 +529,26 @@ pub const DHCPLayer = struct {
         opt_buf[0] = @intFromEnum(opt); // opt byte
         opt_buf[1] = @intCast(opt_length); // length byte
 
+        print("opt_buf: {x}\n", .{opt_buf});
+
         const fit = fitUnsigned(value.get_value());
 
         const val = value.get_value();
 
+        print("{any} {any}  val {}\n", .{ opt, value, val });
+
+        print("fit: {}\n", .{fit});
+
         const tmp = std.mem.toBytes(val);
 
+        print("opt_buf ptr before: {*}\n", .{opt_buf.ptr});
+        print("opt_buf[2] before: {x}\n", .{opt_buf[2]});
+
         @memmove(opt_buf[2..], tmp[0..fit]);
+
+        print("opt_buf[2] after: {x}\n", .{opt_buf[2]});
+        print("tmp[0] = {x}\n", .{tmp[0]});
+        print("fit = {}\n", .{fit});
     }
 
     /// returns mutable slice of data (hdr+payload).
