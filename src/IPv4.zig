@@ -237,7 +237,7 @@ pub const IPv4Layer = struct {
         if (current_header_len < new_header_len) {
             switch (self.owner) {
                 .packet_layer => |layer| {
-                    ops_buf = try layer.packet.extend_layer(layer, extend_len);
+                    ops_buf = try layer.packet.extend_layer(layer, current_header_len, extend_len);
                 },
                 .owned_buffer => |*buffer| {
                     ops_buf = try buffer.extend(MinHeaderLength, extend_len); // temp - needs to extend from current ihl length not base header length

@@ -538,10 +538,11 @@ pub const DHCPLayer = struct {
     }
 
     fn extend_payload(self: *DHCPLayer, offset: usize, extend_len: usize) ![]u8 {
+        print("extending at offset {} by {}\n", .{ offset, extend_len });
         var buf: []u8 = undefined;
         switch (self.owner) {
             .packet_layer => |layer| {
-                buf = try layer.packet.extend_layer(layer, extend_len); // TODO: extend at offset instead
+                buf = try layer.packet.extend_layer(layer, offset, extend_len); // TODO: extend at offset instead
             },
             .owned_buffer => |*buffer| {
                 buf = try buffer.extend(offset, extend_len);
@@ -672,9 +673,7 @@ pub const DHCPLayer = struct {
 
         var offset = self.get_data().len;
         if (self.eop_added()) |eop| {
-            //offset = eop;
-            _ = eop;
-            offset += 0;
+            offset = eop;
         }
 
         print("found offset: {}\n", .{offset});
@@ -686,21 +685,6 @@ pub const DHCPLayer = struct {
         for (requested_options, 0..) |opt, i| {
             opt_buf[2 + i] = @intFromEnum(opt);
         }
-    }
-
-    pub fn eop_added(self: *DHCPLayer) ?usize {
-        const data = self.get_data();
-
-        var idx: usize = 0;
-        for (data) |item| {
-            if (item == 0xff) {
-                return idx;
-            }
-
-            idx += 1;
-        }
-
-        return null;
     }
 
     pub fn add_option(self: *DHCPLayer, opt: Option, value: OptionValues) !void {
@@ -733,6 +717,39 @@ pub const DHCPLayer = struct {
     pub fn get_payload(self: *DHCPLayer) []const u8 {
         _ = self;
         return "";
+    }
+
+    pub fn eop_added(self: *DHCPLayer) ?usize {
+        const data = self.get_data();
+
+        var idx: usize = 0;
+        for (data) |item| {
+            if (item == 0xff) {
+                return idx;
+            }
+
+            idx += 1;
+        }
+
+        return null;
+    }
+
+    pub fn validate_layer(self: *DHCPLayer) void {
+        print("validating layer:\n", .{});
+        const data = self.get_data();
+
+        print("data.len: {}\n", .{data.len});
+
+        print("last byte: {x}\n", .{data[data.len - 1]});
+
+        if (data[data.len - 1] != 0xff) {
+            var end_byte = self.extend_payload(data.len, 1) catch {
+                print("failed to extend packet.\n", .{});
+                return;
+            };
+
+            end_byte[0] = 0xff;
+        }
     }
 
     pub fn print_all_opts(self: *DHCPLayer) void {
@@ -822,18 +839,6 @@ pub const DHCPLayer = struct {
         }) catch return "";
 
         return result;
-    }
-
-    pub fn validate_layer(self: *DHCPLayer) void {
-        const data = self.get_data();
-        if (data[data.len - 1] != 0xff) {
-            var end_byte = self.extend_payload(data.len, 1) catch {
-                print("failed to extend packet.\n", .{});
-                return;
-            };
-
-            end_byte[0] = 0xff;
-        }
     }
 
     /// return the next layer protocol type (DHCP doesn't have a next layer)

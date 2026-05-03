@@ -613,7 +613,7 @@ pub const DNSLayer = struct {
         var buf: []u8 = undefined;
         switch (self.owner) {
             .packet_layer => |layer| {
-                buf = try layer.packet.extend_layer(layer, extend_len); // TODO: extend at offset instead
+                buf = try layer.packet.extend_layer(layer, offset, extend_len); // TODO: extend at offset instead
             },
             .owned_buffer => |*buffer| {
                 buf = try buffer.extend(offset, extend_len);

@@ -48,7 +48,7 @@ pub const ApplicationLayer = struct {
     pub fn set_payload(self: *ApplicationLayer, data: []const u8) !void {
         switch (self.owner) {
             .packet_layer => |layer| {
-                const buf = try layer.packet.extend_layer(layer, data.len);
+                const buf = try layer.packet.extend_layer(layer, 0, data.len);
                 @memmove(buf, data);
             },
             .owned_buffer => |*buffer| { // Capture as pointer

@@ -271,9 +271,12 @@ pub const Packet = struct {
         }
     }
 
-    pub fn extend_layer(self: *Packet, layer: *Layer, length: usize) ![]u8 { // TODO: call proceeding layers calculate_length
+    pub fn extend_layer(self: *Packet, layer: *Layer, offset: usize, length: usize) ![]u8 { // TODO: call proceeding layers calculate_length
 
-        const extend_offset = layer.offset + layer.length;
+        const extend_offset = layer.offset + offset; // absolute position in packet
+
+        print("extend_offset: {}\n", .{extend_offset});
+
         const buf = try self.buffer.extend(extend_offset, length);
 
         layer.length += length; // increase the length of the layer by length that it was extended by
@@ -287,6 +290,23 @@ pub const Packet = struct {
 
         return buf; // return the extend slice
     }
+
+    //pub fn extend_layer(self: *Packet, layer: *Layer, length: usize) ![]u8 { // TODO: call proceeding layers calculate_length
+
+    //    const extend_offset = layer.offset + layer.length;
+    //    const buf = try self.buffer.extend(extend_offset, length);
+
+    //    layer.length += length; // increase the length of the layer by length that it was extended by
+
+    //    // now the proceeding layers offsets and lengths need to be increased by the length that this layer was extended by
+    //    var cur = layer.next_layer; // get the layers next layer
+    //    while (cur) |next| {
+    //        next.offset += length; // increase it's offset by the length
+    //        cur = next.next_layer; // set cur to its next layer
+    //    }
+
+    //    return buf; // return the extend slice
+    //}
 
     pub fn shorten_layer(self: *Packet, layer: *Layer, offset: usize, length: usize) !void { // TODO: call proceeding layers calculate_length
         const shorten_offset = layer.offset + offset;
