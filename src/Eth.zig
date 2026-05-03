@@ -17,9 +17,7 @@ const Allocator = std.mem.Allocator;
 const panic = std.debug.panic;
 
 const LayerError = ProtocolEnums.LayerError;
-
 const IPVersion = ProtocolEnums.IPVersions;
-
 const LayerOwner = Layer.LayerOwner;
 
 pub const EthType = enum(u16) {
@@ -28,7 +26,7 @@ pub const EthType = enum(u16) {
     ETHBRIDGE = 0x6558,
     REVARP = 0x8035,
     AT = 0x809B,
-    AARP = 0x80F3, // not currently implemented - will be resolved as generic network layer
+    AARP = 0x80F3,
     VLAN = 0x8100,
     IPX = 0x8137,
     IPV6 = 0x86DD,
@@ -41,6 +39,17 @@ pub const EthType = enum(u16) {
     IEEE_802_1AD = 0x88A8,
     WAKE_ON_LAN = 0x0842,
     Unknown = 0,
+    _,
+
+    pub fn is_known(eth_type: u16) bool {
+        for (std.enums.values(EthType)) |eth_t| {
+            if (@intFromEnum(eth_t) == @byteSwap(eth_type)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 };
 
 pub const EthHeaderSize = 14;
@@ -142,28 +151,57 @@ pub const EthLayer = struct {
 
     pub fn to_string(self: *const EthLayer, allocator: Allocator) []const u8 {
         const hdr = self.get_immutable_header();
-        const src_mac = hdr.get_src_mac().to_string(allocator) catch |err| blk: {
+
+        // Allocate MAC strings
+        const src_mac = hdr.get_src_mac().to_string(allocator) catch |err| {
             std.debug.print("src_mac to_string failed: {s}\n", .{@errorName(err)});
-            break :blk "";
+            return "";
         };
-        defer if (src_mac.len != 0) allocator.free(src_mac);
+        defer allocator.free(src_mac);
 
-        const dst_mac = hdr.get_dst_mac().to_string(allocator) catch |err| blk: {
+        const dst_mac = hdr.get_dst_mac().to_string(allocator) catch |err| {
             std.debug.print("dst_mac to_string failed: {s}\n", .{@errorName(err)});
-            break :blk "";
+            allocator.free(src_mac);
+            return "";
         };
-        defer if (dst_mac.len != 0) allocator.free(dst_mac);
+        defer allocator.free(dst_mac);
 
-        const eth_type = hdr.get_eth_type();
+        // Get EtherType in host byte order (network byte order from packet)
+        const eth_type_raw = @byteSwap(hdr.eth_type);
 
-        const eth_type_str = @tagName(eth_type);
+        // Try to match against known EtherTypes (without byte-swapping since enum values are in host order)
+        var known_type: ?EthType = null;
+        for (std.enums.values(EthType)) |eth_t| {
+            if (@intFromEnum(eth_t) == eth_type_raw and eth_t != .Unknown) {
+                known_type = eth_t;
+                break;
+            }
+        }
 
+        // Format as enum name if known, otherwise as hex
+        const eth_type_str = if (known_type) |kt|
+            @tagName(kt)
+        else
+            std.fmt.allocPrint(allocator, "0x{X:0>4}", .{eth_type_raw}) catch |err| {
+                std.debug.print("eth_type allocPrint failed: {s}\n", .{@errorName(err)});
+                return "";
+            };
+
+        // Clean up if we allocated a hex string
+        if (known_type == null) {
+            defer allocator.free(@constCast(eth_type_str));
+        }
+
+        // Create final result
         const result = std.fmt.allocPrint(
             allocator,
             "EthLayer: EthType: {s}, src_mac: {s}, dst_mac: {s}\n",
             .{ eth_type_str, src_mac, dst_mac },
         ) catch |err| {
-            std.debug.print("allocPrint failed: {s}\n", .{@errorName(err)});
+            std.debug.print("result allocPrint failed: {s}\n", .{@errorName(err)});
+            if (known_type == null) {
+                allocator.free(@constCast(eth_type_str));
+            }
             return "";
         };
 

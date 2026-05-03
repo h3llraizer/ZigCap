@@ -272,6 +272,7 @@ pub const Packet = struct {
     }
 
     pub fn extend_layer(self: *Packet, layer: *Layer, length: usize) ![]u8 { // TODO: call proceeding layers calculate_length
+
         const extend_offset = layer.offset + layer.length;
         const buf = try self.buffer.extend(extend_offset, length);
 

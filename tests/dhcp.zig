@@ -69,7 +69,7 @@ test "build dhcp" {
 
     try dhcp_layer_iface.dhcpLayer.add_option(DHCP.Option.DomainNameServer, dns_op);
 
-    const lease_time = DHCP.OptionValues{ .leaseTime = .{ .time = @as(u32, 86400) } };
+    const lease_time = DHCP.OptionValues{ .leaseTime = .{ .time = 86400 } };
     try dhcp_layer_iface.dhcpLayer.add_option(DHCP.Option.IPAddressLeaseTime, lease_time);
 
     const router = DHCP.Router{ .ip = try .init_from_string("192.168.1.254") };
@@ -90,6 +90,8 @@ test "build dhcp" {
 
     try dhcp_layer_iface.dhcpLayer.add_option(DHCP.Option.ServerIdentifier, server_id_op);
 
+    print("{}\n", .{dhcp_layer_iface.dhcpLayer.get_data().len});
+
     const param_list_opt = DHCP.OptionValues{ .paramListOpt = .Router };
 
     try dhcp_layer_iface.dhcpLayer.add_option(DHCP.Option.ParameterRequestList, param_list_opt);
@@ -98,17 +100,27 @@ test "build dhcp" {
 
     try dhcp_layer_iface.dhcpLayer.add_option(DHCP.Option.ParameterRequestList, param_list_opt_sub);
 
-    if (dhcp_layer_iface.dhcpLayer.find_op(DHCP.Option.SubnetMask)) |op_offset| {
-        print("subnet mask offset: {}\n", .{op_offset});
-    }
+    const str = dhcp_layer_iface.to_string(allocator);
+    defer allocator.free(str);
+    print("{s}\n", .{str});
 
-    try dhcp_layer_iface.dhcpLayer.remove_option(DHCP.Option.SubnetMask);
+    //if (dhcp_layer_iface.dhcpLayer.find_op(DHCP.Option.SubnetMask)) |op_offset| {
+    //    print("subnet mask offset: {}\n", .{op_offset});
+    //}
 
-    if (dhcp_layer_iface.dhcpLayer.find_op(DHCP.Option.SubnetMask)) |op_offset| {
-        print("subnet mask offset: {}\n", .{op_offset});
-    } else {
-        print("no subnet mask offset found.\n", .{});
-    }
+    //if (dhcp_layer_iface.dhcpLayer.find_op(DHCP.Option.Router)) |op_offset| {
+    //    print("router offset: {}\n", .{op_offset});
+    //} else {
+    //    print("no router offset found.\n", .{});
+    //}
+
+    //try dhcp_layer_iface.dhcpLayer.remove_option(DHCP.Option.SubnetMask);
+
+    //if (dhcp_layer_iface.dhcpLayer.find_op(DHCP.Option.SubnetMask)) |op_offset| {
+    //    print("subnet mask offset: {}\n", .{op_offset});
+    //} else {
+    //    print("no subnet mask offset found.\n", .{});
+    //}
 }
 
 test "parse dhcp layer" {
@@ -140,4 +152,12 @@ test "parse dhcp layer" {
 
     const str = dhcp_layer_iface.to_string(allocator);
     defer allocator.free(str);
+
+    if (dhcp_layer_iface.dhcpLayer.find_op(DHCP.Option.Router)) |op_offset| {
+        print("router offset: {}\n", .{op_offset});
+    } else {
+        print("no router offset found.\n", .{});
+    }
+
+    dhcp_layer_iface.dhcpLayer.print_all_opts();
 }

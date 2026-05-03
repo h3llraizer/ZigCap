@@ -159,19 +159,118 @@ pub const OptionValues = union(enum) {
 };
 
 pub const Option = enum(u8) {
+    // RFC 2132 core
     Pad = 0,
     SubnetMask = 1,
+    TimeOffset = 2,
     Router = 3,
+    TimeServer = 4,
+    NameServer = 5,
     DomainNameServer = 6,
+    LogServer = 7,
+    CookieServer = 8,
+    LPRServer = 9,
+    ImpressServer = 10,
+    ResourceLocationServer = 11,
+    HostName = 12,
+    BootFileSize = 13,
+    MeritDumpFile = 14,
+    DomainName = 15,
+    SwapServer = 16,
+    RootPath = 17,
+    ExtensionsPath = 18,
+
+    // IP layer / routing
+    IPForwarding = 19,
+    NonLocalSourceRouting = 20,
+    PolicyFilter = 21,
+    MaximumDatagramReassemblySize = 22,
+    DefaultIPTTL = 23,
+    PathMTUAgingTimeout = 24,
+    PathMTUPlateauTable = 25,
+
+    // Interface / link
+    InterfaceMTU = 26,
+    AllSubnetsAreLocal = 27,
+    BroadcastAddress = 28,
+    PerformMaskDiscovery = 29,
+    MaskSupplier = 30,
+    PerformRouterDiscovery = 31,
+    RouterSolicitationAddress = 32,
+    StaticRoute = 33,
+
+    // TCP
+    TrailerEncapsulation = 34,
+    ARPCacheTimeout = 35,
+    EthernetEncapsulation = 36,
+    TCPDefaultTTL = 37,
+    TCPKeepaliveInterval = 38,
+    TCPKeepaliveGarbage = 39,
+
+    // Application / services
+    NISDomain = 40,
+    NISServers = 41,
+    NTPServers = 42,
+    VendorSpecific = 43,
+    NetBIOSNameServer = 44,
+    NetBIOSDatagramServer = 45,
+    NetBIOSNodeType = 46,
+    NetBIOSScope = 47,
+    XWindowFontServer = 48,
+    XWindowDisplayManager = 49,
+
+    // DHCP-specific
     RequestedIPAddress = 50,
     IPAddressLeaseTime = 51,
+    OptionOverload = 52,
     DHCPMessageType = 53,
     ServerIdentifier = 54,
     ParameterRequestList = 55,
+    Message = 56,
+    MaximumDHCPMessageSize = 57,
+    RenewalTimeValue = 58,
+    RebindingTimeValue = 59,
+    VendorClassIdentifier = 60,
+    ClientIdentifier = 61,
+
+    // More modern / commonly seen
+    TFTPServerName = 66,
+    BootfileName = 67,
+    MobileIPHomeAgent = 68,
+    SMTPServer = 69,
+    POP3Server = 70,
+    NNTPServer = 71,
+    WWWServer = 72,
+    FingerServer = 73,
+    IRCServer = 74,
+    StreetTalkServer = 75,
+    StreetTalkDirectoryAssistance = 76,
+
+    // “Exotic but real”
+    UserClass = 77,
+    DirectoryAgent = 78, // SLP
+    ServiceScope = 79, // SLP
+    RapidCommit = 80,
+    ClientFQDN = 81,
+    RelayAgentInformation = 82,
+    InternetStorageNameService = 83, // iSNS
+    NDSServers = 85,
+    NDSTreeName = 86,
+    NDSContext = 87,
+
+    // Highly relevant today
+    ClasslessStaticRoute = 121,
+    CableLabsClientConfiguration = 122,
+    GeoConf = 123,
+    VendorIdentifyingVendorClass = 124,
+    VendorIdentifyingVendorSpecific = 125,
+
+    // WPAD (famously abused)
+    WebProxyAutoDiscovery = 252,
+
     End = 255,
 
     pub fn get_value(self: Option) u8 {
-        print("option: {}\n", .{@intFromEnum(self)});
         return @intFromEnum(self);
     }
 };
@@ -196,7 +295,6 @@ pub const DHCPHeader = extern struct {
     file: [128]u8, // Boot file name
 
     magic_cookie: u32, // Should be 0x63825363
-    //    options: [312]u8, // Optional parameters field
 
     pub fn init_default() DHCPHeader {
         return DHCPHeader{
@@ -215,7 +313,6 @@ pub const DHCPHeader = extern struct {
             .sname = [_]u8{0} ** 64,
             .file = [_]u8{0} ** 128,
             .magic_cookie = @byteSwap(@as(u32, 0x63825363)),
-            //           .options = [_]u8{0} ** 312,
         };
     }
 
@@ -367,15 +464,6 @@ pub const DHCPHeader = extern struct {
         return @byteSwap(self.magic_cookie);
     }
 
-    // Options getters/setters
-    //   pub fn set_options(self: *DHCPHeader, options: [312]u8) void {
-    //       self.options = options;
-    //   }
-    //
-    //   pub fn get_options(self: *const DHCPHeader) [312]u8 {
-    //       return self.options;
-    //   }
-
     // Helper methods
     pub fn is_boot_request(self: *const DHCPHeader) bool {
         return self.get_op() == .BootRequest;
@@ -400,7 +488,7 @@ pub const DHCPHeader = extern struct {
 
 pub const DHCPLayer = struct {
     owner: LayerOwner,
-    const Protocol = tcp_ip_protocol.arp;
+    const Protocol = tcp_ip_protocol.dhcp;
 
     pub fn init(owner: LayerOwner) LayerError!DHCPLayer {
         switch (owner) {
@@ -509,18 +597,6 @@ pub const DHCPLayer = struct {
         return null;
     }
 
-    pub fn add_param_option(self: *DHCPLayer, opt: Option) !void {
-        const data = self.get_data();
-
-        if (self.find_op(Option.ParameterRequestList)) |pb| {
-            const length_offset = pb + 1;
-            const length: usize = @intCast(data[length_offset]);
-            var opt_buf_byte = try self.extend_payload(length_offset + length, 1);
-            opt_buf_byte[0] = @intFromEnum(opt);
-            data[length_offset] += 1;
-        }
-    }
-
     pub fn remove_option(self: *DHCPLayer, opt: Option) !void {
         if (self.find_op(opt)) |op_offset| {
             const data = self.get_data();
@@ -534,18 +610,102 @@ pub const DHCPLayer = struct {
         }
     }
 
-    pub fn add_option(self: *DHCPLayer, opt: Option, value: OptionValues) !void {
-        if (Option.ParameterRequestList.get_value() == opt.get_value()) {
-            if (self.find_op(Option.ParameterRequestList)) |pb| {
-                _ = pb;
-                try self.add_param_option(@enumFromInt(value.paramListOpt.get_value()));
-                return;
+    pub fn remove_param_option(self: *DHCPLayer, opt: Option) !void {
+        if (self.find_op(Option.ParameterRequestList)) |pb| {
+            const length_offset = pb + 1;
+            const data = self.get_data();
+            const current_length: usize = @intCast(data[length_offset]);
+
+            // Search for the option in the parameter list
+            const values_start = pb + 2;
+            var found_index: ?usize = null;
+
+            for (values_start..values_start + current_length) |i| {
+                if (data[i] == @intFromEnum(opt)) {
+                    found_index = i;
+                    break;
+                }
+            }
+
+            // If found, remove it by rebuilding the parameter list
+            if (found_index) |idx| {
+                const remove_pos = idx - values_start; // 0-based index in the parameter list
+
+                // Build new parameter list without the removed option
+                var new_params: [255]u8 = undefined; // Max 255 bytes for DHCP option value
+                var new_len: usize = 0;
+
+                // Copy all options before the removed one
+                for (0..remove_pos) |i| {
+                    new_params[new_len] = data[values_start + i];
+                    new_len += 1;
+                }
+
+                // Copy all options after the removed one
+                for (remove_pos + 1..current_length) |i| {
+                    new_params[new_len] = data[values_start + i];
+                    new_len += 1;
+                }
+
+                // Remove the old parameter list option entirely
+                const old_option_start = pb;
+                const old_option_length = 2 + current_length; // opcode(1) + length(1) + values
+                try self.shorten_payload(old_option_start, old_option_length);
+
+                // Add back the new parameter list if not empty
+                if (new_len > 0) {
+                    var opt_buf = try self.extend_payload(self.get_data().len, 2 + new_len);
+                    opt_buf[0] = @intFromEnum(Option.ParameterRequestList);
+                    opt_buf[1] = @intCast(new_len);
+                    @memcpy(opt_buf[2..][0..new_len], new_params[0..new_len]);
+                }
             }
         }
+    }
 
+    pub fn set_parameter_request_list(self: *DHCPLayer, requested_options: []const Option) !void {
+        // Remove existing if present
+        if (self.find_op(Option.ParameterRequestList)) |offset| {
+            const length = self.get_data()[offset + 1];
+            try self.shorten_payload(offset, 2 + length);
+        }
+
+        var offset = self.get_data().len;
+        if (self.eop_added()) |eop| {
+            //offset = eop;
+            _ = eop;
+            offset += 0;
+        }
+
+        print("found offset: {}\n", .{offset});
+
+        // Add new parameter request list at the end
+        var opt_buf = try self.extend_payload(offset, 2 + requested_options.len);
+        opt_buf[0] = @intFromEnum(Option.ParameterRequestList);
+        opt_buf[1] = @intCast(requested_options.len);
+        for (requested_options, 0..) |opt, i| {
+            opt_buf[2 + i] = @intFromEnum(opt);
+        }
+    }
+
+    pub fn eop_added(self: *DHCPLayer) ?usize {
+        const data = self.get_data();
+
+        var idx: usize = 0;
+        for (data) |item| {
+            if (item == 0xff) {
+                return idx;
+            }
+
+            idx += 1;
+        }
+
+        return null;
+    }
+
+    pub fn add_option(self: *DHCPLayer, opt: Option, value: OptionValues) !void {
         const data = self.get_data();
         const opt_length = value.get_opt_length();
-        print("extending from offset: {}\n", .{data.len});
         var opt_buf = try self.extend_payload(
             data.len, // last byte - //TODO: handle last byte
             1 + 1 + opt_length, // opcode, len byte, opt_length
@@ -553,26 +713,15 @@ pub const DHCPLayer = struct {
         opt_buf[0] = @intFromEnum(opt); // opt byte
         opt_buf[1] = @intCast(opt_length); // length byte
 
-        print("opt_buf: {x}\n", .{opt_buf});
-
         const fit = fitUnsigned(value.get_value());
 
         const val = value.get_value();
 
-        print("{any} {any}  val {}\n", .{ opt, value, val });
-
-        print("fit: {}\n", .{fit});
-
         const tmp = std.mem.toBytes(val);
-
-        print("opt_buf ptr before: {*}\n", .{opt_buf.ptr});
-        print("opt_buf[2] before: {x}\n", .{opt_buf[2]});
 
         @memmove(opt_buf[2..], tmp[0..fit]);
 
-        print("opt_buf[2] after: {x}\n", .{opt_buf[2]});
-        print("tmp[0] = {x}\n", .{tmp[0]});
-        print("fit = {}\n", .{fit});
+        print("{any} added with {any} \n", .{ opt, val });
     }
 
     /// returns mutable slice of data (hdr+payload).
@@ -584,6 +733,15 @@ pub const DHCPLayer = struct {
     pub fn get_payload(self: *DHCPLayer) []const u8 {
         _ = self;
         return "";
+    }
+
+    pub fn print_all_opts(self: *DHCPLayer) void {
+        for (std.enums.values(Option)) |opt| {
+            if (self.find_op(opt)) |offset| {
+                _ = offset;
+                print("{any}\n", .{opt});
+            }
+        }
     }
 
     pub fn to_string(self: *const DHCPLayer, allocator: std.mem.Allocator) []const u8 {
@@ -623,21 +781,9 @@ pub const DHCPLayer = struct {
         const chaddr_str = hdr.get_chaddr().to_string(allocator) catch return "";
         defer if (chaddr_str.len > 0) allocator.free(chaddr_str);
 
-        // Convert sname (C string) to slice
-        //       const sname_slice = std.mem.sliceTo(&hdr.sname, 0);
-        //       const sname_str = if (sname_slice.len > 0)
-        //           std.utf8.allocConcat(allocator, "'", .{ sname_slice, "'" }) catch return ""
-        //       else
-        //           allocator.dupe(u8, "null") catch return "";
-        //       defer if (sname_str.len > 0) allocator.free(sname_str);
-        //
-        //       // Convert file (C string) to slice
-        //       const file_slice = std.mem.sliceTo(&hdr.file, 0);
-        //       const file_str = if (file_slice.len > 0)
-        //           std.utf8.allocConcat(allocator, "'", .{ file_slice, "'" }) catch return ""
-        //       else
-        //           allocator.dupe(u8, "null") catch return "";
-        //       defer if (file_str.len > 0) allocator.free(file_str);
+        const file = hdr.get_file();
+
+        const name = hdr.get_sname();
 
         const result = std.fmt.allocPrint(allocator,
             \\DHCPHeader {{
@@ -653,6 +799,8 @@ pub const DHCPLayer = struct {
             \\  siaddr: {s}
             \\  giaddr: {s}
             \\  chaddr: {s}
+            \\  file: {s}
+            \\  name: {s}
             \\  magic_cookie: 0x{X:0>8}
             \\}}
         , .{
@@ -668,6 +816,8 @@ pub const DHCPLayer = struct {
             siaddr_str,
             giaddr_str,
             chaddr_str,
+            file,
+            name,
             hdr.get_magic_cookie(),
         }) catch return "";
 
