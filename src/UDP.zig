@@ -1,6 +1,7 @@
 const std = @import("std");
 const DNS = @import("DNS.zig");
 const IPv4 = @import("IPv4.zig");
+const DHCP = @import("DHCP.zig");
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const ProtocolEnums = @import("ProtocolEnums.zig");
 
@@ -322,6 +323,10 @@ pub const UDPLayer = struct {
             return try LayerIface.init(DNS.DNSLayer, LayerOwner{ .packet_layer = layer });
         }
 
+        if ((hdr.get_dst_port() == 67 or hdr.get_src_port() == 68) and self.get_payload().len >= DHCP.DHCPHeaderSize) {
+            return try LayerIface.init(DHCP.DHCPLayer, LayerOwner{ .packet_layer = layer });
+        }
+
         return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
     }
 
@@ -331,14 +336,7 @@ pub const UDPLayer = struct {
     }
 
     pub fn deinit(self: *UDPLayer) void {
-        switch (self.owner) {
-            .packet_layer => {
-                return; // Layer in packet - don't free
-            },
-            .owned_buffer => |*buffer| {
-                return buffer.deinit(); // standalone layer - it is mutable by default
-            },
-        }
+        self.owner.deinit();
     }
 };
 

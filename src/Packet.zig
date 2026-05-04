@@ -360,11 +360,10 @@ pub const Packet = struct {
         }
     }
 
-    // TODO: data transfer is working but metadata structs are not being transfered causing a leak
     pub fn extract_layer(self: *Packet, layer: *Layer, owner: *LayerOwner) !?LayerIface {
         try self.buffer.cutRange(&owner.owned_buffer, layer.offset, layer.length);
 
-        layer.layer_iface.deinit(); // destroy structs which view over variable data
+        layer.layer_iface.deinit(); // destroy structs which view over variable data - not the raw data itself
 
         try layer.layer_iface.reinit(owner.*); // transfers ownership of the packets data to the new owner
 

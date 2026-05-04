@@ -11,13 +11,13 @@ const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
 const ARP = @import("ARP.zig");
 const Layer = @import("Layer.zig");
-const LayerOwner = Layer.LayerOwner;
+
 const GenericLayer = @import("GenericLayer.zig");
 
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 const panic = std.debug.panic;
-
+const LayerOwner = Layer.LayerOwner;
 const IPv6HeaderSize = IPv6.IPv6HeaderSize;
 
 const LoopbackHeaderSize = 4;

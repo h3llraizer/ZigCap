@@ -314,20 +314,20 @@ pub const DHCPHeader = extern struct {
     hlen: u8, // Hardware address length
     hops: u8, // Client sets to zero, optionally used by relay agents
 
-    xid: u32, // Transaction ID
+    xid: [4]u8, // Transaction ID
     secs: u16, // Seconds elapsed
     flags: u16, // Flags
 
-    ciaddr: u32, // Client IP address - the IP the client already has
-    yiaddr: u32, // 'your' (client) IP address - the IP address given by the server in responses
-    siaddr: u32, // IP address of next server to use
-    giaddr: u32, // Relay agent IP address - routers IP on the clients subnet (if DHCP server is on different subnet this is used)
+    ciaddr: [4]u8, // Client IP address - the IP the client already has
+    yiaddr: [4]u8, // 'your' (client) IP address - the IP address given by the server in responses
+    siaddr: [4]u8, // IP address of next server to use
+    giaddr: [4]u8, // Relay agent IP address - routers IP on the clients subnet (if DHCP server is on different subnet this is used)
 
     chaddr: [16]u8, // Client hardware address
     sname: [64]u8, // Optional server host name
     file: [128]u8, // Boot file name
 
-    magic_cookie: u32, // Should be 0x63825363
+    magic_cookie: [4]u8, // Should be 0x63825363
 
     pub fn init_default() DHCPHeader {
         return DHCPHeader{
@@ -335,17 +335,17 @@ pub const DHCPHeader = extern struct {
             .htype = 1, // Ethernet
             .hlen = 6, // MAC address length
             .hops = 0,
-            .xid = 0,
+            .xid = [_]u8{0} ** 4,
             .secs = 0,
             .flags = 0,
-            .ciaddr = 0,
-            .yiaddr = 0,
-            .siaddr = 0,
-            .giaddr = 0,
+            .ciaddr = [_]u8{0} ** 4,
+            .yiaddr = [_]u8{0} ** 4,
+            .siaddr = [_]u8{0} ** 4,
+            .giaddr = [_]u8{0} ** 4,
             .chaddr = [_]u8{0} ** 16,
             .sname = [_]u8{0} ** 64,
             .file = [_]u8{0} ** 128,
-            .magic_cookie = @byteSwap(@as(u32, 0x63825363)),
+            .magic_cookie = std.mem.toBytes(@byteSwap(@as(u32, 0x63825363))),
         };
     }
 
@@ -387,11 +387,13 @@ pub const DHCPHeader = extern struct {
 
     // Transaction ID getters/setters
     pub fn set_xid(self: *DHCPHeader, xid: u32) void {
-        self.xid = @byteSwap(xid);
+        const bytes = std.mem.toBytes(@byteSwap(xid));
+        self.xid = bytes;
     }
 
     pub fn get_xid(self: *const DHCPHeader) u32 {
-        return @byteSwap(self.xid);
+        const val = std.mem.bytesToValue(u32, &self.xid);
+        return @byteSwap(val);
     }
 
     // Set seconds - sets a BE
@@ -414,38 +416,38 @@ pub const DHCPHeader = extern struct {
 
     // Client IP getters/setters
     pub fn set_ciaddr(self: *DHCPHeader, ciaddr: IPv4Address) void {
-        self.ciaddr = @byteSwap(ciaddr.to_u32());
+        self.ciaddr = std.mem.toBytes(@byteSwap(ciaddr.to_u32()));
     }
 
     pub fn get_ciaddr(self: *const DHCPHeader) IPv4Address {
-        return IPv4Address.init_from_u32(@byteSwap(self.ciaddr));
+        return IPv4Address.init_from_array(self.ciaddr);
     }
 
     // Your IP getters/setters
     pub fn set_yiaddr(self: *DHCPHeader, yiaddr: IPv4Address) void {
-        self.yiaddr = @byteSwap(yiaddr.to_u32());
+        self.yiaddr = std.mem.toBytes(@byteSwap(yiaddr.to_u32()));
     }
 
     pub fn get_yiaddr(self: *const DHCPHeader) IPv4Address {
-        return IPv4Address.init_from_u32(self.yiaddr);
+        return IPv4Address.init_from_array(self.yiaddr);
     }
 
     // Server IP getters/setters
     pub fn set_siaddr(self: *DHCPHeader, siaddr: IPv4Address) void {
-        self.siaddr = @byteSwap(siaddr.to_u32());
+        self.siaddr = std.mem.toBytes(@byteSwap(siaddr.to_u32()));
     }
 
     pub fn get_siaddr(self: *const DHCPHeader) IPv4Address {
-        return IPv4Address.init_from_u32(@byteSwap(self.siaddr));
+        return IPv4Address.init_from_array(self.siaddr);
     }
 
     // Gateway IP getters/setters
     pub fn set_giaddr(self: *DHCPHeader, giaddr: IPv4Address) void {
-        self.giaddr = @byteSwap(giaddr.to_u32());
+        self.giaddr = std.mem.toBytes(@byteSwap(giaddr.to_u32()));
     }
 
     pub fn get_giaddr(self: *const DHCPHeader) IPv4Address {
-        return IPv4Address.init_from_u32(self.giaddr);
+        return IPv4Address.init_from_array(self.giaddr);
     }
 
     // Client hardware address getters/setters
@@ -490,11 +492,13 @@ pub const DHCPHeader = extern struct {
 
     // Magic cookie getters/setters
     pub fn set_magic_cookie(self: *DHCPHeader, cookie: u32) void {
-        self.magic_cookie = @byteSwap(cookie);
+        const val = std.mem.toBytes(@byteSwap(cookie));
+        self.magic_cookie = val;
     }
 
     pub fn get_magic_cookie(self: *const DHCPHeader) u32 {
-        return @byteSwap(self.magic_cookie);
+        const val = @byteSwap(std.mem.bytesToValue(u32, &self.magic_cookie));
+        return val;
     }
 
     // Helper methods
@@ -549,7 +553,7 @@ pub const DHCPLayer = struct {
     }
 
     pub fn get_mutable_header(self: *DHCPLayer) *DHCPHeader {
-        const data = self.get_data();
+        const data = self.get_data()[0..DHCPHeaderSize];
 
         if (data.len < DHCPHeaderSize) {
             std.debug.panic("DHCP data len ({}) less than DHCPHeaderSize", .{data.len});
@@ -560,7 +564,7 @@ pub const DHCPLayer = struct {
     }
 
     pub fn get_immutable_header(self: *const DHCPLayer) *const DHCPHeader {
-        const data: []const u8 = self.get_data();
+        const data = self.get_data()[0..DHCPHeaderSize];
 
         if (data.len < DHCPHeaderSize) {
             std.debug.panic("DHCP data len ({}) less than DHCPHeaderSize", .{data.len});
@@ -877,13 +881,6 @@ pub const DHCPLayer = struct {
     }
 
     pub fn deinit(self: *DHCPLayer) void {
-        switch (self.owner) {
-            .packet_layer => {
-                return; // Layer in packet - don't free
-            },
-            .owned_buffer => |*buffer| {
-                return buffer.deinit(); // standalone layer - it is mutable by default
-            },
-        }
+        self.owner.deinit();
     }
 };

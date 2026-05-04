@@ -13,14 +13,11 @@ const ICMP = @import("ICMP.zig");
 const DNS = @import("DNS.zig");
 const GenericLayer = @import("GenericLayer.zig");
 const VLAN = @import("VLAN.zig"); // remember to expose through pub API
-
+const LayerError = @import("ProtocolEnums.zig").LayerError;
+const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerOwner = @import("Layer.zig").LayerOwner;
 
 const Allocator = std.mem.Allocator;
-
-const LayerError = @import("ProtocolEnums.zig").LayerError;
-
-const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 
 /// soon to be converted to a vtable style polymorphic interface to handle protocol plugins
 pub const LayerIface = union(enum) {

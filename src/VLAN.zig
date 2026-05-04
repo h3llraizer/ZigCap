@@ -4,9 +4,7 @@ const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const ProtocolEnums = @import("ProtocolEnums.zig");
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const IPv4 = @import("IPv4.zig");
-const IPv4Header = IPv4.IPv4Header;
 const IPv6 = @import("IPv6.zig");
-const IPv6HeaderSize = @import("IPv6.zig").IPv6HeaderSize;
 const ARP = @import("ARP.zig");
 const Layer = @import("Layer.zig");
 const GenericLayer = @import("GenericLayer.zig");
@@ -19,6 +17,8 @@ const LayerError = ProtocolEnums.LayerError;
 const IPVersion = ProtocolEnums.IPVersions;
 const LayerOwner = Layer.LayerOwner;
 const EthType = Eth.EthType;
+const IPv6HeaderSize = IPv6.IPv6HeaderSize;
+const IPv4Header = IPv4.IPv4Header;
 
 const VlanHeaderSize = 4;
 

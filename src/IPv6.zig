@@ -499,13 +499,6 @@ pub const IPv6Layer = struct {
                     const routing = @as(*RoutingHeader, @ptrCast(data[offset..].ptr));
                     const ext_len = (routing.hdr_ext_len + 1) * 8;
 
-                    //                   try self.add_next_ext_header(ExtensionHeader{
-                    //                       .header_type = next_header_type,
-                    //                       .offset = offset,
-                    //                       .ext_length = ext_len,
-                    //                       .length = ext_len,
-                    //                   });
-
                     try self.add_next_ext_header(ExtensionHeader.init(next_header_type, offset, ext_len, self));
 
                     current_next = routing.next_header;
@@ -513,13 +506,6 @@ pub const IPv6Layer = struct {
                 },
                 .Fragment => {
                     const frag: *FragmentHeader = @ptrCast(@alignCast(data[offset..].ptr));
-
-                    //                   try self.add_next_ext_header(ExtensionHeader{
-                    //                       .header_type = next_header_type,
-                    //                       .offset = offset,
-                    //                       .ext_length = @sizeOf(FragmentHeader),
-                    //                       .length = @sizeOf(FragmentHeader),
-                    //                   });
 
                     try self.add_next_ext_header(ExtensionHeader.init(next_header_type, offset, @sizeOf(ExtensionHeader), self));
 
@@ -540,13 +526,6 @@ pub const IPv6Layer = struct {
                     // These have variable length, simplified for now
                     const len = @as(u8, data[offset + 1]);
                     const ext_len = (len + 2) * 4;
-
-                    //                   try self.add_next_ext_header(ExtensionHeader{
-                    //                       .header_type = next_header_type,
-                    //                       .offset = offset,
-                    //                       .ext_length = ext_len,
-                    //                       .length = ext_len,
-                    //                   });
 
                     try self.add_next_ext_header(ExtensionHeader.init(next_header_type, offset, ext_len, self));
 
@@ -604,9 +583,6 @@ pub const IPv6Layer = struct {
         while (cur) |ext| {
             if (ext.get_type() == header_type) {
                 return ext;
-                //               print("found header.\n", .{});
-                //               const data = self.get_data();
-                //               print("{x}\n", .{data[ext.get_offset() .. ext.get_offset() + ext.get_length()]});
             }
 
             cur = ext.get_next_extension();

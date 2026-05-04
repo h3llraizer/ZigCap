@@ -436,14 +436,7 @@ pub const IPv4Layer = struct {
     }
 
     pub fn deinit(self: *IPv4Layer) void {
-        switch (self.owner) {
-            .packet_layer => {
-                return; // Layer in packet - don't free
-            },
-            .owned_buffer => |*buffer| {
-                return buffer.deinit(); // standalone layer - it is mutable by default
-            },
-        }
+        self.owner.deinit();
     }
 };
 

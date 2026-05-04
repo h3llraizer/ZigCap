@@ -244,14 +244,7 @@ pub const ARPLayer = struct {
     /// returns mutable slice of data (hdr+payload).
     /// this will likely be made private in future to avoid accidental mutations
     pub fn get_data(self: *const ARPLayer) []u8 {
-        switch (self.owner) {
-            .packet_layer => |layer| {
-                return layer.get_data(); // Layer in packet - it might be mutable or immutable
-            },
-            .owned_buffer => |*buffer| {
-                return buffer.buffer.items; // standalone layer - it is mutable by default
-            },
-        }
+        return self.owner.get_data();
     }
 
     /// return mutable slice of the payload (ARP has no payload beyond the header)
@@ -381,13 +374,6 @@ pub const ARPLayer = struct {
     }
 
     pub fn deinit(self: *ARPLayer) void {
-        switch (self.owner) {
-            .packet_layer => {
-                return; // Layer in packet - don't free
-            },
-            .owned_buffer => |*buffer| {
-                return buffer.deinit(); // standalone layer - it is mutable by default
-            },
-        }
+        self.owner.deinit();
     }
 };

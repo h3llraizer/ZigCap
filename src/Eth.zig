@@ -4,9 +4,7 @@ const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const ProtocolEnums = @import("ProtocolEnums.zig");
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const IPv4 = @import("IPv4.zig");
-const IPv4Header = IPv4.IPv4Header;
 const IPv6 = @import("IPv6.zig");
-const IPv6HeaderSize = @import("IPv6.zig").IPv6HeaderSize;
 const ARP = @import("ARP.zig");
 const Layer = @import("Layer.zig");
 const GenericLayer = @import("GenericLayer.zig");
@@ -15,10 +13,11 @@ const VLAN = @import("VLAN.zig");
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 const panic = std.debug.panic;
-
+const IPv4Header = IPv4.IPv4Header;
 const LayerError = ProtocolEnums.LayerError;
 const IPVersion = ProtocolEnums.IPVersions;
 const LayerOwner = Layer.LayerOwner;
+const IPv6HeaderSize = IPv6HeaderSize;
 
 pub const EthType = enum(u16) {
     IP = 0x0800,
@@ -195,7 +194,7 @@ pub const EthLayer = struct {
         // Create final result
         const result = std.fmt.allocPrint(
             allocator,
-            "EthLayer: EthType: {s}, src_mac: {s}, dst_mac: {s}\n",
+            "EthLayer: EthType: {s}, src: {s}, dst: {s}\n",
             .{ eth_type_str, src_mac, dst_mac },
         ) catch |err| {
             std.debug.print("result allocPrint failed: {s}\n", .{@errorName(err)});
@@ -282,14 +281,7 @@ pub const EthLayer = struct {
     }
 
     pub fn deinit(self: *EthLayer) void {
-        switch (self.owner) {
-            .packet_layer => {
-                return; // Layer in packet - don't free
-            },
-            .owned_buffer => |*buffer| {
-                return buffer.deinit(); // standalone layer - it is mutable by default
-            },
-        }
+        self.owner.deinit();
     }
 };
 

@@ -1,7 +1,9 @@
-const print = @import("std").debug.print;
+const std = @import("std");
 const Packet = @import("Packet.zig");
-const Allocator = @import("std").mem.Allocator;
 const Buffer = @import("Buffer.zig").Buffer;
+
+const print = std.debug.print;
+const Allocator = std.mem.Allocator;
 
 /// The Layer is either owned by Packet or Buffer ("owned_buffer")
 /// When owned by packet_layer, the data is retrieved and modified via the Layers e.g. get_data() calls Layer.get_data() which uses its own offset to return the packets buffer from its offset. See Packet.Layer.

@@ -945,14 +945,7 @@ pub const DNSLayer = struct {
     pub fn deinit(self: *DNSLayer) void {
         self.destroy_queries(); // always destroy the query structs
         self.destroy_answers(); // always destroy the answer structs
-        switch (self.owner) {
-            .packet_layer => {
-                return; // Layer in packet - don't free
-            },
-            .owned_buffer => |*buffer| {
-                buffer.deinit(); // standalone layer
-            },
-        }
+        self.owner.deinit();
     }
 };
 

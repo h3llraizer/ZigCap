@@ -1,18 +1,16 @@
 const std = @import("std");
-const print = std.debug.print;
-const Allocator = std.mem.Allocator;
-const panic = std.debug.panic;
 
 const ProtocolEnums = @import("ProtocolEnums.zig");
 const LayerIface = @import("LayerIface.zig").LayerIface;
-const LayerError = ProtocolEnums.LayerError;
+const LayerOwner = @import("Layer.zig").LayerOwner;
+const Layer = @import("Packet.zig").Layer;
+const IPv4 = @import("IPv4.zig");
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 
-const LayerOwner = @import("Layer.zig").LayerOwner;
-
-const Layer = @import("Packet.zig").Layer;
-
-const IPv4 = @import("IPv4.zig");
+const print = std.debug.print;
+const Allocator = std.mem.Allocator;
+const panic = std.debug.panic;
+const LayerError = ProtocolEnums.LayerError;
 
 pub const ICMPHeaderSize = 8;
 
@@ -443,10 +441,6 @@ pub const ICMPLayer = struct {
         return hdr.checksum;
     }
 
-    //fn account_options(self: *ICMPLayer) !void {
-    //
-    //}
-
     pub fn validate_layer(self: *ICMPLayer) void {
         const hdr = self.get_mutable_header();
         hdr.calculate_checksum(self.get_payload());
@@ -476,7 +470,7 @@ pub const ICMPLayer = struct {
     pub fn get_next_layer_type(self: *ICMPLayer, layer: *Layer) !?LayerIface {
         _ = self;
         _ = layer;
-        // these types can include original packet copy
+        // these types can include original IPv4 Header and full TCP Header or psuedo TCP Header
         // dest Unreachable
         // time exceeded
         // param Problem
@@ -489,9 +483,3 @@ pub const ICMPLayer = struct {
         self.owner.deinit();
     }
 };
-
-//   comptime {
-//       if (@sizeOf(ICMPHeader) != 8) {
-//           @compileError("ICMPHeader size must be 8 bytes");
-//       }
-//
