@@ -1,26 +1,25 @@
 const std = @import("std");
-const print = std.debug.print;
-const activeTag = std.meta.activeTag;
-const Allocator = std.mem.Allocator;
-const panic = std.debug.panic;
-
 const ProtocolEnums = @import("ProtocolEnums.zig");
-const IPVersions = ProtocolEnums.IPVersions;
 const tcp_ip_protocols = @import("tcp_ip_protocols.zig");
-const tcp_ip_protocol = tcp_ip_protocols.tcp_ip_protocol;
-const get_layer_type_enum = tcp_ip_protocols.get_layer_type_enum;
-const LayerError = ProtocolEnums.LayerError;
-const link_layer_type = ProtocolEnums.link_layer_type;
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const Eth = @import("Eth.zig");
-const EthLayer = Eth.EthLayer;
 const Loopback = @import("Loopback.zig");
 const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
 const GenericLayer = @import("GenericLayer.zig");
 const LayerOwner = @import("Layer.zig").LayerOwner;
-
 const Buffer = @import("Buffer.zig").Buffer;
+
+const print = std.debug.print;
+const activeTag = std.meta.activeTag;
+const Allocator = std.mem.Allocator;
+const panic = std.debug.panic;
+const IPVersions = ProtocolEnums.IPVersions;
+const EthLayer = Eth.EthLayer;
+const LayerError = ProtocolEnums.LayerError;
+const link_layer_type = ProtocolEnums.link_layer_type;
+const tcp_ip_protocol = tcp_ip_protocols.tcp_ip_protocol;
+const get_layer_type_enum = tcp_ip_protocols.get_layer_type_enum;
 
 /// Do NOT change the offset and lengths manually - there is no need to. They are public by default but let the Packet manage these members
 pub const Layer = struct {
@@ -275,8 +274,6 @@ pub const Packet = struct {
 
         const extend_offset = layer.offset + offset; // absolute position in packet
 
-        print("extend_offset: {}\n", .{extend_offset});
-
         const buf = try self.buffer.extend(extend_offset, length);
 
         layer.length += length; // increase the length of the layer by length that it was extended by
@@ -290,23 +287,6 @@ pub const Packet = struct {
 
         return buf; // return the extend slice
     }
-
-    //pub fn extend_layer(self: *Packet, layer: *Layer, length: usize) ![]u8 { // TODO: call proceeding layers calculate_length
-
-    //    const extend_offset = layer.offset + layer.length;
-    //    const buf = try self.buffer.extend(extend_offset, length);
-
-    //    layer.length += length; // increase the length of the layer by length that it was extended by
-
-    //    // now the proceeding layers offsets and lengths need to be increased by the length that this layer was extended by
-    //    var cur = layer.next_layer; // get the layers next layer
-    //    while (cur) |next| {
-    //        next.offset += length; // increase it's offset by the length
-    //        cur = next.next_layer; // set cur to its next layer
-    //    }
-
-    //    return buf; // return the extend slice
-    //}
 
     pub fn shorten_layer(self: *Packet, layer: *Layer, offset: usize, length: usize) !void { // TODO: call proceeding layers calculate_length
         const shorten_offset = layer.offset + offset;
@@ -380,8 +360,11 @@ pub const Packet = struct {
         }
     }
 
-    pub fn extract_layer(self: *Packet, layer: *Layer, owner: *LayerOwner) !?LayerIface { // TODO: data transfer is working but metadata structs are not being transfered causing a leak
+    // TODO: data transfer is working but metadata structs are not being transfered causing a leak
+    pub fn extract_layer(self: *Packet, layer: *Layer, owner: *LayerOwner) !?LayerIface {
         try self.buffer.cutRange(&owner.owned_buffer, layer.offset, layer.length);
+
+        layer.layer_iface.deinit(); // destroy structs which view over variable data
 
         try layer.layer_iface.reinit(owner.*); // transfers ownership of the packets data to the new owner
 
@@ -445,6 +428,8 @@ pub const Packet = struct {
             next_layer.offset -= layer.length;
             cur = next_layer.next_layer;
         }
+
+        layer.layer_iface.deinit();
 
         self.layer_allocator.destroy(layer);
 

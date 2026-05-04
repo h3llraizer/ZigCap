@@ -462,7 +462,6 @@ pub const DNSLayer = struct {
             },
             .owned_buffer => {
                 var self = DNSLayer{ .owner = owner };
-                //              print("DNSLayer (self) on init: {*}\n", .{&self});
                 const buffer_len = self.owner.owned_buffer.buffer.items.len;
                 if (buffer_len < DNSHeaderSize) {
                     const dns_data = try self.owner.owned_buffer.extend(buffer_len, DNSHeaderSize);
@@ -951,14 +950,14 @@ pub const DNSLayer = struct {
                 return; // Layer in packet - don't free
             },
             .owned_buffer => |*buffer| {
-                buffer.deinit(); // standalone layer - it is mutable by default
+                buffer.deinit(); // standalone layer
             },
         }
     }
 };
 
 /// Creates a domain name from a DNS label. The allocator creates an ArrayList to store the bytes and returns a mutable slice
-/// The ArrayList is deinit'd before return
+/// The ArrayList is deinit'd before return but you must free the slice that is returned (it returns an ownedSlice)
 pub fn decodeQname(allocator: Allocator, payload: []const u8) ![]u8 {
     var list = try std.ArrayList(u8).initCapacity(allocator, payload.len);
     defer list.deinit(allocator);

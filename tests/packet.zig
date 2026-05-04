@@ -11,6 +11,7 @@ const ARP = zigcap.ARP;
 const IPv4 = zigcap.IPv4;
 const Eth = zigcap.Eth;
 const UDP = zigcap.UDP;
+const DNS = zigcap.DNS;
 const ApplicationLayer = zigcap.ApplicationLayer;
 const IPProtocol = zigcap.ProtocolEnums.IPProtocol;
 const tcp_ip_protocol = zigcap.tcp_ip_protocol;
@@ -95,4 +96,101 @@ test "packet dissection" {
     try expect(packet.has_protocol_layer(.ipv4));
     try expect(packet.has_protocol_layer(.udp));
     try expect(packet.has_protocol_layer(.dns));
+}
+
+test "packet extract layers" {
+    const raw: [93]u8 = [_]u8{ 0x38, 0x6, 0xe6, 0x92, 0x63, 0xac, 0x14, 0x4f, 0x8a, 0xa4, 0x15, 0x7d, 0x8, 0x0, 0x45, 0x0, 0x0, 0x4f, 0xcd, 0x45, 0x0, 0x0, 0x80, 0x11, 0xe8, 0x28, 0xc0, 0xa8, 0x1, 0xe1, 0xc0, 0xa8, 0x1, 0xfe, 0xc5, 0xd1, 0x0, 0x35, 0x0, 0x3b, 0x74, 0x70, 0xb7, 0x79, 0x1, 0x20, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x6, 0x7a, 0x69, 0x67, 0x67, 0x69, 0x74, 0x3, 0x64, 0x65, 0x76, 0x0, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x29, 0x4, 0xd0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xc, 0x0, 0xa, 0x0, 0x8, 0xa0, 0xd9, 0x37, 0x2e, 0xaa, 0x24, 0xf8, 0x1d };
+
+    const raw_hash = std.hash.Wyhash.hash(0, &raw); // hash original data
+
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.detectLeaks();
+
+    const allocator = debug_allocator.allocator();
+
+    var raw_packet_buffer: std.array_list.Aligned(u8, std.mem.Alignment.@"2") = .empty;
+
+    try raw_packet_buffer.appendSlice(allocator, &raw);
+
+    const buffer_hash = std.hash.Wyhash.hash(0, raw_packet_buffer.items);
+
+    try expect(raw_hash == buffer_hash);
+
+    var packet = try Packet.create(allocator, allocator);
+    try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.ETHERNET, null);
+    defer packet.deinit();
+
+    const packet_buf_hash = std.hash.Wyhash.hash(0, packet.get_raw());
+
+    try expect(raw_hash == packet_buf_hash);
+
+    try expect(packet.get_layer_count() == 4);
+
+    try expect(packet.has_protocol_layer(.eth));
+    try expect(packet.has_protocol_layer(.ipv4));
+    try expect(packet.has_protocol_layer(.udp));
+    try expect(packet.has_protocol_layer(.dns));
+
+    var tmp_buf: LayerOwner = .{ .owned_buffer = .init_empty(allocator) };
+
+    if (packet.get_layer_of_type(DNS.DNSLayer)) |dns_layer| {
+        try dns_layer.get_answers();
+    }
+
+    const dns_layer = packet.search_layers(.dns) orelse {
+        try expect(false); // failed to retrieve dns layer in packet
+        return;
+    };
+
+    var dns_layer_iface: LayerIface = try packet.extract_layer(dns_layer, &tmp_buf) orelse {
+        try expect(false); // failed to extract layer
+        return;
+    };
+
+    defer dns_layer_iface.deinit();
+}
+
+test "packet delete layers" {
+    const raw: [93]u8 = [_]u8{ 0x38, 0x6, 0xe6, 0x92, 0x63, 0xac, 0x14, 0x4f, 0x8a, 0xa4, 0x15, 0x7d, 0x8, 0x0, 0x45, 0x0, 0x0, 0x4f, 0xcd, 0x45, 0x0, 0x0, 0x80, 0x11, 0xe8, 0x28, 0xc0, 0xa8, 0x1, 0xe1, 0xc0, 0xa8, 0x1, 0xfe, 0xc5, 0xd1, 0x0, 0x35, 0x0, 0x3b, 0x74, 0x70, 0xb7, 0x79, 0x1, 0x20, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x6, 0x7a, 0x69, 0x67, 0x67, 0x69, 0x74, 0x3, 0x64, 0x65, 0x76, 0x0, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x29, 0x4, 0xd0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xc, 0x0, 0xa, 0x0, 0x8, 0xa0, 0xd9, 0x37, 0x2e, 0xaa, 0x24, 0xf8, 0x1d };
+
+    const raw_hash = std.hash.Wyhash.hash(0, &raw); // hash original data
+
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.detectLeaks();
+
+    const allocator = debug_allocator.allocator();
+
+    var raw_packet_buffer: std.array_list.Aligned(u8, std.mem.Alignment.@"2") = .empty;
+
+    try raw_packet_buffer.appendSlice(allocator, &raw);
+
+    const buffer_hash = std.hash.Wyhash.hash(0, raw_packet_buffer.items);
+
+    try expect(raw_hash == buffer_hash);
+
+    var packet = try Packet.create(allocator, allocator);
+    try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.ETHERNET, null);
+    defer packet.deinit();
+
+    const packet_buf_hash = std.hash.Wyhash.hash(0, packet.get_raw());
+
+    try expect(raw_hash == packet_buf_hash);
+
+    try expect(packet.get_layer_count() == 4);
+
+    try expect(packet.has_protocol_layer(.eth));
+    try expect(packet.has_protocol_layer(.ipv4));
+    try expect(packet.has_protocol_layer(.udp));
+    try expect(packet.has_protocol_layer(.dns));
+
+    if (packet.get_layer_of_type(DNS.DNSLayer)) |dns_layer| {
+        try dns_layer.get_answers();
+    }
+
+    const dns_layer = packet.search_layers(.dns) orelse {
+        try expect(false); // failed to retrieve dns layer in packet
+        return;
+    };
+
+    _ = try packet.delete_layer(dns_layer);
 }

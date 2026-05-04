@@ -71,8 +71,6 @@ test "build dhcp packet" {
 
     dhcp_hdr.set_chaddr(try Eth.MacAddress.init_from_string("00:e0:4c:68:00:6c"));
 
-    print("dhcp data: {x}\n", .{dhcp_layer_iface.get_data()});
-
     const req = DHCP.OptionValues{ .msgType = .DHCPREQUEST };
 
     try dhcp_layer_iface.dhcpLayer.add_option(DHCP.Option.DHCPMessageType, req);
@@ -85,36 +83,25 @@ test "build dhcp packet" {
 
     try dhcp_layer_iface.dhcpLayer.remove_param_option(DHCP.Option.DomainName);
 
-    dhcp_layer_iface.dhcpLayer.print_all_opts();
-
     _ = try packet.add_layer(&eth_iface);
     _ = try packet.add_layer(&ipv4_iface);
     _ = try packet.add_layer(&udp_iface);
     _ = try packet.add_layer(&dhcp_layer_iface);
 
-    packet.print_layers_meta();
-
     packet.validate_packet();
-
-    print("{x}\n", .{packet.get_raw()});
-
-    packet.print_layers_meta();
 
     if (packet.get_layer_of_type(DHCP.DHCPLayer)) |dhcp_layer| {
         if (dhcp_layer.eop_added()) |eop| {
-            print("eop found: {}\n", .{eop});
-
+            _ = eop;
             try dhcp_layer.set_parameter_request_list(&ops);
 
             //try dhcp_layer.remove_param_option(DHCP.Option.DomainName);
         } else {
-            print("no eop.\n", .{});
+            try expect(false); // no end-of-options found
         }
     } else {
-        print("NO DHCP LAYER.\n", .{});
+        try expect(false); // no dhcp layer found
     }
-
-    packet.print_layers_meta();
 }
 
 test "parse dhcp layer" {

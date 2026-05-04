@@ -571,7 +571,6 @@ pub const DHCPLayer = struct {
     }
 
     fn extend_payload(self: *DHCPLayer, offset: usize, extend_len: usize) ![]u8 {
-        print("extending at offset {} by {}\n", .{ offset, extend_len });
         var buf: []u8 = undefined;
         switch (self.owner) {
             .packet_layer => |layer| {
@@ -709,8 +708,6 @@ pub const DHCPLayer = struct {
             offset = eop;
         }
 
-        print("found offset: {}\n", .{offset});
-
         // Add new parameter request list at the end
         var opt_buf = try self.extend_payload(offset, 2 + requested_options.len);
         opt_buf[0] = @intFromEnum(Option.ParameterRequestList);
@@ -737,8 +734,6 @@ pub const DHCPLayer = struct {
         const tmp = std.mem.toBytes(val);
 
         @memmove(opt_buf[2..], tmp[0..fit]);
-
-        print("{any} added with {any} \n", .{ opt, val });
     }
 
     /// returns mutable slice of data (hdr+payload).
@@ -768,12 +763,7 @@ pub const DHCPLayer = struct {
     }
 
     pub fn validate_layer(self: *DHCPLayer) void {
-        print("validating layer:\n", .{});
         const data = self.get_data();
-
-        print("data.len: {}\n", .{data.len});
-
-        print("last byte: {x}\n", .{data[data.len - 1]});
 
         if (data[data.len - 1] != 0xff) {
             var end_byte = self.extend_payload(data.len, 1) catch {
