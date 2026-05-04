@@ -21,6 +21,7 @@ Currently supported functionality:
 - UDP (`src/UDP.zig`)
 - ICMP (`src/ICMP.zig`)
 - DNS (`src/DNS.zig`)
+- DHCP (`src/DHCP.zig`)
 - Generic / Application Layer (`src/GenericLayer.zig`)
 
 Note, these protocols are supported but not fully implemented with their extended features:

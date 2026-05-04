@@ -32,3 +32,4 @@ pub const LayerIface = @import("LayerIface.zig").LayerIface;
 pub const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 pub const PcapWrapper = @import("PcapWrapper.zig");
 pub const WinDivertWrapper = @import("WinDivertWrapper.zig");
+pub const Buffer = @import("Buffer.zig");
