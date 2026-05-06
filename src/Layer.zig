@@ -35,6 +35,33 @@ pub const LayerOwner = union(enum) {
         }
     }
 
+    pub fn extend_payload(self: *LayerOwner, offset: usize, extend_len: usize) ![]u8 {
+        var buf: []u8 = undefined;
+        switch (self.*) {
+            .packet_layer => |layer| {
+                buf = try layer.packet.extend_layer(layer, offset, extend_len); // TODO: extend at offset instead
+            },
+            .owned_buffer => |*buffer| {
+                buf = try buffer.extend(offset, extend_len);
+            },
+        }
+
+        @memset(buf, 0);
+
+        return buf;
+    }
+
+    pub fn shorten_payload(self: *LayerOwner, offset: usize, shorten_len: usize) !void {
+        switch (self.*) {
+            .packet_layer => |layer| {
+                try layer.packet.shorten_layer(layer, offset, shorten_len);
+            },
+            .owned_buffer => |*buffer| {
+                try buffer.shorten(offset, shorten_len);
+            },
+        }
+    }
+
     pub fn deinit(self: *LayerOwner) void {
         switch (self.*) {
             .packet_layer => {

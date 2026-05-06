@@ -1,5 +1,4 @@
 const std = @import("std");
-
 const ProtocolEnums = @import("ProtocolEnums.zig");
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const LayerOwner = @import("Layer.zig").LayerOwner;
@@ -12,7 +11,8 @@ const Allocator = std.mem.Allocator;
 const panic = std.debug.panic;
 const LayerError = ProtocolEnums.LayerError;
 
-pub const ICMPHeaderSize = 8;
+pub const ICMPHeaderSize = 8; // TODO: Rename - this is minimum size because any ICMP type extends from 4 to 8 minimum
+const BaseHeaderSize = 4; // absolute base header
 
 pub const ICMPType = enum(u8) {
     EchoReply = 0,
@@ -20,8 +20,8 @@ pub const ICMPType = enum(u8) {
     SourceQuench = 4, // not used often - need to get working example first
     Redirect = 5,
     EchoRequest = 8,
-    RouterAdvertisement = 9,
-    RouterSolicitation = 10,
+    RouterAdvertisement = 9, // IPv6
+    RouterSolicitation = 10, // IPv6
     TimeExceeded = 11,
     ParameterProblem = 12,
     TimestampRequest = 13,
@@ -52,9 +52,13 @@ pub const DestinationUnreachableCode = enum(u8) {
 };
 
 pub const RedirectCode = enum(u8) {
+    /// Redirect datagrams for the Network
     RedirectForNetwork = 0,
+    /// Redirect datagrams for the Host
     RedirectForHost = 1,
+    /// Redirect datagrams for the Type of Service and Network
     RedirectForTOSAndNetwork = 2,
+    /// Redirect datagrams for the Type of Service and Host
     RedirectForTOSAndHost = 3,
 };
 
@@ -94,11 +98,11 @@ pub const ICMPEcho = extern struct {
         return @byteSwap(self.identifier);
     }
 
-    pub fn set_sequence(self: *ICMPEcho, seq: u16) void {
+    pub fn set_seq_num(self: *ICMPEcho, seq: u16) void {
         self.sequence = @byteSwap(seq);
     }
 
-    pub fn get_sequence(self: *const ICMPEcho) u16 {
+    pub fn get_seq_num(self: *const ICMPEcho) u16 {
         return @byteSwap(self.sequence);
     }
 };
@@ -172,6 +176,133 @@ pub const ICMPRouterSol = extern struct {
     reserved: [4]u8,
 };
 
+/// ICMP Timestamp Request/Reply message header.
+pub const ICMPTimestamp = extern struct {
+    /// Used to match requests with replies (like a port number)
+    identifier: u16,
+    /// Incremented per request to match replies
+    sequence_number: u16,
+    /// Time (ms since midnight UTC) when sender last touched the message before sending
+    originate_timestamp: [4]u8,
+    /// Time (ms since midnight UTC) when receiver first received the request
+    receive_timestamp: [4]u8,
+    /// Time (ms since midnight UTC) when receiver last touched the reply before sending
+    transmit_timestamp: [4]u8,
+
+    pub fn get_identifier(self: *ICMPTimestamp) u16 {
+        return @byteSwap(self.identifier);
+    }
+
+    pub fn set_identifier(self: *ICMPTimestamp, id: u16) void {
+        self.identifier = @byteSwap(id);
+    }
+
+    pub fn get_seq_num(self: *ICMPTimestamp) u16 {
+        return @byteSwap(self.sequence_number);
+    }
+
+    pub fn set_seq_num(self: *ICMPTimestamp, seq_num: u16) void {
+        self.sequence_number = @byteSwap(seq_num);
+    }
+
+    pub fn get_original_timestamp(self: *ICMPTimestamp) u32 {
+        const val = std.mem.bytesToValue(u32, &self.originate_timestamp);
+        return @byteSwap(val);
+    }
+
+    pub fn set_original_timestamp(self: *ICMPTimestamp, timestamp: u32) void {
+        const bytes = std.mem.toBytes(@byteSwap(timestamp));
+        self.originate_timestamp = bytes;
+    }
+
+    pub fn get_receive_timestamp(self: *ICMPTimestamp) u32 {
+        const val = std.mem.bytesToValue(u32, &self.receive_timestamp);
+        return @byteSwap(val);
+    }
+
+    pub fn set_receive_timestamp(self: *ICMPTimestamp, timestamp: u32) void {
+        const bytes = std.mem.toBytes(@byteSwap(timestamp));
+        self.receive_timestamp = bytes;
+    }
+
+    pub fn get_transmit_timestamp(self: *ICMPTimestamp) u32 {
+        const val = std.mem.bytesToValue(u32, &self.transmit_timestamp);
+        return @byteSwap(val);
+    }
+
+    pub fn set_transmit_timestamp(self: *ICMPTimestamp, timestamp: u32) void {
+        const bytes = std.mem.toBytes(@byteSwap(timestamp));
+        self.transmit_timestamp = bytes;
+    }
+};
+
+/// ICMP Info (Request/Response)
+pub const ICMPInfo = extern struct {
+    identifier: u16,
+    sequence: u16,
+
+    pub fn set_identifier(self: *ICMPInfo, id: u16) void {
+        self.identifier = @byteSwap(id);
+    }
+
+    pub fn get_identifier(self: *const ICMPInfo) u16 {
+        return @byteSwap(self.identifier);
+    }
+
+    pub fn set_seq_num(self: *ICMPInfo, seq: u16) void {
+        self.sequence = @byteSwap(seq);
+    }
+
+    pub fn get_seq_num(self: *const ICMPInfo) u16 {
+        return @byteSwap(self.sequence);
+    }
+};
+
+/// ICMP AddrMask (Request/Response)
+pub const ICMPAddrMask = extern struct {
+    identifier: u16,
+    sequence: u16,
+    address_mask: [4]u8,
+
+    pub fn set_identifier(self: *ICMPAddrMask, id: u16) void {
+        self.identifier = @byteSwap(id);
+    }
+
+    pub fn get_identifier(self: *const ICMPAddrMask) u16 {
+        return @byteSwap(self.identifier);
+    }
+
+    pub fn set_seq_num(self: *ICMPAddrMask, seq: u16) void {
+        self.sequence = @byteSwap(seq);
+    }
+
+    pub fn get_seq_num(self: *const ICMPAddrMask) u16 {
+        return @byteSwap(self.sequence);
+    }
+
+    pub fn get_address_mask(self: *const ICMPAddrMask) IPv4.IPv4Address {
+        return IPv4.IPv4Address.init_from_array(self.address_mask);
+    }
+
+    pub fn set_address_mask(self: *const ICMPAddrMask, mask: IPv4.IPv4Address) void {
+        self.address_mask = mask.array;
+    }
+};
+
+pub const ICMPSourceQuench = extern struct {
+    unused: [4]u8,
+    original_datagram_data_start: [8]u8,
+
+    //   pub fn get_original_dgram_data(self: *ICMPSourceQuench) [8]u8 {
+    //       return self.original_datagram_data_start;
+    //   }
+    //
+    //   // might need endian conversion
+    //   pub fn set_original_dgram_data(self: *ICMPSourceQuench, dgram_data: [8]u8) void {
+    //       self.original_datagram_data_start = dgram_data;
+    //   }
+};
+
 pub const ICMP_type = union(enum) {
     icmpEcho: *ICMPEcho,
     icmpDestUnreachable: *ICMPDestUnr,
@@ -179,6 +310,10 @@ pub const ICMP_type = union(enum) {
     icmpParamProbl: *ICMPParamProb,
     icmpRouterAd: *ICMPRouterAd,
     icmpRouterSoli: *ICMPRouterSol,
+    icmpTimestamp: *ICMPTimestamp,
+    icmpInfo: *ICMPInfo,
+    icmpAddrMask: *ICMPAddrMask,
+    icmpSrcQuench: *ICMPSourceQuench,
 };
 
 /// Acts as the base header for ICMP
@@ -307,7 +442,7 @@ pub const ICMPLayer = struct {
 
                     var header = ICMPHeader.init_default(); // creates the ICMP Base Header default
 
-                    @memcpy(icmp_data[0..4], std.mem.asBytes(&header));
+                    @memmove(icmp_data[0..BaseHeaderSize], std.mem.asBytes(&header));
                 }
 
                 return self;
@@ -339,7 +474,6 @@ pub const ICMPLayer = struct {
                 const icmp_rd_hdr: *ICMPRedirect = @ptrCast(aligned_ptr);
                 return ICMP_type{ .icmpRedirect = icmp_rd_hdr };
             },
-
             .ParameterProblem => {
                 const hdr: *ICMPParamProb = @ptrCast(@alignCast(data[4..].ptr));
                 return ICMP_type{ .icmpParamProbl = hdr };
@@ -352,8 +486,22 @@ pub const ICMPLayer = struct {
                 const hdr: *ICMPRouterSol = @ptrCast(@alignCast(data[4..].ptr));
                 return ICMP_type{ .icmpRouterSoli = hdr };
             },
-
-            else => return null, // Timestamp, Information, AddressMask types need structs
+            .TimestampRequest, .TimestampReply => {
+                const hdr: *ICMPTimestamp = @ptrCast(@alignCast(data[4..].ptr));
+                return ICMP_type{ .icmpTimestamp = hdr };
+            },
+            .InformationReply, .InformationRequest => {
+                const hdr: *ICMPInfo = @ptrCast(@alignCast(data[4..].ptr));
+                return ICMP_type{ .icmpInfo = hdr };
+            },
+            .AddressMaskReply, .AddressMaskRequest => {
+                const hdr: *ICMPAddrMask = @ptrCast(@alignCast(data[4..].ptr));
+                return ICMP_type{ .icmpAddrMask = hdr };
+            },
+            .SourceQuench => {
+                const hdr: *ICMPSourceQuench = @ptrCast(@alignCast(data[4..].ptr));
+                return ICMP_type{ .icmpSrcQuench = hdr };
+            },
         }
     }
 
@@ -385,13 +533,74 @@ pub const ICMPLayer = struct {
         return self.owner.get_data();
     }
 
-    /// return immutable slice of the payload
+    /// return immutable slice of the payload // TODO: get the icmp type and add base header size
     pub fn get_payload(self: *ICMPLayer) []const u8 {
         const data = self.get_data();
-        if (data.len > ICMPHeaderSize) {
-            return data[ICMPHeaderSize..];
+
+        const header_type_size = self.get_header_type_size();
+
+        const full_header_size = BaseHeaderSize + header_type_size;
+
+        if (data.len > full_header_size) {
+            return data[full_header_size..];
         }
         return "";
+    }
+
+    fn get_header_type_size(self: *ICMPLayer) usize {
+        const hdr = self.get_immutable_header();
+        const icmp_type = hdr.get_type();
+        switch (icmp_type) {
+            .TimestampRequest, .TimestampReply => {
+                return @sizeOf(ICMPTimestamp);
+            },
+            .AddressMaskRequest, .AddressMaskReply => {
+                return @sizeOf(ICMPAddrMask);
+            },
+            .SourceQuench => {
+                return @sizeOf(ICMPSourceQuench);
+            },
+            else => {
+                return 4;
+            },
+        }
+    }
+
+    /// Sets the payload of the ICMPLayer.
+    /// Can be any ICMP type but commonly ICMP Echo Request/Reply is the type which has a payload
+    pub fn set_payload(self: *ICMPLayer, payload: []const u8) !void {
+        const current_payload_len = self.get_payload().len;
+
+        const header_type_size = self.get_header_type_size();
+
+        const full_header_size = BaseHeaderSize + header_type_size;
+
+        var buf: []u8 = self.get_data()[full_header_size..];
+
+        if (payload.len > current_payload_len) {
+            const extend_len: usize = payload.len - current_payload_len;
+
+            buf = try self.owner.extend_payload(full_header_size, extend_len);
+        }
+
+        if (current_payload_len > payload.len) {
+            const shorten_len = current_payload_len - payload.len;
+
+            const offset = full_header_size + payload.len;
+
+            try self.owner.shorten_payload(offset, shorten_len);
+            buf = self.get_data()[full_header_size..];
+        }
+
+        @memmove(buf, payload);
+    }
+
+    /// Don't use this.
+    pub fn remove_payload(self: *ICMPLayer) !void {
+        const payload_len = self.get_payload().len;
+        if (payload_len > 0) {
+            try self.owner.shorten_payload(self.get_data().len - payload_len, payload_len);
+        }
     }
 
     pub fn get_type(self: *ICMPLayer) ICMPType {
@@ -399,9 +608,24 @@ pub const ICMPLayer = struct {
         return hdr.get_type();
     }
 
-    pub fn set_type(self: *ICMPLayer, icmp_type: ICMPType) void {
+    pub fn set_type(self: *ICMPLayer, icmp_type: ICMPType) !void {
         var hdr = self.get_mutable_header();
         hdr.set_type(icmp_type);
+
+        switch (icmp_type) {
+            .TimestampRequest, .TimestampReply => {
+                _ = try self.owner.extend_payload(ICMPHeaderSize, @sizeOf(ICMPTimestamp));
+            },
+            .AddressMaskRequest, .AddressMaskReply => {
+                _ = try self.owner.extend_payload(ICMPHeaderSize, @sizeOf(ICMPAddrMask));
+            },
+            .SourceQuench => {
+                _ = try self.owner.extend_payload(ICMPHeaderSize, @sizeOf(ICMPSourceQuench));
+            },
+            else => {
+                return; // no extend required
+            },
+        }
     }
 
     // Generic code getter (returns raw u8, use with caution)
@@ -470,12 +694,11 @@ pub const ICMPLayer = struct {
     pub fn get_next_layer_type(self: *ICMPLayer, layer: *Layer) !?LayerIface {
         _ = self;
         _ = layer;
-        // these types can include original IPv4 Header and full TCP Header or psuedo TCP Header
+        // these types can include original IPv4 Header and full TCP Header or psuedo TCP Header:
         // dest Unreachable
         // time exceeded
         // param Problem
         // source quench
-        //
         return null;
     }
 

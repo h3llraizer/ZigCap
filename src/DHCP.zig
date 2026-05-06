@@ -1,7 +1,4 @@
 const std = @import("std");
-const print = std.debug.print;
-const panic = std.debug.panic;
-const Allocator = std.mem.Allocator;
 
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerOwner = @import("Layer.zig").LayerOwner;
@@ -10,6 +7,10 @@ const LayerIface = @import("LayerIface.zig").LayerIface;
 const Layer = @import("Packet.zig").Layer;
 const IPv4Address = @import("IPv4.zig").IPv4Address;
 const Eth = @import("Eth.zig");
+
+const print = std.debug.print;
+const panic = std.debug.panic;
+const Allocator = std.mem.Allocator;
 
 pub const HWTYPE = enum(u8) {
     Eth = 0x1,

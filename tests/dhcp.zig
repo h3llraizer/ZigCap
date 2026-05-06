@@ -30,6 +30,21 @@ fn create_random_u32() !u32 {
     return c;
 }
 
+test "build dhcp layer" {
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+
+    const allocator = debug_allocator.allocator();
+
+    const tmp_buf: LayerOwner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+
+    var dhcp_layer_iface: LayerIface = try LayerIface.init(DHCP.DHCPLayer, tmp_buf);
+    defer dhcp_layer_iface.deinit();
+
+    const dhcp_hdr: *const DHCP.DHCPHeader = dhcp_layer_iface.dhcpLayer.get_immutable_header();
+
+    try expect(dhcp_hdr.get_magic_cookie() == 0x63825363);
+}
+
 test "build dhcp packet" {
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 
@@ -97,8 +112,6 @@ test "build dhcp packet" {
         if (dhcp_layer.eop_added()) |eop| {
             _ = eop;
             try dhcp_layer.set_parameter_request_list(&ops);
-
-            //try dhcp_layer.remove_param_option(DHCP.Option.DomainName);
         } else {
             try expect(false); // no end-of-options found
         }
@@ -162,12 +175,8 @@ test "parse dhcp req packet" {
     try expect(packet.has_protocol_layer(.udp));
     try expect(packet.has_protocol_layer(.dhcp));
 
-    var dhcp_layer: *DHCP.DHCPLayer = packet.get_layer_of_type(DHCP.DHCPLayer) orelse {
+    _ = packet.get_layer_of_type(DHCP.DHCPLayer) orelse {
         try expect(false); // failed to get DHCP layer
         return;
     };
-
-    const str = dhcp_layer.to_string(allocator);
-    defer allocator.free(str);
-    print("{s}\n", .{str});
 }
