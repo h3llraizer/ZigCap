@@ -1,9 +1,8 @@
 const std = @import("std");
-const print = std.debug.print;
-const expect = std.testing.expect;
-
 const zigcap = @import("zigcap");
 
+const print = std.debug.print;
+const expect = std.testing.expect;
 const Packet = zigcap.Packet.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
 const LayerOwner = zigcap.Layer.LayerOwner;
@@ -14,11 +13,17 @@ const Eth = zigcap.Eth;
 const IPProtocol = zigcap.ProtocolEnums.IPProtocol;
 
 test "build independant ipv4 layer" {
-    var ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(std.heap.page_allocator) };
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.detectLeaks();
+
+    const allocator = debug_allocator.allocator();
+
+    var ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
 
     defer ipv4_layer_owner.owned_buffer.buffer.deinit(std.heap.page_allocator);
 
     var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, ipv4_layer_owner);
+    defer ipv4_layer_iface.deinit();
 
     var ipv4_hdr = ipv4_layer_iface.ipv4Layer.get_mutable_header();
 
@@ -32,20 +37,17 @@ test "build independant ipv4 layer" {
 }
 
 test "ipv4 option parse" {
-    //   print("========================== START ==========================\n", .{});
-    //   print("ipv4 option parse\n", .{});
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.detectLeaks();
 
-    var backing_buffer: [1024]u8 = undefined;
-
-    var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
-
-    const allocator = fba.allocator();
+    const allocator = debug_allocator.allocator();
 
     var ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
 
     defer ipv4_layer_owner.owned_buffer.buffer.deinit(allocator);
 
     var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, ipv4_layer_owner);
+    defer ipv4_layer_iface.deinit();
 
     var ipv4_hdr = ipv4_layer_iface.ipv4Layer.get_mutable_header();
 
@@ -71,24 +73,20 @@ test "ipv4 option parse" {
     try ipv4_layer_iface.ipv4Layer.add_option(op, allocator);
 
     ipv4_layer_iface.ipv4Layer.validate_layer();
-
-    //   print("========================== END ==========================\n", .{});
 }
 
 test "build ipv4 layer with Router Alert option" {
-    //print("========================== START ==========================\n", .{});
-    //print("build ipv4 layer with Router Alert option\n", .{});
-    var backing_buffer: [1024]u8 = undefined;
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.detectLeaks();
 
-    var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
-
-    const allocator = fba.allocator();
+    const allocator = debug_allocator.allocator();
 
     var ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
 
     defer ipv4_layer_owner.owned_buffer.buffer.deinit(allocator);
 
     var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, ipv4_layer_owner);
+    defer ipv4_layer_iface.deinit();
 
     var ipv4_hdr = ipv4_layer_iface.ipv4Layer.get_mutable_header();
 
@@ -105,6 +103,7 @@ test "build ipv4 layer with Router Alert option" {
     const op = try IPv4.IPOption.init(IPv4.IPOptionType.RouterAlert, &router_alert_op);
 
     const op_bytes = try op.toBytes(allocator);
+    defer allocator.free(op_bytes);
 
     try expect(op_bytes[0] == 0x94);
     try expect(op_bytes[1] == 0x04);
@@ -113,31 +112,33 @@ test "build ipv4 layer with Router Alert option" {
 
     try ipv4_layer_iface.ipv4Layer.add_option(op, allocator);
 
-    var ipv4_slice = ipv4_layer_iface.ipv4Layer.get_data();
+    const ipv4_slice = ipv4_layer_iface.ipv4Layer.get_data();
 
     try expect(ipv4_slice.len == 24);
 
-    try ipv4_layer_iface.ipv4Layer.remove_all_options();
+    const ipv4_payload = ipv4_layer_iface.get_payload();
 
-    ipv4_slice = ipv4_layer_iface.ipv4Layer.get_data();
+    print("ipv4_payload: ({}) {x}\n", .{ ipv4_payload.len, ipv4_payload });
 
-    //  print("========================== END ==========================\n", .{});
+    //   try ipv4_layer_iface.ipv4Layer.remove_all_options();
+
+    const str = try ipv4_layer_iface.ipv4Layer.get_immutable_header().to_string(allocator);
+    defer allocator.free(str);
+    print("{s}\n", .{str});
 }
 
 test "build ipv4 layer with Record Route option" {
-    //   print("========================== START ==========================\n", .{});
-    //   print("build ipv4 layer with Record Route option\n", .{});
-    var backing_buffer: [1024]u8 = undefined;
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.detectLeaks();
 
-    var fba = std.heap.FixedBufferAllocator.init(&backing_buffer);
-
-    const allocator = fba.allocator();
+    const allocator = debug_allocator.allocator();
 
     var ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
 
     defer ipv4_layer_owner.owned_buffer.buffer.deinit(allocator);
 
     var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, ipv4_layer_owner);
+    defer ipv4_layer_iface.deinit();
 
     var ipv4_hdr = ipv4_layer_iface.ipv4Layer.get_mutable_header();
 
@@ -149,6 +150,10 @@ test "build ipv4 layer with Record Route option" {
 
     ipv4_hdr.set_ttl(64);
 
+    var data = ipv4_layer_iface.get_data();
+
+    print("ipv4: ({}) {x}\n", .{ data.len, data });
+
     var record_route_op: [15]u8 align(2) = [_]u8{
         0x04, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00,
@@ -158,11 +163,22 @@ test "build ipv4 layer with Record Route option" {
 
     const op = try IPv4.IPOption.init(IPv4.IPOptionType.RecordRoute, &record_route_op);
 
+    const op_bytes = try op.toBytes(allocator);
+    defer allocator.free(op_bytes);
+
+    print("op_bytes: ({}) {x}\n", .{ op_bytes.len, op_bytes });
+
     try ipv4_layer_iface.ipv4Layer.add_option(op, allocator);
 
-    var packet = try Packet.create(allocator, allocator);
+    const ipv4_payload = ipv4_layer_iface.get_payload();
 
-    try expect(try packet.add_layer(&ipv4_layer_iface));
+    print("ipv4_payload: ({}) {x}\n", .{ ipv4_payload.len, ipv4_payload });
 
-    //   print("========================== END ==========================\n", .{});
+    const str = try ipv4_layer_iface.ipv4Layer.get_immutable_header().to_string(allocator);
+    defer allocator.free(str);
+    print("{s}\n", .{str});
+
+    data = ipv4_layer_iface.get_data();
+
+    print("ipv4: ({}) {x}\n", .{ data.len, data });
 }

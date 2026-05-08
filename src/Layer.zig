@@ -35,6 +35,7 @@ pub const LayerOwner = union(enum) {
         }
     }
 
+    // TODO: Rename to extend_layer
     pub fn extend_payload(self: *LayerOwner, offset: usize, extend_len: usize) ![]u8 {
         var buf: []u8 = undefined;
         switch (self.*) {
@@ -51,6 +52,7 @@ pub const LayerOwner = union(enum) {
         return buf;
     }
 
+    // TODO: Rename to shorten_layer
     pub fn shorten_payload(self: *LayerOwner, offset: usize, shorten_len: usize) !void {
         switch (self.*) {
             .packet_layer => |layer| {
@@ -58,6 +60,17 @@ pub const LayerOwner = union(enum) {
             },
             .owned_buffer => |*buffer| {
                 try buffer.shorten(offset, shorten_len);
+            },
+        }
+    }
+
+    pub fn is_packet_owned(self: *LayerOwner) bool {
+        switch (self.*) {
+            .packet_layer => {
+                return true;
+            },
+            .owned_buffer => {
+                return false;
             },
         }
     }

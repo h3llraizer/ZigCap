@@ -4,6 +4,7 @@ const print = std.debug.print;
 
 pub const IPProtocol = enum(u8) {
     ICMP = 1,
+    IGMP = 2,
     TCP = 6,
     UDP = 17,
     ICMPv6 = 58,

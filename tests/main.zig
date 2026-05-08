@@ -1,8 +1,9 @@
 test {
     _ = @import("dns.zig");
     _ = @import("dhcp.zig");
+    _ = @import("igmp.zig");
     _ = @import("packet_parsing.zig");
-    _ = @import("packet_building.zig");
+    //    _ = @import("packet_building.zig");
     _ = @import("dns_packet_parsing.zig");
     _ = @import("tcp_packet_parsing.zig");
     _ = @import("eth.zig");

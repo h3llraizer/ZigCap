@@ -1,7 +1,4 @@
 const std = @import("std");
-const print = std.debug.print;
-const expect = std.testing.expect;
-
 const zigcap = @import("zigcap");
 
 const LayerOwner = zigcap.Layer.LayerOwner;
@@ -12,6 +9,8 @@ const ICMP = zigcap.ICMP;
 const Packet = zigcap.Packet.Packet;
 const IPProtocol = zigcap.ProtocolEnums.IPProtocol;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
+const print = std.debug.print;
+const expect = std.testing.expect;
 
 fn gen_random(int_type: type) !int_type {
     var prng: std.Random.DefaultPrng = .init(blk: {

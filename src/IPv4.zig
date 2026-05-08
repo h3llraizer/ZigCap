@@ -108,17 +108,21 @@ pub const IPv4Header = extern struct {
         return std.mem.bigToNative(u16, self.checksum);
     }
 
-    pub fn calculate_checksum(self: *IPv4Header) void {
+    /// the ipv4 header should be provided as a const slice and must ensure aligned to 2 bytes
+    pub fn calculate_checksum(self: *IPv4Header, full_header: []const u8) void {
         // Save the original checksum field
         const old_checksum = self.checksum;
         self.checksum = 0;
 
-        var sum: u32 = 0;
-        const words = @as([*]const u16, @ptrCast(self));
+        print("full_header len: {}\n", .{full_header.len});
 
-        // Sum all 16-bit words
-        for (0..@sizeOf(IPv4Header) / 2) |i| {
-            sum += words[i];
+        var sum: u32 = 0;
+        const words = @as([*]const u16, @ptrCast(@alignCast(full_header.ptr)));
+
+        const word_count = full_header.len / 2;
+
+        for (0..word_count) |i| {
+            sum += std.mem.bigToNative(u16, words[i]);
         }
 
         // Fold the sum to 16 bits
@@ -127,7 +131,7 @@ pub const IPv4Header = extern struct {
         }
 
         // Take one's complement and store
-        self.checksum = ~@as(u16, @intCast(sum));
+        self.checksum = @byteSwap(~@as(u16, @intCast(sum)));
 
         // If the checksum calculation resulted in 0, the RFC says to use 0xFFFF
         if (self.checksum == 0) {
@@ -135,6 +139,62 @@ pub const IPv4Header = extern struct {
         }
 
         _ = old_checksum;
+    }
+
+    pub fn get_identification(self: *const IPv4Header) u16 {
+        return @byteSwap(self.identification);
+    }
+
+    pub fn set_identification(self: *IPv4Header, id: u16) void {
+        self.identification = @byteSwap(id);
+    }
+
+    pub fn get_flags_fragment(self: *const IPv4Header) u16 {
+        return @byteSwap(self.flags_fragment);
+    }
+
+    pub fn set_flags_fragment(self: *IPv4Header, flags_frag: u16) void {
+        self.flags_fragment = @byteSwap(flags_frag);
+    }
+
+    pub fn get_protocol(self: *const IPv4Header) u8 {
+        return self.protocol;
+    }
+
+    pub fn set_protocol(self: *IPv4Header, proto: IPProtocol) void {
+        self.protocol = @intFromEnum(proto);
+    }
+
+    pub fn to_string(self: *const IPv4Header, allocator: Allocator) ![]const u8 {
+        const vihl = self.get_ihl();
+        const dcsp = self.dscp_ecn;
+        const total_len = self.get_length();
+        const id = self.get_identification();
+        const flags = self.get_flags_fragment();
+        const ttl = self.ttl;
+        const protocol: IPProtocol = @enumFromInt(self.protocol);
+        const checksum = self.get_checksum();
+
+        const src_ip_str = self.get_src_ip().to_string(allocator) catch return "";
+        defer allocator.free(src_ip_str);
+
+        const dst_ip_str = self.get_dst_ip().to_string(allocator) catch return "";
+        defer allocator.free(dst_ip_str);
+
+        return std.fmt.allocPrint(allocator, "IPv4 Header : vihl: {} dcsp: {} total_len: {} id: {} flags: {} ttl: {} protocol: {any} checksum: {} src: {s} dst: {s}\n", .{
+            vihl,
+            dcsp,
+            total_len,
+            id,
+            flags,
+            ttl,
+            protocol,
+            checksum,
+            src_ip_str,
+            dst_ip_str,
+        }) catch {
+            return "";
+        };
     }
 };
 
@@ -210,18 +270,22 @@ pub const IPv4Layer = struct {
         return self.get_data()[MinHeaderLength..header_len];
     }
 
-    /// not yet fully implemented - ideally pass a buffer instead of IPOption and Allocator - the allocator in this case is the one which the caller created for the IPOption
+    /// not yet fully implemented
+    /// ideally need to pass a buffer instead of IPOption and Allocator
+    /// the allocator in this case is the one which the caller created for the IPOption
     pub fn add_option(self: *IPv4Layer, option: IPOption, allocator: Allocator) !void {
         const hdr = self.get_mutable_header();
         const current_ihl: u8 = hdr.get_ihl();
         const current_options_len: u8 = (current_ihl - 5) * 4;
 
-        const new_option_bytes: []u8 = try option.toBytes(allocator); // owned slice copy
+        const new_option_bytes: []align(2) u8 = try option.toBytes(allocator); // owned slice copy
         defer allocator.free(new_option_bytes);
 
         const new_options_len = current_options_len + new_option_bytes.len;
         const new_ihl: usize = 5 + (new_options_len + 3) / 4;
         const new_header_len = new_ihl * 4;
+
+        print("new_header_len: {}\n", .{new_header_len});
 
         if (new_header_len > MaxHeaderLength) {
             return error.OptionsTooLong;
@@ -235,28 +299,25 @@ pub const IPv4Layer = struct {
         const extend_len = new_header_len - current_header_len;
 
         if (current_header_len < new_header_len) {
-            switch (self.owner) {
-                .packet_layer => |layer| {
-                    ops_buf = try layer.packet.extend_layer(layer, current_header_len, extend_len);
-                },
-                .owned_buffer => |*buffer| {
-                    ops_buf = try buffer.extend(MinHeaderLength, extend_len); // temp - needs to extend from current ihl length not base header length
-                },
-            }
+            ops_buf = try self.owner.extend_payload(current_header_len, extend_len);
         } else { // bad
+            print("using data as ops buf.\n", .{});
             ops_buf = data; //use existing buffer - not good
             // TODO: refactor to avoid this
         }
 
-        // the option type and data are not being returned in option.toBytes()
         @memmove(ops_buf[0..new_options_len], new_option_bytes);
 
-        @memset(ops_buf[new_options_len..], 0); // zero the remaining bytes
+        // zero the remaining bytes
+        @memset(ops_buf[new_options_len..], 0);
 
-        const new_hdr = self.get_mutable_header(); // get header again because ptr to last initialised one got mutated
+        // get header again because ptr to last initialised one got mutated
+        const new_hdr = self.get_mutable_header();
 
-        const new_header_length = self.get_header_len(); // data.len - payload.len
-        new_hdr.set_ihl(@intCast(new_header_length));
+        print("data len: {}\n", .{self.get_data().len});
+
+        new_hdr.set_ihl(@intCast(new_header_len));
+        new_hdr.set_length(@intCast(self.get_data().len));
     }
 
     /// removes all IPv4 options by either calling the owning Packets shorten_layer method
@@ -288,8 +349,6 @@ pub const IPv4Layer = struct {
 
         const pad_bytes_required: usize = 4 - (hdr_len % 4);
 
-        //print("pad_bytes_required: {}\n", .{pad_bytes_required});
-
         if (pad_bytes_required > 0) {
             var pad_buf: []u8 = undefined;
 
@@ -318,10 +377,15 @@ pub const IPv4Layer = struct {
     pub fn validate_layer(self: *IPv4Layer) void {
         var hdr = self.get_mutable_header();
 
-        const hdr_len = self.get_header_len(); // temp - need to compute data.len - payload.len
+        const hdr_len = self.get_header_len();
+        print("hdr_len from header: {}\n", .{hdr_len});
         hdr.set_ihl(@intCast(hdr_len));
+
         self.calculate_length();
-        hdr.calculate_checksum();
+
+        const new_hdr = self.get_mutable_header();
+
+        new_hdr.calculate_checksum(self.get_data()[0..hdr_len]);
     }
 
     /// takes total data (hdr+payload) length and sets the IPv4 header's total length field to that result
@@ -339,9 +403,9 @@ pub const IPv4Layer = struct {
         const hdr_length: usize = @intCast(hdr.get_ihl() * 4);
         const data = self.get_data();
 
-        //        print("hdr length: {}\n", .{hdr_length});
-
         std.debug.assert(data.len >= hdr_length);
+
+        print("hdr_length: {}\n", .{hdr_length});
 
         return hdr_length;
     }
@@ -349,7 +413,7 @@ pub const IPv4Layer = struct {
     pub fn get_mutable_header(self: *const IPv4Layer) *IPv4Header {
         const data = self.get_data();
 
-        if (data.len < MinHeaderLength) { // this is reasonably recoverable so shouldn't panic. Perhaps just revert the layer to an ApplicationLayer
+        if (data.len < MinHeaderLength) {
             panic("IPv4 data len ({}) less than IPv4HeaderSize", .{data.len});
         }
 
@@ -360,8 +424,7 @@ pub const IPv4Layer = struct {
     pub fn get_immutable_header(self: *const IPv4Layer) *const IPv4Header {
         const data: []const u8 = self.get_data();
 
-        if (data.len < MinHeaderLength) { // this is reasonably recoverable in the sense it could be resolved at runtime
-            // so shouldn't be a panic. just convert the layer to an ApplicationLayer or zero the header
+        if (data.len < MinHeaderLength) {
             panic("IPv4 data len ({}) less than IPv4HeaderSize", .{data.len});
         }
 
@@ -584,7 +647,7 @@ pub const IPOption = struct {
         self.data = new_buf;
     }
 
-    pub fn toBytes(self: IPOption, allocator: Allocator) ![]u8 {
+    pub fn toBytes(self: IPOption, allocator: Allocator) ![]align(2) u8 {
         var bytes: std.array_list.Aligned(u8, std.mem.Alignment.@"2") = .empty;
         defer bytes.deinit(allocator);
 

@@ -13,6 +13,7 @@ const ICMP = @import("ICMP.zig");
 const DNS = @import("DNS.zig");
 const GenericLayer = @import("GenericLayer.zig");
 const VLAN = @import("VLAN.zig"); // remember to expose through pub API
+const IGMP = @import("IGMP.zig");
 const LayerError = @import("ProtocolEnums.zig").LayerError;
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerOwner = @import("Layer.zig").LayerOwner;
@@ -32,6 +33,8 @@ pub const LayerIface = union(enum) {
     icmpLayer: ICMP.ICMPLayer,
     dnsLayer: DNS.DNSLayer,
     dhcpLayer: DHCP.DHCPLayer,
+    //    igmpLayer: IGMP.IGMPLayer,
+    igmpv3Layer: IGMP.IGMPv3Layer,
     genericAppLayer: GenericLayer.ApplicationLayer,
 
     /// inits the layer
@@ -49,6 +52,8 @@ pub const LayerIface = union(enum) {
             ICMP.ICMPLayer => return LayerIface{ .icmpLayer = try ICMP.ICMPLayer.init(owner) },
             DNS.DNSLayer => return LayerIface{ .dnsLayer = try DNS.DNSLayer.init(owner) },
             DHCP.DHCPLayer => return LayerIface{ .dhcpLayer = try DHCP.DHCPLayer.init(owner) },
+            //           IGMP.IGMPLayer => return LayerIface{ .igmpLayer = try IGMP.IGMPLayer.init(owner) },
+            IGMP.IGMPv3Layer => return LayerIface{ .igmpv3Layer = try IGMP.IGMPv3Layer.init(owner) },
             GenericLayer.ApplicationLayer => return LayerIface{ .genericAppLayer = try GenericLayer.ApplicationLayer.init(owner) },
             else => return LayerError.LayerInvalid,
         }
@@ -67,6 +72,8 @@ pub const LayerIface = union(enum) {
             .icmpLayer => LayerIface{ .icmpLayer = try ICMP.ICMPLayer.init(owner) },
             .dnsLayer => LayerIface{ .dnsLayer = try DNS.DNSLayer.init(owner) },
             .dhcpLayer => LayerIface{ .dhcpLayer = try DHCP.DHCPLayer.init(owner) },
+            //          .igmpLayer => LayerIface{ .igmpLayer = try IGMP.IGMPLayer.init(owner) },
+            .igmpv3Layer => LayerIface{ .igmpv3Layer = try IGMP.IGMPv3Layer.init(owner) },
             .genericAppLayer => LayerIface{ .genericAppLayer = try GenericLayer.ApplicationLayer.init(owner) },
         };
         self.* = new_instance;

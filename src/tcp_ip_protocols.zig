@@ -10,6 +10,7 @@ const ICMP = @import("ICMP.zig");
 const GenericLayer = @import("GenericLayer.zig");
 const DNS = @import("DNS.zig");
 const DHCP = @import("DHCP.zig");
+const IGMP = @import("IGMP.zig");
 
 pub const tcp_ip_protocol = enum(u32) {
     generic = 0,
@@ -27,9 +28,12 @@ pub const tcp_ip_protocol = enum(u32) {
     tcp = 10,
     udp = 11,
     dhcp = 12,
+    igmp_v1 = 13,
+    igmp_v2 = 14,
+    igmp_v3 = 15,
 };
 
-pub const TransportLayer = union(enum) {
+const TransportLayer = union(enum) {
     tcp: TCP.TCPLayer,
     udp: UDP.UDPLayer,
 };
@@ -47,6 +51,8 @@ pub fn get_layer_type_enum(value: type) !tcp_ip_protocol {
         GenericLayer.ApplicationLayer => return tcp_ip_protocol.generic,
         DNS.DNSLayer => return tcp_ip_protocol.dns,
         DHCP.DHCPLayer => return tcp_ip_protocol.dhcp,
+        //        IGMP.IGMPLayer => return tcp_ip_protocol.igmp_v1,
+        IGMP.IGMPv3Layer => return tcp_ip_protocol.igmp_v3,
         else => return error.LayerInvalid,
     }
 }
