@@ -189,14 +189,6 @@ pub const IGMPv3GroupRecord = extern struct {
         self.multicast_address = addr.array;
     }
 
-    //pub fn get_igmp_hdr_mut(self: *IGMPv3GroupRecord) *IGMPv3Header {
-    //    return &self.base_hdr;
-    //}
-
-    //pub fn get_igmp_hdr_imm(self: *const IGMPv3GroupRecord) *const IGMPv3Header {
-    //    return &self.base_hdr;
-    //}
-
     // Note: This struct is followed by 'num_sources' IPv4 addresses (each u32),
     // and then optional auxiliary data (if aux_data_len > 0).
     // The total length of one group record is:
@@ -205,35 +197,34 @@ pub const IGMPv3GroupRecord = extern struct {
 
 /// IGMPv3 Query Extension (appears after the base header when type == 0x11)
 /// This only exists for IGMPv3 Membership Queries (not Reports).
-pub const IGMPv3QueryExtension = packed struct {
-    reserved_bits: u4,
-    s_flag: u1, // Suppress Router-Side Processing flag
-    qrv: u3, // Querier's Robustness Variable
+pub const IGMPv3QueryExtension = extern struct {
+    s_qrv: u8,
     qqic: u8, // Querier's Query Interval Code (encoded value, usually 0x00 = 10 seconds)
     num_sources: u16, // Number of source addresses in this query (N)
     // Followed by 'num_sources' IPv4 source addresses (each u32)
 
-    pub fn get_s_flag(self: *const IGMPv3QueryExtension) u1 {
-        return self.s_flag;
-    }
-
     pub fn set_s_flag(self: *IGMPv3QueryExtension, flag: u1) void {
-        self.s_flag = flag;
-    }
-
-    pub fn get_qrv(self: *const IGMPv3QueryExtension) u3 {
-        return self.qrv;
+        self.s_qrv &= 0b1111_0111;
+        self.s_qrv |= (@as(u8, flag) << 3);
     }
 
     pub fn set_qrv(self: *IGMPv3QueryExtension, qrv: u3) void {
-        self.qrv = qrv;
+        self.s_qrv &= 0b1111_1000;
+        self.s_qrv |= qrv;
+    }
+
+    pub fn get_s_flag(self: *const IGMPv3QueryExtension) u1 {
+        return @truncate((self.s_qrv >> 3) & 0x1);
+    }
+
+    pub fn get_qrv(self: *const IGMPv3QueryExtension) u3 {
+        return @truncate(self.s_qrv & 0x7);
     }
 
     pub fn to_string(self: *const IGMPv3QueryExtension, allocator: Allocator) []const u8 {
-        return std.fmt.allocPrint(allocator, "IGMPv3QueryExtension : reserved_bits: {} s_flag: {} qrv: {} qqic: {} num_sources: {}\n", .{
-            self.reserved_bits,
-            self.s_flag,
-            self.qrv,
+        return std.fmt.allocPrint(allocator, "IGMPv3QueryExtension :  s_flag: {} qrv: {} qqic: {} num_sources: {}\n", .{
+            self.get_s_flag(),
+            self.get_qrv(),
             self.qqic,
             @byteSwap(self.num_sources),
         }) catch {
