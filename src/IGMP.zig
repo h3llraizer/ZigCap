@@ -304,6 +304,11 @@ pub const IGMPv3Layer = struct {
                 const igmp_header: *IGMPv3QueryExtension = @ptrCast(aligned_ptr);
                 return IGMP_type{ .igmpv3_gry_ext = igmp_header };
             },
+            .v3_membership_report => {
+                const aligned_ptr: [*]align(@alignOf(IGMPv3GroupRecord)) u8 = @alignCast(data.ptr);
+                const igmp_header: *IGMPv3GroupRecord = @ptrCast(aligned_ptr);
+                return IGMP_type{ .igmpv3_grp_rec = igmp_header };
+            },
             else => return null,
         }
     }
@@ -328,7 +333,22 @@ pub const IGMPv3Layer = struct {
 
         _ = data;
 
-        switch (igmp_type) {}
+        if (self.get_type() == igmp_type) {
+            print("already this type.\n", .{});
+            return;
+        }
+
+        if (igmp_type == IGMPType.v3_membership_report) {
+            _ = try self.owner.extend_payload(self.get_data().len, 4);
+            const base_hdr = self.get_mutable_header();
+            base_hdr.group_address[0] = 0;
+            base_hdr.group_address[1] = 0;
+            base_hdr.group_address[2] = 0;
+            base_hdr.group_address[3] = 0x1;
+        }
+
+        const hdr = self.get_mutable_header();
+        hdr.type = @intFromEnum(igmp_type);
     }
 
     pub fn validate_layer(self: *IGMPv3Layer) void {

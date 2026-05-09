@@ -3,7 +3,7 @@ test {
     _ = @import("dhcp.zig");
     _ = @import("igmp.zig");
     _ = @import("packet_parsing.zig");
-    //    _ = @import("packet_building.zig");
+    _ = @import("packet_building.zig");
     _ = @import("dns_packet_parsing.zig");
     _ = @import("tcp_packet_parsing.zig");
     _ = @import("eth.zig");
@@ -16,4 +16,6 @@ test {
     _ = @import("tcp.zig");
     _ = @import("application_layer.zig");
     _ = @import("packet.zig");
+    _ = @import("general.zig");
+    _ = @import("memory.zig");
 }

@@ -18,9 +18,7 @@ test "build independant ipv4 layer" {
 
     const allocator = debug_allocator.allocator();
 
-    var ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-
-    defer ipv4_layer_owner.owned_buffer.buffer.deinit(std.heap.page_allocator);
+    const ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
 
     var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, ipv4_layer_owner);
     defer ipv4_layer_iface.deinit();
@@ -116,15 +114,10 @@ test "build ipv4 layer with Router Alert option" {
 
     try expect(ipv4_slice.len == 24);
 
-    const ipv4_payload = ipv4_layer_iface.get_payload();
-
-    print("ipv4_payload: ({}) {x}\n", .{ ipv4_payload.len, ipv4_payload });
-
     //   try ipv4_layer_iface.ipv4Layer.remove_all_options();
 
     const str = try ipv4_layer_iface.ipv4Layer.get_immutable_header().to_string(allocator);
     defer allocator.free(str);
-    print("{s}\n", .{str});
 }
 
 test "build ipv4 layer with Record Route option" {
@@ -152,8 +145,6 @@ test "build ipv4 layer with Record Route option" {
 
     var data = ipv4_layer_iface.get_data();
 
-    print("ipv4: ({}) {x}\n", .{ data.len, data });
-
     var record_route_op: [15]u8 align(2) = [_]u8{
         0x04, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00,
@@ -166,19 +157,10 @@ test "build ipv4 layer with Record Route option" {
     const op_bytes = try op.toBytes(allocator);
     defer allocator.free(op_bytes);
 
-    print("op_bytes: ({}) {x}\n", .{ op_bytes.len, op_bytes });
-
     try ipv4_layer_iface.ipv4Layer.add_option(op, allocator);
-
-    const ipv4_payload = ipv4_layer_iface.get_payload();
-
-    print("ipv4_payload: ({}) {x}\n", .{ ipv4_payload.len, ipv4_payload });
 
     const str = try ipv4_layer_iface.ipv4Layer.get_immutable_header().to_string(allocator);
     defer allocator.free(str);
-    print("{s}\n", .{str});
 
     data = ipv4_layer_iface.get_data();
-
-    print("ipv4: ({}) {x}\n", .{ data.len, data });
 }

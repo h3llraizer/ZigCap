@@ -114,8 +114,6 @@ pub const IPv4Header = extern struct {
         const old_checksum = self.checksum;
         self.checksum = 0;
 
-        print("full_header len: {}\n", .{full_header.len});
-
         var sum: u32 = 0;
         const words = @as([*]const u16, @ptrCast(@alignCast(full_header.ptr)));
 
@@ -285,8 +283,6 @@ pub const IPv4Layer = struct {
         const new_ihl: usize = 5 + (new_options_len + 3) / 4;
         const new_header_len = new_ihl * 4;
 
-        print("new_header_len: {}\n", .{new_header_len});
-
         if (new_header_len > MaxHeaderLength) {
             return error.OptionsTooLong;
         }
@@ -313,8 +309,6 @@ pub const IPv4Layer = struct {
 
         // get header again because ptr to last initialised one got mutated
         const new_hdr = self.get_mutable_header();
-
-        print("data len: {}\n", .{self.get_data().len});
 
         new_hdr.set_ihl(@intCast(new_header_len));
         new_hdr.set_length(@intCast(self.get_data().len));
@@ -378,7 +372,6 @@ pub const IPv4Layer = struct {
         var hdr = self.get_mutable_header();
 
         const hdr_len = self.get_header_len();
-        print("hdr_len from header: {}\n", .{hdr_len});
         hdr.set_ihl(@intCast(hdr_len));
 
         self.calculate_length();
@@ -404,8 +397,6 @@ pub const IPv4Layer = struct {
         const data = self.get_data();
 
         std.debug.assert(data.len >= hdr_length);
-
-        print("hdr_length: {}\n", .{hdr_length});
 
         return hdr_length;
     }

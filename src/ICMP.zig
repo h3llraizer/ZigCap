@@ -414,7 +414,6 @@ pub const ICMPHeader = extern struct {
 
 pub const ICMPLayer = struct {
     owner: LayerOwner,
-    const Protocol = tcp_ip_protocol.icmp;
 
     pub fn init(owner: LayerOwner) LayerError!ICMPLayer {
         switch (owner) {
@@ -680,7 +679,7 @@ pub const ICMPLayer = struct {
 
     pub fn get_protocol(self: *ICMPLayer) tcp_ip_protocol {
         _ = self;
-        return ICMPLayer.Protocol;
+        return tcp_ip_protocol.icmp;
     }
 
     pub fn get_next_layer_type(self: *ICMPLayer, layer: *Layer) !?LayerIface {

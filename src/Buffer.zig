@@ -1,7 +1,13 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-/// Wrapper around std.ArrayList(u8) with public methods to faciliate easier work on Packet and Layer data
+pub const BufferError = error{
+    OutOfMemory,
+    BufferTooSmall,
+    MisalignedBuffer,
+};
+
+/// Wrapper around 2-byte aligned std.ArrayList(u8) with public methods to faciliate easier work on Packet and Layer data
 pub const Buffer = struct {
     buffer: std.array_list.Aligned(u8, std.mem.Alignment.@"2"),
     allocator: Allocator,
@@ -82,7 +88,6 @@ pub const Buffer = struct {
     }
 
     pub fn deinit(self: *Buffer) void {
-        //        std.debug.print("buffer deinit called.\n", .{});
         self.buffer.deinit(self.allocator);
     }
 };

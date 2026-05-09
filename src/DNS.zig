@@ -107,13 +107,8 @@ pub const DNSQuery = struct {
     }
 
     pub const QError = error{
-        //        InvalidPacket, // Generic malformed DNS packet
         LabelTooLong, // A label length exceeds the remaining buffer
-        //        UnexpectedEndOfPacket, // Reached end of packet unexpectedly
         MemoryAllocationFailed, // Allocator failed to create a node
-        //        TooManyQuestions, // qdcount is unusually large
-        InvalidQType, // QTYPE field invalid
-        InvalidQClass, // QCLASS field invalid
     };
 };
 
@@ -475,14 +470,7 @@ pub const DNSLayer = struct {
     }
 
     fn get_allocator(self: *DNSLayer) Allocator {
-        switch (self.owner) {
-            .packet_layer => |layer| {
-                return layer.packet.layer_allocator;
-            },
-            .owned_buffer => |*buffer| {
-                return buffer.allocator;
-            },
-        }
+        return self.owner.get_allocator();
     }
 
     pub fn get_data(self: *const DNSLayer) []u8 {
@@ -832,11 +820,9 @@ pub const DNSLayer = struct {
                 last.set_next_record(answer); // set the last answer next answer to the answer created (answer being added)
                 answer.set_prev_record(last); // set the answer created (answer being added)'s prev answer to the last answer
                 self.last_answer = answer; // the last answer is now the answer that's being added
-                //answer.offset = last.offset + last.length; // set answer added offset to the last offset + last length
             } else { // there was no last answer
                 self.first_answer = answer; // set first answer to this answer being added
                 self.last_answer = answer; // set last answer to this answer being added
-                //answer.offset = ans_offset;
             }
         }
     }
@@ -951,18 +937,18 @@ pub const DNSLayer = struct {
 
 /// Creates a domain name from a DNS label. The allocator creates an ArrayList to store the bytes and returns a mutable slice
 /// The ArrayList is deinit'd before return but you must free the slice that is returned (it returns an ownedSlice)
-pub fn decodeQname(allocator: Allocator, payload: []const u8) ![]u8 {
-    var list = try std.ArrayList(u8).initCapacity(allocator, payload.len);
+pub fn decodeQname(allocator: Allocator, dns_label: []const u8) ![]u8 {
+    var list = try std.ArrayList(u8).initCapacity(allocator, dns_label.len);
     defer list.deinit(allocator);
 
     var offset: usize = 0;
     var first = true;
 
-    while (offset < payload.len and payload[offset] != 0) {
-        const len = payload[offset];
+    while (offset < dns_label.len and dns_label[offset] != 0) {
+        const len = dns_label[offset];
         offset += 1;
 
-        if (offset + len > payload.len) {
+        if (offset + len > dns_label.len) {
             print("offset + len: {} exceeds packet.\n", .{offset + len});
             return error.InvalidPacket;
         }
@@ -970,12 +956,12 @@ pub fn decodeQname(allocator: Allocator, payload: []const u8) ![]u8 {
         if (!first) try list.append(allocator, '.');
         first = false;
 
-        try list.appendSlice(allocator, payload[offset .. offset + len]);
+        try list.appendSlice(allocator, dns_label[offset .. offset + len]);
         offset += len;
     }
 
     // if we never saw the terminating 0 byte, reject
-    if (offset >= payload.len or payload[offset] != 0) return error.InvalidPacket;
+    if (offset >= dns_label.len or dns_label[offset] != 0) return error.InvalidPacket;
 
     return list.toOwnedSlice(allocator);
 }

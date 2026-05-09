@@ -333,11 +333,11 @@ test "build ipv4 packet with Record Route option" {
         _ = ipv4;
     }
 
-    if (packet.get_layer_of_type(IPv4.IPv4Layer)) |ipv4| {
-        try ipv4.zero_hdr();
-    } else {
-        print("ipv4 layer not found.\n", .{});
-    }
+    //if (packet.get_layer_of_type(IPv4.IPv4Layer)) |ipv4| {
+    //    try ipv4.zero_hdr(); // not valid
+    //} else {
+    //    print("ipv4 layer not found.\n", .{});
+    //}
 
     pkt_data = packet.buffer.buffer.items;
 

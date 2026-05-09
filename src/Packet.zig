@@ -58,7 +58,7 @@ pub const Packet = struct {
     buffer: Buffer,
     first_layer: ?*Layer,
     last_layer: ?*Layer,
-    // *Packet // encapsulation? e.g. VPN packets etc
+    // *Packet // encapsulation? e.g. VPN packet payloads etc
 
     /// Creates an empty Packet by creating it's internal buffer using the first (buffer allocator) passed
     /// the second allocator is used to create the layer structs (you can pass the same allocator if you want)
@@ -74,7 +74,13 @@ pub const Packet = struct {
     /// Parses a packet from an existing slice (data).
     /// Each layer is parsed until optional tcp_ip_protocol specified or until last layer in packet.
     /// Takes ownership of the buffer provided.
-    pub fn from_raw(self: *Packet, allocator: Allocator, buffer: *std.array_list.Aligned(u8, .@"2"), link_type: link_layer_type, parse_until: ?tcp_ip_protocol) !void {
+    pub fn from_raw(
+        self: *Packet,
+        allocator: Allocator,
+        buffer: *std.array_list.Aligned(u8, .@"2"),
+        link_type: link_layer_type,
+        parse_until: ?tcp_ip_protocol,
+    ) !void {
         if (self.buffer.buffer.items.len > 0) {
             return error.PacketBufferNotEmpty;
         }
@@ -359,6 +365,39 @@ pub const Packet = struct {
             cur = layer.next_layer;
         }
     }
+
+    /// experimental - does not work
+    //   pub fn extract(self: *Packet, layer: *LayerIface, owner: *LayerOwner) !void {
+    //       try self.buffer.cutRange(&owner.owned_buffer, layer.offset, layer.length);
+    //
+    //       layer.deinit(); // destroy structs which view over variable data - not the raw data itself
+    //
+    //       try layer.reinit(owner.*); // transfers ownership of the packets data to the new owner
+    //
+    //       //const return_layer = layer.layer_iface; // copy the layer_iface before Layer is destroyed
+    //
+    //       var cur = layer.next_layer;
+    //       while (cur) |next_layer| {
+    //           next_layer.offset -= layer.length;
+    //           cur = next_layer.next_layer;
+    //       }
+    //
+    //       if (layer.prev_layer == null) {
+    //           self.first_layer = layer.next_layer;
+    //       }
+    //
+    //       if (layer.prev_layer) |prev| {
+    //           prev.next_layer = layer.next_layer;
+    //       }
+    //
+    //       if (layer.next_layer) |next| {
+    //           next.prev_layer = layer.prev_layer;
+    //       }
+    //
+    //       self.layer_allocator.destroy(layer); // destroy the layer
+    //
+    //       //return return_layer; // return the copied implementation layer
+    //   }
 
     pub fn extract_layer(self: *Packet, layer: *Layer, owner: *LayerOwner) !?LayerIface {
         try self.buffer.cutRange(&owner.owned_buffer, layer.offset, layer.length);
