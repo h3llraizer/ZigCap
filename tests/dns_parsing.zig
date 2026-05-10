@@ -10,10 +10,8 @@ const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
 const LayerOwner = zigcap.Layer.LayerOwner;
 const LayerIface = zigcap.LayerIface;
 
-fn add_query(domain: []const u8, allocator: Allocator, dns_layer_iface: *LayerIface) !void {
-    var dns_query = try DNS.DNSQuery.init(domain, DNS.QueryType.A, DNS.DnsClass.IN, allocator);
-    defer dns_query.deinit();
-    try dns_layer_iface.dnsLayer.add_query(&dns_query);
+fn add_query(domain: []const u8, dns_layer_iface: *LayerIface) !void {
+    try dns_layer_iface.dnsLayer.add_query(domain, DNS.QueryType.A, DNS.DnsClass.IN);
 }
 
 test "build dns query layer" {
@@ -31,9 +29,9 @@ test "build dns query layer" {
     const ziggit_net_domain: []const u8 = "ziggit.net";
     const ziggit_org_domain: []const u8 = "ziggit.org";
 
-    try add_query(ziggit_dev_domain, allocator, &dns_layer_iface);
-    try add_query(ziggit_net_domain, allocator, &dns_layer_iface);
-    try add_query(ziggit_org_domain, allocator, &dns_layer_iface);
+    try add_query(ziggit_dev_domain, &dns_layer_iface);
+    try add_query(ziggit_net_domain, &dns_layer_iface);
+    try add_query(ziggit_org_domain, &dns_layer_iface);
 
     var q_list = try dns_layer_iface.dnsLayer.get_queries(allocator) orelse {
         try expect(false); // no dns queries

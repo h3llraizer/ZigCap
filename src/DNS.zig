@@ -24,94 +24,6 @@ const TXTRecord = DNSRecordTypes.TXTRecord;
 const MXRecord = DNSRecordTypes.MXRecord;
 const PTRRecord = DNSRecordTypes.PTRRecord;
 
-/// Use to build a DNSQuery.
-/// Buffer struct is created using the allocator which you provide
-pub const DNSQuery = struct {
-    qtype: QueryType,
-    qclass: DnsClass,
-    buffer: Buffer,
-
-    pub fn init(qname: []const u8, qtype: QueryType, qclass: DnsClass, allocator: Allocator) !DNSQuery {
-        var self = DNSQuery{ .qtype = undefined, .qclass = undefined, .buffer = .init_empty(allocator) };
-        const extend_len = qname.len + 6;
-
-        var query_buf = try self.extend_query_buf(extend_len);
-
-        // Slice buffer starting at offset
-        var qbuffer = query_buf[0..];
-
-        // Write QNAME (labels)
-        var buf_offset: usize = 0;
-        var it = std.mem.splitScalar(u8, qname, '.');
-        while (it.next()) |label| {
-            qbuffer[buf_offset] = @intCast(label.len);
-            buf_offset += 1;
-            std.mem.copyForwards(u8, qbuffer[buf_offset .. buf_offset + label.len], label);
-            buf_offset += label.len;
-        }
-        qbuffer[buf_offset] = 0; // null terminator
-        buf_offset += 1;
-
-        // Write QTYPE
-        std.mem.writeInt(u16, @ptrCast(qbuffer[buf_offset .. buf_offset + 2]), @intCast(@intFromEnum(qtype)), .big);
-        buf_offset += 2;
-
-        // Write QCLASS
-        std.mem.writeInt(u16, @ptrCast(qbuffer[buf_offset .. buf_offset + 2]), @intCast(@intFromEnum(qclass)), .big);
-        buf_offset += 2;
-
-        self.qtype = qtype;
-        self.qclass = qclass;
-
-        return self;
-    }
-
-    pub fn get_data(self: *DNSQuery) []u8 {
-        return self.buffer.buffer.items;
-    }
-
-    /// doesn't work yet
-    /// TODO: fix
-    pub fn decode_name(self: *DNSQuery) ![]const u8 {
-        var offset: usize = 0;
-        const raw = self.get_data();
-        const start = offset;
-        var end = start;
-
-        // Single-byte pointer compression support
-        if (end >= raw.len)
-            return error.InvalidPacket;
-
-        if ((raw[end] & 0xC0) == 0xC0) {
-            // pointer: 2 bytes
-            if (end + 1 >= raw.len)
-                return error.InvalidPacket;
-            offset += 2;
-            return raw[end .. end + 2]; // just return the pointer slice for now
-        } else {
-            // label sequence
-            while (end < raw.len and raw[end] != 0) : (end += raw[end] + 1) {}
-            if (end >= raw.len)
-                return error.InvalidPacket;
-            offset = end + 1; // move past null terminator
-            return raw[start..offset];
-        }
-    }
-
-    pub fn extend_query_buf(self: *DNSQuery, length: usize) ![]u8 {
-        return try self.buffer.extend(0, length);
-    }
-
-    pub fn deinit(self: *DNSQuery) void {
-        self.buffer.deinit();
-    }
-
-    pub const QError = error{
-        LabelTooLong, // A label length exceeds the remaining buffer
-        MemoryAllocationFailed, // Allocator failed to create a node
-    };
-};
-
 // TODO: incorperate with AnswerRecord
 pub const DNSAnswer = struct {
     qtype: QueryType,
@@ -575,18 +487,42 @@ pub const DNSLayer = struct {
         hdr.flags = @byteSwap(hdr.flags);
     }
 
-    /// Adds a DNSQuery after the first (if there is a first).
-    /// Copies the data into layer at the correct offset.
+    /// Append a DNS Query to the Queries section of the DNSLayer.
+    /// Extends the layer, converts the name to DNS labels and copies the data at correct offset.
     /// Increases the qdcount value in the header by 1.
-    pub fn add_query(self: *DNSLayer, query: *DNSQuery) !void {
+    pub fn add_query(self: *DNSLayer, name: []const u8, qtype: QueryType, qclass: DnsClass) !void {
+        const extend_len = name.len + 6; // 2 byte qtype, 2 byte qclass, 1 byte first label, 1 byte null terminator
+
         var start_offset = DNSHeaderSize;
 
         if (try self.find_last_q_offset()) |last_q_offset| {
             start_offset = last_q_offset;
         }
 
-        const qbuf = try self.extend_payload(start_offset, query.get_data().len);
-        @memmove(qbuf, query.get_data());
+        var query_buf = try self.extend_payload(start_offset, extend_len);
+
+        // Slice buffer starting at offset
+        var qbuffer = query_buf[0..];
+
+        // Write QNAME (labels)
+        var buf_offset: usize = 0;
+        var it = std.mem.splitScalar(u8, name, '.');
+        while (it.next()) |label| {
+            qbuffer[buf_offset] = @intCast(label.len);
+            buf_offset += 1;
+            @memmove(qbuffer[buf_offset .. buf_offset + label.len], label);
+            buf_offset += label.len;
+        }
+        qbuffer[buf_offset] = 0; // null terminator
+        buf_offset += 1;
+
+        // Write QTYPE
+        std.mem.writeInt(u16, @ptrCast(qbuffer[buf_offset .. buf_offset + 2]), @intCast(@intFromEnum(qtype)), .big);
+        buf_offset += 2;
+
+        // Write QCLASS
+        std.mem.writeInt(u16, @ptrCast(qbuffer[buf_offset .. buf_offset + 2]), @intCast(@intFromEnum(qclass)), .big);
+        buf_offset += 2;
 
         var hdr = self.get_mutable_header();
         var qdcount = hdr.get_qdcount();
