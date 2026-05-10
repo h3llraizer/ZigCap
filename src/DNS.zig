@@ -23,6 +23,7 @@ const CNAMERecord = DNSRecordTypes.CNAMERecord;
 const TXTRecord = DNSRecordTypes.TXTRecord;
 const MXRecord = DNSRecordTypes.MXRecord;
 const PTRRecord = DNSRecordTypes.PTRRecord;
+const NSRecord = DNSRecordTypes.NSRecord;
 
 // TODO: incorperate with AnswerRecord
 pub const DNSAnswer = struct {
@@ -169,7 +170,6 @@ pub const DNSHeader = extern struct {
     }
 };
 
-/// Different to the DNSQuery struct which you create a query from scratch with (see DNSQuery)
 /// Query struct stores offset and length of the raw query so the DNSLayer can manage it (similar to Packet.Layer)
 pub const Query = struct {
     offset: usize,
@@ -200,6 +200,7 @@ pub const Query = struct {
 ///     TXT,
 ///     MX,
 ///     PTR,
+///     NS,
 ///     Generic,
 pub const AnswerRecord = union(enum) {
     a: ARecord,
@@ -208,6 +209,7 @@ pub const AnswerRecord = union(enum) {
     txt: TXTRecord,
     mx: MXRecord,
     ptr: PTRRecord,
+    ns: NSRecord,
     generic: GenericRecord,
 
     pub fn init(offset: usize, length: usize, qtype: QueryType, qclass: DnsClass, layer: *DNSLayer) AnswerRecord {
@@ -235,6 +237,10 @@ pub const AnswerRecord = union(enum) {
 
             .PTR => {
                 return AnswerRecord{ .ptr = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
+            },
+
+            .NS => {
+                return AnswerRecord{ .ns = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
             },
 
             .GENERIC => {
@@ -379,13 +385,14 @@ pub const Queries = struct {
         }
 
         self.first = null;
+        self.query_count = 0;
     }
 };
 
 /// DNSLayer represents the DNSHeader and it's queries and answers (if there are any)
 /// Queries are stored as a singly linked list as most DNS packets usually contain only one query
 /// Answers are stored as a doubly linked list as there is commonly more than one answer
-pub const DNSLayer = struct {
+pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative Records
     owner: LayerOwner,
 
     pub fn init(owner: LayerOwner) LayerError!DNSLayer {
@@ -409,10 +416,6 @@ pub const DNSLayer = struct {
                 return self;
             },
         }
-    }
-
-    fn get_allocator(self: *DNSLayer) Allocator {
-        return self.owner.get_allocator();
     }
 
     pub fn get_data(self: *const DNSLayer) []u8 {
@@ -457,29 +460,6 @@ pub const DNSLayer = struct {
         return hdr.get_flags().rcode == 1;
     }
 
-    /// don't use
-    pub fn print_queries_meta(self: *DNSLayer) void {
-        var count: usize = 0;
-        var cur = self.first_query;
-        while (cur) |query| {
-            count += 1;
-            print("count: {} offset: {} length: {}\n", .{ count, query.offset, query.length });
-            cur = query.next_query;
-        }
-    }
-
-    /// don't use
-    pub fn get_query_count(self: *DNSLayer) usize {
-        var count: usize = 0;
-        var cur = self.first_query;
-        while (cur) |query| {
-            count += 1;
-            cur = query.next_query;
-        }
-
-        return count;
-    }
-
     /// Sets DNS Header values to reflect Query and Answer count and perform byte swap for NBE order.
     /// Call this if you intend to send dns packet over the network or you need to undertake further analysis of the DNSHeader post modification
     pub fn validate_layer(self: *DNSLayer) void {
@@ -499,7 +479,7 @@ pub const DNSLayer = struct {
             start_offset = last_q_offset;
         }
 
-        var query_buf = try self.extend_payload(start_offset, extend_len);
+        var query_buf = try self.owner.extend_payload(start_offset, extend_len);
 
         // Slice buffer starting at offset
         var qbuffer = query_buf[0..];
@@ -553,6 +533,7 @@ pub const DNSLayer = struct {
         }
     }
 
+    // this is primarily being used to advance offsets when parsing answers
     fn decode_name(raw: []const u8, offset: *usize) ![]const u8 {
         const start = offset.*;
         var end = start;
@@ -577,36 +558,7 @@ pub const DNSLayer = struct {
         }
     }
 
-    fn extend_payload(self: *DNSLayer, offset: usize, extend_len: usize) ![]u8 {
-        //var buf: []u8 = undefined;
-        //switch (self.owner) {
-        //    .packet_layer => |layer| {
-        //        buf = try layer.packet.extend_layer(layer, offset, extend_len);
-        //    },
-        //    .owned_buffer => |*buffer| {
-        //        buf = try buffer.extend(offset, extend_len);
-        //    },
-        //}
-
-        const buf = try self.owner.extend_payload(offset, extend_len);
-
-        return buf;
-    }
-
-    fn shorten_payload(self: *DNSLayer, offset: usize, shorten_len: usize) !void {
-        //switch (self.owner) {
-        //    .packet_layer => |layer| {
-        //        try layer.packet.shorten_layer(layer, offset, shorten_len);
-        //    },
-        //    .owned_buffer => |*buffer| {
-        //        try buffer.shorten(offset, shorten_len);
-        //    },
-        //}
-
-        try self.owner.shorten_payload(offset, shorten_len);
-    }
-
-    pub fn find_last_q_offset(self: *DNSLayer) !?usize {
+    fn find_last_q_offset(self: *DNSLayer) !?usize {
         const data = self.get_data();
         if (data.len < DNSHeaderSize) {
             return null;
@@ -645,7 +597,8 @@ pub const DNSLayer = struct {
         return offset;
     }
 
-    /// call when creating DNS layer from existing data
+    /// return Queries struct which contains singly linkedlist of queries
+    /// caller must call deinit on the returned Queries struct using allocator provided
     pub fn get_queries(self: *DNSLayer, allocator: Allocator) !?Queries {
         const data = self.get_data();
 
@@ -723,78 +676,6 @@ pub const DNSLayer = struct {
         return queries;
     }
 
-    pub fn get_remaining(self: *DNSLayer) !usize {
-        var offset: usize = DNSHeaderSize;
-
-        const q_sec_size: usize = try self.get_q_section_sz();
-        offset += q_sec_size;
-
-        return offset;
-    }
-
-    fn get_q_section_sz(self: *DNSLayer) !usize {
-        var size: usize = 0;
-        var query = self.get_first_query();
-
-        while (query) |q| {
-            size += q.get_data().len;
-            size += 4;
-            query = q.next_query;
-        }
-
-        return size;
-    }
-
-    pub fn get_first_query(self: DNSLayer) ?*Query {
-        return self.first_query;
-    }
-
-    fn get_last_query(self: *DNSLayer) ?*Query {
-        var cur = self.first_query;
-        while (cur) |query| {
-            if (query.next_query) |next| {
-                cur = next;
-            } else {
-                return query;
-            }
-        }
-
-        return null;
-    }
-
-    pub fn get_first_answer(self: *DNSLayer) ?*AnswerRecord {
-        return self.first_answer;
-    }
-
-    pub fn get_last_answer(self: *DNSLayer) ?*AnswerRecord {
-        return self.last_answer;
-    }
-
-    pub fn print_answers_meta(self: *DNSLayer) void {
-        var cur = self.first_answer;
-        while (cur) |ans| {
-            print("answer: {s}\n\toffset: {}\n\tlength: {}\n\tdata: {x}\n", .{
-                @tagName(ans.get_rr_type()),
-                ans.get_offset(),
-                ans.get_length(),
-                ans.get_data(),
-            });
-            cur = ans.get_next_record();
-        }
-    }
-
-    /// don't use
-    pub fn get_answer_count(self: *DNSLayer) usize {
-        var count: usize = 0;
-        var cur = self.first_answer;
-        while (cur) |ans| {
-            count += 1;
-            cur = ans.get_next_record();
-        }
-
-        return count;
-    }
-
     /// Returns AnswerRecords (doubly linkedlist)
     /// null-opt is returned when there are no answers
     pub fn get_answers(self: *DNSLayer, allocator: Allocator) !?AnswerRecords {
@@ -825,11 +706,9 @@ pub const DNSLayer = struct {
 
             // Parse NAME
             const name_offset = offset;
-            //            _ = name_offset;
             // This can be a pointer/offset compression (0xC0..) or raw labels
             // decode_name function to handle pointers and labels
-            const name_slice = try decode_name(data, &offset);
-            _ = name_slice;
+            _ = try decode_name(data, &offset);
 
             // Parse TYPE
             const rtype = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);

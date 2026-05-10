@@ -154,6 +154,158 @@ pub const AAAARecord = struct {
     }
 };
 
+/// NS (Name Server) Record
+pub const NSRecord = struct {
+    offset: usize,
+    length: usize,
+    qtype: QueryType,
+    qclass: DnsClass,
+    layer: *DNSLayer,
+    next_answer: ?*AnswerRecord = null,
+    prev_answer: ?*AnswerRecord = null,
+
+    pub fn get_data(self: *NSRecord) []const u8 {
+        return self.layer.get_data()[self.offset .. self.offset + self.length];
+    }
+
+    pub fn get_data_mut(self: *NSRecord) []u8 {
+        return self.layer.get_data()[self.offset .. self.offset + self.length];
+    }
+
+    pub fn get_name(self: *NSRecord, allocator: Allocator) ![]u8 {
+        const data = self.get_data(); // the length of the name is not known so just take use the offset of this RR
+
+        return try decode_name(self.layer.get_data(), data, allocator);
+    }
+
+    pub fn decode_ns_name(self: *NSRecord, allocator: Allocator) ![]u8 {
+        // NS's rdata, offset 12 is used for name ptr (2bytes), rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
+        if (self.get_data().len < 12) {
+            return error.InalidCnameRecord;
+        }
+        return try decode_name(self.layer.get_data(), self.get_data()[12..], allocator);
+    }
+
+    /// Takes a non-dns-label cname value and converts it to label format using a helper method and the allocator provided.
+    /// The formatted cname value is copied over the current one with these cases:
+    /// if the formatted cname value is of the same length as the current one, the DNSLayer buffer remains unchanged
+    /// else if the new cname is shorter or longer, then the dns layers buffer is shortened or extended, respectively
+    ///
+    /// currently broken. don't use it.
+    fn set_ns_name(self: *NSRecord, cname: []const u8, allocator: Allocator) !void {
+        // need to check if the cname being changed contains any sub label ptrs which proceeding records rely on
+        // e.g. .net in a cname can be relied on proceeding records
+        // in this case, find the next record that uses this ptr, edit the cname record to include that sub-label
+        // and then update the proceeding records so that they use the ptr to the above
+        const data = self.get_data_mut();
+        const new_cname_wire = try encodeQnameSimple(allocator, cname);
+        defer allocator.free(new_cname_wire);
+
+        const current_rdata = data[12..];
+        const old_len = current_rdata.len;
+        const new_len = new_cname_wire.len;
+
+        const cname_start = self.offset + 12;
+
+        var ptr: [2]u8 = undefined; // generate compression ptr for this cname record being changed
+        ptr[0] = 0xC0 | @as(u8, @truncate((cname_start >> 8) & 0x3F));
+        ptr[1] = @as(u8, @truncate(cname_start & 0xFF));
+
+        if (new_len > old_len) {
+            const extend_len = new_len - old_len;
+            const cname_offset = self.offset + 12;
+
+            print("extend len: {}\n", .{extend_len});
+
+            // Extend the payload
+            _ = try self.layer.extend_payload(cname_offset, extend_len);
+
+            // Update this record's length
+            self.length += extend_len;
+
+            // Update all subsequent records' offsets and lengths
+            var next_record: ?*AnswerRecord = self.next_answer;
+            while (next_record) |next| {
+                next.set_offset(next.get_offset() + extend_len);
+                next_record = next.get_next_record();
+            }
+
+            // Update ALL compression pointers in the packet
+            self.update_proceeding_records(@intCast(extend_len));
+            try self.update_rest_ptrs(ptr); // needs to be called now
+
+            // Refresh data pointer and write new NS
+            const new_data = self.get_data_mut();
+            @memcpy(new_data[12..], new_cname_wire);
+        } else if (new_len < old_len) {
+            print("new cname len is less than current. current: {} new: {}\n", .{ old_len, new_len });
+            const shrink_len: isize = @as(isize, @intCast(old_len)) - @as(isize, @intCast(new_len));
+            print("shrink len: {}\n", .{shrink_len});
+            const cname_offset = self.offset + 12;
+
+            // Shrink the records RR
+            _ = try self.layer.shorten_payload(cname_offset, @intCast(shrink_len));
+            print("shortened.\n", .{});
+
+            // Update this record's length
+            self.length -= @intCast(shrink_len); // int cast required here because shrink_len is isize
+
+            // Update subsequent records' offsets and lengths
+            print("Update subsequent records' offsets and lengths:\n", .{});
+            var next_record: ?*AnswerRecord = self.next_answer;
+            while (next_record) |next| {
+                const cur_offset = next.get_offset();
+                print("cur record offset: {}\n", .{cur_offset});
+                next.set_offset(cur_offset - @as(usize, @intCast(shrink_len)));
+                print("cur record new offset: {}\n", .{next.get_offset()});
+                next_record = next.get_next_record();
+            }
+
+            print("shrink len: {}\n", .{-shrink_len});
+
+            // Update compression pointers
+            self.update_proceeding_records(-shrink_len);
+            print("proceeding records updated.\n", .{});
+            try self.update_rest_ptrs(ptr); // needs to be called now
+            print("rest of ptrs updated.\n", .{});
+
+            // Write new NS
+            const new_data = self.get_data_mut();
+            @memcpy(new_data[12..], new_cname_wire);
+        } else {
+            // Same length, simple overwrite
+            @memcpy(data[12..], new_cname_wire);
+        }
+    }
+
+    pub fn to_string(self: *NSRecord, allocator: Allocator) ![]const u8 {
+        var list: std.ArrayList(u8) = .empty;
+
+        const name = try self.get_name(allocator);
+        defer allocator.free(name);
+        const type_s = @tagName(self.qtype);
+        const class_s = @tagName(self.qclass);
+        const cname = try self.decode_cname(allocator);
+        defer allocator.free(cname);
+
+        const space = " ";
+
+        try list.appendSlice(allocator, name);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, type_s);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, class_s);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, cname);
+
+        return try list.toOwnedSlice(allocator);
+    }
+
+    pub fn get_rr_type(self: NSRecord) QueryType {
+        return self.qtype;
+    }
+};
+
 /// CNAME (Canonical Name) Record
 pub const CNAMERecord = struct {
     offset: usize,

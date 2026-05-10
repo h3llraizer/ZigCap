@@ -44,10 +44,10 @@ test "build dns query layer" {
 
     var q = q_list.first;
     while (q) |query| {
-        print("{} {} ", .{ query.qtype, query.qclass });
+        //        print("{} {} ", .{ query.qtype, query.qclass });
         const qname = try query.decode_qname(allocator);
         defer allocator.free(qname);
-        print("{s}\n", .{qname});
+        //       print("{s}\n", .{qname});
 
         if (std.mem.eql(u8, ziggit_net_domain, qname)) {
             query_for_remove = query;
@@ -55,13 +55,13 @@ test "build dns query layer" {
         q = query.next_query;
     }
 
-    print("pre remove: {}\n", .{dns_layer_iface.get_data().len});
+    //  print("pre remove: {}\n", .{dns_layer_iface.get_data().len});
 
     if (query_for_remove) |query| {
         try dns_layer_iface.dnsLayer.remove_query(query);
     }
 
-    print("post remove: {}\n", .{dns_layer_iface.get_data().len});
+    // print("post remove: {}\n", .{dns_layer_iface.get_data().len});
 }
 
 test "parse dns response layer" {
@@ -127,6 +127,51 @@ test "parse dns response layer" {
             defer allocator.free(ip_str);
             //         print("{s}\n", .{ip_str});
         }
+        cur = ans.get_next_record();
+    }
+}
+
+test "parse dns response" {
+    const dns_ns_response: [173]u8 = [_]u8{ 0x3a, 0xc2, 0x81, 0x80, 0x0, 0x1, 0x0, 0x4, 0x0, 0x0, 0x0, 0x1, 0xf, 0x73, 0x6f, 0x75, 0x74, 0x68, 0x77, 0x65, 0x73, 0x74, 0x2d, 0x73, 0x69, 0x74, 0x65, 0x73, 0x2, 0x63, 0x6f, 0x2, 0x75, 0x6b, 0x0, 0x0, 0x2, 0x0, 0x1, 0xc0, 0xc, 0x0, 0x2, 0x0, 0x1, 0x0, 0x0, 0x3, 0x45, 0x0, 0x13, 0x6, 0x6e, 0x73, 0x31, 0x30, 0x38, 0x33, 0x6, 0x75, 0x69, 0x2d, 0x64, 0x6e, 0x73, 0x3, 0x62, 0x69, 0x7a, 0x0, 0xc0, 0xc, 0x0, 0x2, 0x0, 0x1, 0x0, 0x0, 0x3, 0x45, 0x0, 0x13, 0x6, 0x6e, 0x73, 0x31, 0x31, 0x31, 0x30, 0x6, 0x75, 0x69, 0x2d, 0x64, 0x6e, 0x73, 0x3, 0x6f, 0x72, 0x67, 0x0, 0xc0, 0xc, 0x0, 0x2, 0x0, 0x1, 0x0, 0x0, 0x3, 0x45, 0x0, 0x13, 0x6, 0x6e, 0x73, 0x31, 0x30, 0x36, 0x35, 0x6, 0x75, 0x69, 0x2d, 0x64, 0x6e, 0x73, 0x3, 0x63, 0x6f, 0x6d, 0x0, 0xc0, 0xc, 0x0, 0x2, 0x0, 0x1, 0x0, 0x0, 0x3, 0x45, 0x0, 0x12, 0x6, 0x6e, 0x73, 0x31, 0x31, 0x31, 0x32, 0x6, 0x75, 0x69, 0x2d, 0x64, 0x6e, 0x73, 0x2, 0x64, 0x65, 0x0, 0x0, 0x0, 0x29, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
+
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+
+    const allocator = debug_allocator.allocator();
+
+    const dns_buf = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", dns_ns_response.len);
+    @memmove(dns_buf, dns_ns_response[0..]);
+
+    const dns_owner: LayerOwner = LayerOwner{ .owned_buffer = try .init(dns_buf, allocator) };
+
+    var dns_layer = try LayerIface.init(DNS.DNSLayer, dns_owner);
+    defer dns_layer.deinit();
+
+    var ans_list = try dns_layer.dnsLayer.get_answers(allocator) orelse {
+        try expect(false); // no dns answers
+        return;
+    };
+
+    defer ans_list.deinit(allocator);
+
+    var cur: ?*DNS.AnswerRecord = ans_list.first;
+    while (cur) |ans| {
+        const name = try ans.get_name(allocator);
+        defer allocator.free(name);
+        print("{s} {any} {any} ", .{ name, ans.get_rr_type(), ans.get_class_type() });
+
+        if (ans.get_rr_type() == DNS.QueryType.NS) {
+            const ns = ans.ns.decode_ns_name(allocator) catch {
+                print("-", .{});
+                cur = ans.get_next_record();
+                continue;
+            };
+
+            defer allocator.free(ns);
+
+            print("{s}", .{ns});
+        }
+        print("\n", .{});
         cur = ans.get_next_record();
     }
 }
