@@ -291,7 +291,6 @@ const IPv6LayerMeta = struct {
 pub const IPv6Layer = struct {
     owner: LayerOwner,
     ext_header: ?*ExtensionHeader = null,
-    const Protocol = tcp_ip_protocol.ipv6;
 
     pub fn init(owner: LayerOwner) LayerError!IPv6Layer {
         switch (owner) {
@@ -630,7 +629,7 @@ pub const IPv6Layer = struct {
 
     pub fn get_protocol(self: *IPv6Layer) tcp_ip_protocol {
         _ = self;
-        return IPv6Layer.Protocol;
+        return tcp_ip_protocol.ipv6;
     }
 
     /// doesn't actually destroy the headers data, just the linkedlist nodes

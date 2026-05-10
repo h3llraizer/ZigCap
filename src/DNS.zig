@@ -435,16 +435,46 @@ pub const AnswerRecord = union(enum) {
     }
 };
 
+/// A doubly linked list containing RR-Records
+/// Calling deinit does not free any data in the DNSLayer - Only the structs are destroyed
+pub const AnswerRecords = struct {
+    first: ?*AnswerRecord = null,
+    last: ?*AnswerRecord = null,
+
+    pub fn deinit(self: *AnswerRecords, allocator: Allocator) void {
+        var cur = self.last;
+        while (cur) |ansrec| {
+            const prev = ansrec.get_prev_record();
+            allocator.destroy(ansrec);
+            cur = prev;
+        }
+
+        self.first = null;
+        self.last = null;
+    }
+};
+
+pub const Queries = struct {
+    first: ?*Query = null,
+    query_count: usize = 0,
+
+    pub fn deinit(self: *Queries, allocator: Allocator) void {
+        var cur = self.first;
+        while (cur) |query| {
+            const next = query.next_query;
+            allocator.destroy(query);
+            cur = next;
+        }
+
+        self.first = null;
+    }
+};
+
 /// DNSLayer represents the DNSHeader and it's queries and answers (if there are any)
 /// Queries are stored as a singly linked list as most DNS packets usually contain only one query
 /// Answers are stored as a doubly linked list as there is commonly more than one answer
 pub const DNSLayer = struct {
     owner: LayerOwner,
-    first_query: ?*Query = null,
-    first_answer: ?*AnswerRecord = null,
-    last_answer: ?*AnswerRecord = null,
-
-    const Protocol = tcp_ip_protocol.dns;
 
     pub fn init(owner: LayerOwner) LayerError!DNSLayer {
         switch (owner) {
@@ -515,6 +545,7 @@ pub const DNSLayer = struct {
         return hdr.get_flags().rcode == 1;
     }
 
+    /// don't use
     pub fn print_queries_meta(self: *DNSLayer) void {
         var count: usize = 0;
         var cur = self.first_query;
@@ -525,6 +556,7 @@ pub const DNSLayer = struct {
         }
     }
 
+    /// don't use
     pub fn get_query_count(self: *DNSLayer) usize {
         var count: usize = 0;
         var cur = self.first_query;
@@ -543,26 +575,17 @@ pub const DNSLayer = struct {
         hdr.flags = @byteSwap(hdr.flags);
     }
 
+    /// Adds a DNSQuery after the first (if there is a first).
+    /// Copies the data into layer at the correct offset.
+    /// Increases the qdcount value in the header by 1.
     pub fn add_query(self: *DNSLayer, query: *DNSQuery) !void {
-        var allocator = self.get_allocator();
-        const q = try allocator.create(Query);
-        const last_query = self.get_last_query();
-
         var start_offset = DNSHeaderSize;
 
-        if (last_query) |last| {
-            last.next_query = q;
-            start_offset += last.length;
-        } else {
-            self.first_query = q;
+        if (try self.find_last_q_offset()) |last_q_offset| {
+            start_offset = last_q_offset;
         }
 
-        const length = query.get_data().len;
-        const offset = self.get_data().len;
-
-        q.* = Query.init(offset, length, query.qtype, query.qclass, self);
-
-        const qbuf = try self.extend_payload(start_offset, q.length);
+        const qbuf = try self.extend_payload(start_offset, query.get_data().len);
         @memmove(qbuf, query.get_data());
 
         var hdr = self.get_mutable_header();
@@ -570,6 +593,28 @@ pub const DNSLayer = struct {
 
         qdcount += 1;
         hdr.set_qdcount(qdcount);
+    }
+
+    /// Remove the specified query.
+    /// Decreases qdcount value in the header by 1.
+    /// Warning: RR-Records which are pointing to this query name (compression ptr) might become malformed,
+    /// in this case, it's safer create a seperate DNSLayer and perform a selective manual copy
+    pub fn remove_query(self: *DNSLayer, query: *Query) !void { // TODO: destroy the Query struct and rejoin
+        const start_offset = query.offset;
+
+        try self.owner.shorten_payload(start_offset, query.length);
+
+        var hdr = self.get_mutable_header();
+        var qdcount = hdr.get_qdcount();
+
+        qdcount -= 1;
+        hdr.set_qdcount(qdcount);
+
+        var next_query = query.next_query;
+        while (next_query) |next| {
+            next.offset -= query.length;
+            next_query = next.next_query;
+        }
     }
 
     fn decode_name(raw: []const u8, offset: *usize) ![]const u8 {
@@ -597,41 +642,96 @@ pub const DNSLayer = struct {
     }
 
     fn extend_payload(self: *DNSLayer, offset: usize, extend_len: usize) ![]u8 {
-        var buf: []u8 = undefined;
-        switch (self.owner) {
-            .packet_layer => |layer| {
-                buf = try layer.packet.extend_layer(layer, offset, extend_len); // TODO: extend at offset instead
-            },
-            .owned_buffer => |*buffer| {
-                buf = try buffer.extend(offset, extend_len);
-            },
-        }
+        //var buf: []u8 = undefined;
+        //switch (self.owner) {
+        //    .packet_layer => |layer| {
+        //        buf = try layer.packet.extend_layer(layer, offset, extend_len);
+        //    },
+        //    .owned_buffer => |*buffer| {
+        //        buf = try buffer.extend(offset, extend_len);
+        //    },
+        //}
+
+        const buf = try self.owner.extend_payload(offset, extend_len);
 
         return buf;
     }
 
     fn shorten_payload(self: *DNSLayer, offset: usize, shorten_len: usize) !void {
-        switch (self.owner) {
-            .packet_layer => |layer| {
-                try layer.packet.shorten_layer(layer, offset, shorten_len);
-            },
-            .owned_buffer => |*buffer| {
-                try buffer.shorten(offset, shorten_len);
-            },
-        }
+        //switch (self.owner) {
+        //    .packet_layer => |layer| {
+        //        try layer.packet.shorten_layer(layer, offset, shorten_len);
+        //    },
+        //    .owned_buffer => |*buffer| {
+        //        try buffer.shorten(offset, shorten_len);
+        //    },
+        //}
+
+        try self.owner.shorten_payload(offset, shorten_len);
     }
 
-    /// call when creating DNS layer from existing data
-    pub fn get_queries(self: *DNSLayer) !void {
-        var allocator = self.get_allocator();
+    pub fn find_last_q_offset(self: *DNSLayer) !?usize {
         const data = self.get_data();
+        if (data.len < DNSHeaderSize) {
+            return null;
+        }
         var offset: usize = DNSHeaderSize;
 
         const hdr = self.get_immutable_header();
         const qdcount = hdr.get_qdcount();
 
         var i: u32 = 0;
-        while (i < qdcount) : (i += 1) {
+        while (i < qdcount) : (i += 1) { // trusting the header is not ideal
+            // Walk labels
+            while (offset < data.len and data[offset] != 0) {
+                const len = data[offset];
+                offset += 1;
+
+                if (offset + len > data.len)
+                    return LayerError.LayerInvalid;
+
+                offset += len;
+            }
+
+            if (offset >= data.len)
+                return LayerError.LayerInvalid;
+
+            offset += 1; // skip null terminator
+
+            // Skip QTYPE + QCLASS (4 bytes)
+            if (offset + 4 > data.len)
+                return LayerError.LayerInvalid;
+
+            const whole_record_end = offset + 4;
+            offset = whole_record_end; // Move to next query position
+        }
+
+        return offset;
+    }
+
+    /// call when creating DNS layer from existing data
+    pub fn get_queries(self: *DNSLayer, allocator: Allocator) !?Queries {
+        const data = self.get_data();
+
+        if (data.len < DNSHeaderSize) {
+            return null;
+        }
+
+        var offset: usize = DNSHeaderSize;
+
+        const hdr = self.get_immutable_header();
+        const qdcount = hdr.get_qdcount();
+
+        if (qdcount == 0) {
+            return null;
+        }
+
+        var queries: Queries = (.{});
+
+        var cur: ?*Query = null;
+
+        var i: u32 = 0;
+        while (i < qdcount) : (i += 1) { // trusting the header is not ideal
             const qname_start = offset;
 
             // Walk labels
@@ -669,15 +769,22 @@ pub const DNSLayer = struct {
             query.* = Query.init(qname_start, whole_record.len, qtype_e, qclass_e, self);
 
             // Link queries together
-            const last_query = self.get_last_query();
-            if (last_query) |last| {
-                last.next_query = query;
-            } else {
-                self.first_query = query;
+            if (cur) |q| {
+                q.next_query = query;
             }
+
+            cur = query;
+
+            if (queries.first == null) {
+                queries.first = cur;
+            }
+
+            queries.query_count += 1;
 
             offset = whole_record_end; // Move to next query position
         }
+
+        return queries;
     }
 
     pub fn get_remaining(self: *DNSLayer) !usize {
@@ -730,11 +837,17 @@ pub const DNSLayer = struct {
     pub fn print_answers_meta(self: *DNSLayer) void {
         var cur = self.first_answer;
         while (cur) |ans| {
-            print("answer: {s}\n\toffset: {}\n\tlength: {}\n\tdata: {x}\n", .{ @tagName(ans.get_rr_type()), ans.get_offset(), ans.get_length(), ans.get_data() });
+            print("answer: {s}\n\toffset: {}\n\tlength: {}\n\tdata: {x}\n", .{
+                @tagName(ans.get_rr_type()),
+                ans.get_offset(),
+                ans.get_length(),
+                ans.get_data(),
+            });
             cur = ans.get_next_record();
         }
     }
 
+    /// don't use
     pub fn get_answer_count(self: *DNSLayer) usize {
         var count: usize = 0;
         var cur = self.first_answer;
@@ -746,25 +859,28 @@ pub const DNSLayer = struct {
         return count;
     }
 
-    /// call when creating DNS layer from existing data
-    pub fn get_answers(self: *DNSLayer) !void {
-        var allocator = self.get_allocator();
+    /// Returns AnswerRecords (doubly linkedlist)
+    /// null-opt is returned when there are no answers
+    pub fn get_answers(self: *DNSLayer, allocator: Allocator) !?AnswerRecords {
         const data = self.get_data();
+
         var offset: usize = DNSHeaderSize;
-        if (self.get_last_query()) |last| {
-            offset += last.length;
-        } else {
-            try self.get_queries();
-            if (self.get_last_query()) |last| {
-                offset += last.length;
-            } else {
-                return error.GetQueriesFailed;
-            }
+
+        if (try self.find_last_q_offset()) |last_q_offset| {
+            offset = last_q_offset;
         }
 
         const hdr = self.get_immutable_header();
 
         const ancount = hdr.get_ancount();
+
+        if (ancount == 0) {
+            return null;
+        }
+
+        var ansrecords: AnswerRecords = (.{});
+
+        var cur: ?*AnswerRecord = null;
 
         var i: u32 = 0;
         while (i < ancount) : (i += 1) {
@@ -813,18 +929,22 @@ pub const DNSLayer = struct {
 
             answer.* = AnswerRecord.init(name_offset, whole_record.len, rtype_e, class_e, self);
 
-            const last_answer = self.last_answer;
-
             // append to linkedlist
-            if (last_answer) |last| { // if the last answer is not null
-                last.set_next_record(answer); // set the last answer next answer to the answer created (answer being added)
-                answer.set_prev_record(last); // set the answer created (answer being added)'s prev answer to the last answer
-                self.last_answer = answer; // the last answer is now the answer that's being added
-            } else { // there was no last answer
-                self.first_answer = answer; // set first answer to this answer being added
-                self.last_answer = answer; // set last answer to this answer being added
+            if (cur) |ans| { // if the last answer is not null
+                ans.set_next_record(answer); // set the last answer next answer to the answer created (answer being added)
+                answer.set_prev_record(ans); // set the answer created (answer being added)'s prev answer to the last answer
+
+            }
+
+            cur = answer; // the last answer is now the answer that's being added
+            if (ansrecords.first == null) {
+                ansrecords.first = cur;
             }
         }
+
+        ansrecords.last = cur;
+
+        return ansrecords;
     }
 
     fn decompress(self: *DNSLayer) !void {
@@ -897,29 +1017,7 @@ pub const DNSLayer = struct {
 
     pub fn get_protocol(self: *DNSLayer) tcp_ip_protocol {
         _ = self;
-        return DNSLayer.Protocol;
-    }
-
-    fn destroy_queries(self: *DNSLayer) void {
-        var allocator = self.get_allocator();
-        var cur = self.first_query;
-
-        while (cur) |query| {
-            const next = query.next_query;
-            allocator.destroy(query);
-            cur = next;
-        }
-    }
-
-    fn destroy_answers(self: *DNSLayer) void {
-        var allocator = self.get_allocator();
-        var cur = self.first_answer;
-
-        while (cur) |answer| {
-            const next = answer.get_next_record();
-            allocator.destroy(answer);
-            cur = next;
-        }
+        return tcp_ip_protocol.dns;
     }
 
     pub fn get_next_layer_type(self: *DNSLayer, layer: *Layer) !?LayerIface {
@@ -929,8 +1027,6 @@ pub const DNSLayer = struct {
     }
 
     pub fn deinit(self: *DNSLayer) void {
-        self.destroy_queries(); // always destroy the query structs
-        self.destroy_answers(); // always destroy the answer structs
         self.owner.deinit();
     }
 };

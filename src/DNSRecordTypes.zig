@@ -1,16 +1,14 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
-
 const DNS = @import("DNS.zig");
 const IPv4Address = @import("IPv4.zig").IPv4Address;
 const IPv6Address = @import("IPv6.zig").IPv6Address;
 
+const print = std.debug.print;
+const Allocator = std.mem.Allocator;
 const QueryType = DNS.QueryType;
 const DnsClass = DNS.DnsClass;
 const DNSLayer = DNS.DNSLayer;
 const AnswerRecord = DNS.AnswerRecord;
-
-const print = std.debug.print;
 
 pub const GenericRecord = struct {
     offset: usize,

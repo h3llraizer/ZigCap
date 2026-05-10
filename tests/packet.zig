@@ -215,9 +215,9 @@ test "packet extract layers" {
 
     var tmp_buf: LayerOwner = .{ .owned_buffer = .init_empty(allocator) };
 
-    if (packet.get_layer_of_type(DNS.DNSLayer)) |dns_layer| {
-        try dns_layer.get_answers();
-    }
+    //if (packet.get_layer_of_type(DNS.DNSLayer)) |dns_layer| {
+    //    try dns_layer.get_answers();
+    //}
 
     const dns_layer = packet.search_layers(.dns) orelse {
         try expect(false); // failed to retrieve dns layer in packet
@@ -265,9 +265,9 @@ test "packet delete layers" {
     try expect(packet.has_protocol_layer(.udp));
     try expect(packet.has_protocol_layer(.dns));
 
-    if (packet.get_layer_of_type(DNS.DNSLayer)) |dns_layer| {
-        try dns_layer.get_answers();
-    }
+    // if (packet.get_layer_of_type(DNS.DNSLayer)) |dns_layer| {
+    //     try dns_layer.get_answers();
+    // }
 
     const dns_layer = packet.search_layers(.dns) orelse {
         try expect(false); // failed to retrieve dns layer in packet
