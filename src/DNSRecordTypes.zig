@@ -331,11 +331,17 @@ pub const CNAMERecord = struct {
     }
 
     pub fn decode_cname(self: *CNAMERecord, allocator: Allocator) ![]u8 {
-        // CNAME's rdata, offset 12 is used for name ptr (2bytes), rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
         if (self.get_data().len < 12) {
             return error.InalidCnameRecord;
         }
-        return try decode_name(self.layer.get_data(), self.get_data()[12..], allocator);
+
+        var offset: usize = 0;
+
+        _ = try DNS.DNSLayer.decode_name(self.get_data(), &offset);
+
+        offset += 10; //  rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
+
+        return try decode_name(self.layer.get_data(), self.get_data()[offset..], allocator);
     }
 
     fn update_proceeding_records(self: *CNAMERecord, delta: isize) void {
@@ -757,7 +763,7 @@ pub fn decode_name(layer_data: []const u8, record_data: []const u8, allocator: A
         // Regular label (not a pointer)
         offset += 1;
 
-        if (offset + label_len > rdata.len) return error.InvalidPacket;
+        if (offset + label_len > rdata.len) return error.LabelOOB;
 
         if (!first) try list.append(allocator, '.');
         first = false;

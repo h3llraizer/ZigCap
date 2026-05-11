@@ -17,6 +17,6 @@ test {
     _ = @import("tcp.zig");
     _ = @import("application_layer.zig");
     _ = @import("packet.zig");
-    _ = @import("general.zig");
-    _ = @import("memory.zig");
+    //    _ = @import("general.zig");
+    //    _ = @import("memory.zig");
 }

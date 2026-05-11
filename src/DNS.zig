@@ -115,6 +115,11 @@ pub const DNSHeader = extern struct {
     /// Number of additional ResponseRecords
     arcount: u16,
 
+    comptime {
+        if (@bitSizeOf(DNSHeader) != 96)
+            @compileError("DNSHeaderBits must be exactly 96 bits (12 bytes)");
+    }
+
     pub fn set_id(self: *DNSHeader, id: u16) void {
         self.id = @byteSwap(id);
     }
@@ -331,13 +336,36 @@ pub const AnswerRecord = union(enum) {
 
     pub fn get_ttl(self: *AnswerRecord) u32 {
         const data = self.get_data();
-        const ttl: u32 = std.mem.readInt(u32, data[6..10], .big);
-        return ttl;
+
+        var offset: usize = 0;
+
+        _ = DNSLayer.decode_name(self.get_data(), &offset) catch {
+            print("error decoding name.\n", .{});
+            return 0;
+        };
+
+        offset += 4; //  rrtype (2 bytes), class (2bytes)
+
+        const ttl: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
+
+        return @byteSwap(ttl);
     }
 
     pub fn set_ttl(self: *AnswerRecord, ttl: u32) void {
         const data = self.get_data_mut();
-        std.mem.writeInt(u32, data[6..10], ttl, .big);
+
+        var offset: usize = 0;
+
+        _ = DNSLayer.decode_name(self.get_data(), &offset) catch {
+            print("error decoding name.\n", .{});
+            return;
+        };
+
+        offset += 4; //  rrtype (2 bytes), class (2bytes)
+
+        const ttl_ptr = std.mem.bytesAsValue(u32, data[offset .. offset + @sizeOf(u32)]);
+
+        ttl_ptr.* = @byteSwap(ttl);
     }
 
     pub fn get_rr_type(self: *AnswerRecord) QueryType {
@@ -534,7 +562,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
     }
 
     // this is primarily being used to advance offsets when parsing answers
-    fn decode_name(raw: []const u8, offset: *usize) ![]const u8 {
+    pub fn decode_name(raw: []const u8, offset: *usize) ![]const u8 {
         const start = offset.*;
         var end = start;
 
@@ -762,6 +790,172 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         return ansrecords;
     }
 
+    pub fn find_last_ans_offset(self: *DNSLayer) !?usize {
+        const data = self.get_data();
+        var offset = DNSHeaderSize;
+
+        if (try self.find_last_q_offset()) |last_q_off| {
+            offset = last_q_off;
+        }
+
+        const hdr = self.get_immutable_header();
+        const ancount = hdr.get_ancount();
+
+        var i: u32 = 0;
+        while (i < ancount) : (i += 1) {
+            if (offset + 12 > data.len) // minimum RR header size: NAME(2) + TYPE(2) + CLASS(2) + TTL(4) + RDLENGTH(2)
+                return error.InvalidPacket;
+
+            // Parse NAME
+            //const name_offset = offset;
+            // This can be a pointer/offset compression (0xC0..) or raw labels
+            // decode_name function to handle pointers and labels
+            _ = try decode_name(data, &offset);
+
+            // Parse TYPE
+            //const rtype = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
+            offset += 2;
+
+            // Parse CLASS
+            //const rclass = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
+            offset += 2;
+
+            // Parse TTL
+            const ttl = std.mem.readInt(u32, @ptrCast(data[offset .. offset + 4].ptr), .big);
+            offset += 4;
+
+            _ = ttl;
+
+            // Parse RDLENGTH
+            const rdlength = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
+            offset += 2;
+
+            if (offset + rdlength > data.len) {
+                return error.InvalidPacket;
+            }
+
+            offset += rdlength;
+        }
+
+        return offset;
+    }
+
+    /// append an answer to the DNSLayer in the Answers section
+    /// Note: Compression ptr support not yet implemented
+    pub fn add_answer(self: *DNSLayer, name: []const u8, qtype: QueryType, qclass: DnsClass, ttl: u32, answer: []const u8) !void {
+        var start_offset: usize = DNSHeaderSize;
+
+        if (try self.find_last_ans_offset()) |off| {
+            start_offset = off;
+        }
+
+        // Calculate how many bytes the DNS-encoded name will take
+        var dns_encoded_name_len: usize = 0;
+        var it = std.mem.splitScalar(u8, name, '.');
+        while (it.next()) |label| {
+            dns_encoded_name_len += 1 + label.len; // length byte + label
+        }
+        dns_encoded_name_len += 1; // final null terminator
+
+        // Calculate encoded answer length (if answer is also a domain name)
+        var dns_encoded_answer_len: usize = 0;
+        var ans_it = std.mem.splitScalar(u8, answer, '.');
+        while (ans_it.next()) |label| {
+            dns_encoded_answer_len += 1 + label.len; // length byte + label
+        }
+        dns_encoded_answer_len += 1; // final null terminator
+
+        const qtype_len = @sizeOf(QueryType);
+        const class_len = @sizeOf(DnsClass);
+        const ttl_len = @sizeOf(u32);
+        const rd_len = @sizeOf(u16);
+
+        const extend_len: usize = dns_encoded_name_len + qtype_len + class_len + ttl_len + rd_len + dns_encoded_answer_len;
+
+        print("extending buffer.\n", .{});
+
+        // extend the payload
+        var ans_buf = try self.owner.extend_payload(start_offset, extend_len);
+        @memset(ans_buf, 'a');
+        var abuffer = ans_buf[0..];
+        var buf_offset: usize = 0;
+
+        print("ans buf: {x}\n", .{ans_buf});
+
+        print("writing name.\n", .{});
+
+        // Write the encoded NAME
+        it = std.mem.splitScalar(u8, name, '.');
+        while (it.next()) |label| {
+            abuffer[buf_offset] = @intCast(label.len);
+            buf_offset += 1;
+            @memcpy(abuffer[buf_offset .. buf_offset + label.len], label);
+            buf_offset += label.len;
+        }
+        abuffer[buf_offset] = 0; // null terminator
+        buf_offset += 1;
+
+        print("ans buf: {x}\n", .{ans_buf});
+
+        print("writing qtype.\n", .{});
+
+        // Write QTYPE
+        std.mem.writeInt(u16, abuffer[buf_offset .. buf_offset + 2][0..2], @intFromEnum(qtype), .big);
+        buf_offset += 2;
+
+        print("ans buf: {x}\n", .{ans_buf});
+
+        print("writing qclass.\n", .{});
+
+        // Write QCLASS
+        std.mem.writeInt(u16, abuffer[buf_offset .. buf_offset + 2][0..2], @intFromEnum(qclass), .big);
+        buf_offset += 2;
+
+        print("ans buf: {x}\n", .{ans_buf});
+
+        print("writing ttl.\n", .{});
+
+        // Write TTL
+        std.mem.writeInt(u32, abuffer[buf_offset .. buf_offset + 4][0..4], ttl, .big);
+        buf_offset += 4;
+
+        print("ans buf: {x}\n", .{ans_buf});
+
+        print("writing rd len.\n", .{});
+
+        // Write RD LENGTH (length of encoded answer)
+        const rdlength: u16 = @intCast(dns_encoded_answer_len);
+        std.mem.writeInt(u16, abuffer[buf_offset .. buf_offset + 2][0..2], rdlength, .big);
+        buf_offset += 2;
+
+        print("ans buf: {x}\n", .{ans_buf});
+
+        print("writing rdata.\n", .{});
+
+        // Write encoded RDATA (the answer as a domain name)
+        ans_it = std.mem.splitScalar(u8, answer, '.');
+        while (ans_it.next()) |label| {
+            abuffer[buf_offset] = @intCast(label.len);
+            buf_offset += 1;
+            @memcpy(abuffer[buf_offset .. buf_offset + label.len], label);
+            buf_offset += label.len;
+        }
+        abuffer[buf_offset] = 0; // null terminator for answer
+        // buf_offset += 1; // Don't add here, we already know total size
+
+        print("ans buf: {x}\n", .{ans_buf});
+
+        print("increasing ancount.\n", .{});
+
+        // Update header
+        var hdr = self.get_mutable_header();
+        var ancount = hdr.get_ancount();
+        ancount += 1;
+        hdr.set_ancount(ancount);
+
+        print("final: {x}\n", .{ans_buf});
+    }
+
     fn decompress(self: *DNSLayer) !void {
         self.find_cmprs_ptrs();
     }
@@ -875,9 +1069,4 @@ pub fn decodeQname(allocator: Allocator, dns_label: []const u8) ![]u8 {
     if (offset >= dns_label.len or dns_label[offset] != 0) return error.InvalidPacket;
 
     return list.toOwnedSlice(allocator);
-}
-
-comptime {
-    if (@bitSizeOf(DNSHeader) != 96)
-        @compileError("DNSHeaderBits must be exactly 96 bits (12 bytes)");
 }
