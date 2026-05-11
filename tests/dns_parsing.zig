@@ -5,6 +5,7 @@ const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
 const DNS = zigcap.DNS;
+const IPv4 = zigcap.IPv4;
 const Packet = zigcap.Packet.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
 const LayerOwner = zigcap.Layer.LayerOwner;
@@ -44,10 +45,8 @@ test "build dns query layer" {
 
     var q = q_list.first;
     while (q) |query| {
-        //        print("{} {} ", .{ query.qtype, query.qclass });
         const qname = try query.decode_qname(allocator);
         defer allocator.free(qname);
-        //       print("{s}\n", .{qname});
 
         if (std.mem.eql(u8, ziggit_net_domain, qname)) {
             query_for_remove = query;
@@ -55,13 +54,9 @@ test "build dns query layer" {
         q = query.next_query;
     }
 
-    //  print("pre remove: {}\n", .{dns_layer_iface.get_data().len});
-
     if (query_for_remove) |query| {
         try dns_layer_iface.dnsLayer.remove_query(query);
     }
-
-    // print("post remove: {}\n", .{dns_layer_iface.get_data().len});
 }
 test "build dns response layer" {
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
@@ -85,17 +80,13 @@ test "build dns response layer" {
 
     defer q_list.deinit(allocator);
 
-    if (try dns_layer_iface.dnsLayer.find_last_ans_offset()) |last| {
-        print("last answer offset: {}\n", .{last});
-    } else {
-        print("failed to find last answer offset.\n", .{});
-    }
-
-    //print("pre add: ({}) {x}\n", .{ dns_layer_iface.get_data().len, dns_layer_iface.get_data() });
+    //if (try dns_layer_iface.dnsLayer.find_last_ans_offset()) |last| {
+    //    print("last answer offset: {}\n", .{last});
+    //} else {
+    //    print("failed to find last answer offset.\n", .{});
+    //}
 
     try dns_layer_iface.dnsLayer.add_answer(ebay_www_domain, DNS.QueryType.CNAME, DNS.DnsClass.IN, 205, "www.ebay.com.ebaycdn.net");
-
-    //print("pst add: ({}) {x}\n", .{ dns_layer_iface.get_data().len, dns_layer_iface.get_data() });
 
     var ans_list = try dns_layer_iface.dnsLayer.get_answers(allocator) orelse {
         try expect(false); // no dns answers
@@ -106,25 +97,92 @@ test "build dns response layer" {
 
     var cur: ?*DNS.AnswerRecord = ans_list.first;
     while (cur) |ans| {
-        ans.set_ttl(32);
         const name = try ans.get_name(allocator);
         defer allocator.free(name);
-        print("{s} {any} {any} ttl: {} ", .{ name, ans.get_rr_type(), ans.get_class_type(), ans.get_ttl() });
+        //      print("{s} {any} {any} ttl: {} ", .{ name, ans.get_rr_type(), ans.get_class_type(), ans.get_ttl() });
 
         if (ans.get_rr_type() == DNS.QueryType.CNAME) {
             const cname = ans.cname.decode_cname(allocator) catch |err| {
                 print("({s})\n", .{@errorName(err)});
-                print("raw: ({}) {x}\n", .{ ans.get_data().len, ans.get_data() });
+                //                print("raw: ({}) {x}\n", .{ ans.get_data().len, ans.get_data() });
                 cur = ans.get_next_record();
                 continue;
             };
 
             defer allocator.free(cname);
-            print("{s}\n", .{cname});
+            //            print("{s}\n", .{cname});
         }
 
         cur = ans.get_next_record();
     }
+}
+
+test "build dns a response layer" {
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+
+    const allocator = debug_allocator.allocator();
+
+    const tmp_buf: LayerOwner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+
+    var dns_layer_iface = try LayerIface.init(DNS.DNSLayer, tmp_buf);
+    defer dns_layer_iface.deinit();
+
+    const ebay_www_domain: []const u8 = "www.ebay.com";
+
+    try dns_layer_iface.dnsLayer.add_query(ebay_www_domain, DNS.QueryType.A, DNS.DnsClass.IN);
+
+    var q_list = try dns_layer_iface.dnsLayer.get_queries(allocator) orelse {
+        try expect(false); // no dns queries
+        return;
+    };
+
+    defer q_list.deinit(allocator);
+
+    //if (try dns_layer_iface.dnsLayer.find_last_ans_offset()) |last| {
+    //    print("last answer offset: {}\n", .{last});
+    //} else {
+    //    print("failed to find last answer offset.\n", .{});
+    //}
+
+    const ip = try IPv4.IPv4Address.init_from_string("95.100.104.10");
+
+    try dns_layer_iface.dnsLayer.add_answer(ebay_www_domain, DNS.QueryType.A, DNS.DnsClass.IN, 128, &ip.array);
+
+    var ans_list = try dns_layer_iface.dnsLayer.get_answers(allocator) orelse {
+        try expect(false); // no dns answers
+        return;
+    };
+
+    defer ans_list.deinit(allocator);
+
+    var cur: ?*DNS.AnswerRecord = ans_list.first;
+    while (cur) |ans| {
+        const name = try ans.get_name(allocator);
+        defer allocator.free(name);
+        print("{s} {any} {any} ttl: {} ", .{ name, ans.get_rr_type(), ans.get_class_type(), ans.get_ttl() });
+
+        if (ans.get_rr_type() == DNS.QueryType.A) {
+            ans.a.set_ip(try IPv4.IPv4Address.init_from_string("192.168.1.111"));
+
+            const ip_addr = ans.a.get_ip() orelse {
+                print("-\n", .{});
+                cur = ans.get_next_record();
+                continue;
+            };
+
+            print("{x} ", .{&ip_addr.array});
+
+            const ip_str = try ip_addr.to_string(allocator);
+
+            defer allocator.free(ip_str);
+            print("{s}\n", .{ip_str});
+        }
+
+        cur = ans.get_next_record();
+    }
+
+    print("raw: {x}\n", .{dns_layer_iface.get_data()});
 }
 
 test "parse dns response layer" {
@@ -143,13 +201,6 @@ test "parse dns response layer" {
     var dns_layer = try LayerIface.init(DNS.DNSLayer, dns_owner);
     defer dns_layer.deinit();
 
-    //   if (try dns_layer.dnsLayer.find_last_q_offset()) |offset| {
-    //       print("last query offset: {}\n", .{offset});
-    //   } else {
-    //       print("failed to find last query offset.\n", .{});
-    //       return;
-    //   }
-
     var q_list = try dns_layer.dnsLayer.get_queries(allocator) orelse {
         try expect(false); // no dns quuries
         return;
@@ -159,10 +210,8 @@ test "parse dns response layer" {
 
     var q = q_list.first;
     while (q) |query| {
-        //    print("{} {} ", .{ query.qtype, query.qclass });
         const qname = try query.decode_qname(allocator);
         defer allocator.free(qname);
-        //   print("{s}\n", .{qname});
         q = query.next_query;
     }
 
@@ -177,18 +226,14 @@ test "parse dns response layer" {
     while (cur) |ans| {
         const name = try ans.get_name(allocator);
         defer allocator.free(name);
-        //       print("{s} {any} {any} ", .{ name, ans.get_rr_type(), ans.get_class_type() });
-
         if (ans.get_rr_type() == DNS.QueryType.A) {
             const ip = ans.a.get_ip() orelse {
-                //              print("(no ip)\n", .{});
                 cur = ans.get_next_record();
                 continue;
             };
 
             const ip_str = try ip.to_string(allocator);
             defer allocator.free(ip_str);
-            //         print("{s}\n", .{ip_str});
         }
         cur = ans.get_next_record();
     }
@@ -222,20 +267,15 @@ test "parse dns response" {
     while (cur) |ans| {
         const name = try ans.get_name(allocator);
         defer allocator.free(name);
-        //print("{s} {any} {any} ", .{ name, ans.get_rr_type(), ans.get_class_type() });
 
         if (ans.get_rr_type() == DNS.QueryType.NS) {
-            const ns = ans.ns.decode_ns_name(allocator) catch {
-                print("-", .{});
+            const ns_name = ans.ns.decode_ns_name(allocator) catch {
                 cur = ans.get_next_record();
                 continue;
             };
 
-            defer allocator.free(ns);
-
-            //print("{s}", .{ns});
+            defer allocator.free(ns_name);
         }
-        //print("\n", .{});
         cur = ans.get_next_record();
     }
 }
@@ -269,17 +309,13 @@ test "parse cname response" {
         if (ans.get_rr_type() == DNS.QueryType.CNAME) {
             const name = try ans.get_name(allocator);
             defer allocator.free(name);
-            print("{s} {any} {any} {} ", .{ name, ans.get_rr_type(), ans.get_class_type(), ans.get_ttl() });
 
             const cname = ans.cname.decode_cname(allocator) catch {
-                print("-\n", .{});
                 cur = ans.get_next_record();
                 continue;
             };
 
             defer allocator.free(cname);
-
-            print("{s}\n", .{cname});
         }
         cur = ans.get_next_record();
     }

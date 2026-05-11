@@ -386,6 +386,7 @@ pub const AnswerRecord = union(enum) {
 pub const AnswerRecords = struct {
     first: ?*AnswerRecord = null,
     last: ?*AnswerRecord = null,
+    answer_count: usize = 0,
 
     pub fn deinit(self: *AnswerRecords, allocator: Allocator) void {
         var cur = self.last;
@@ -397,6 +398,7 @@ pub const AnswerRecords = struct {
 
         self.first = null;
         self.last = null;
+        self.answer_count = 0;
     }
 };
 
@@ -783,6 +785,8 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             if (ansrecords.first == null) {
                 ansrecords.first = cur;
             }
+
+            ansrecords.answer_count += 1;
         }
 
         ansrecords.last = cur;
@@ -812,21 +816,16 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             // decode_name function to handle pointers and labels
             _ = try decode_name(data, &offset);
 
-            // Parse TYPE
-            //const rtype = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
+            // QTYPE
             offset += 2;
 
-            // Parse CLASS
-            //const rclass = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
+            // QCLASS
             offset += 2;
 
-            // Parse TTL
-            const ttl = std.mem.readInt(u32, @ptrCast(data[offset .. offset + 4].ptr), .big);
+            // TTL
             offset += 4;
 
-            _ = ttl;
-
-            // Parse RDLENGTH
+            // RDLENGTH
             const rdlength = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
             offset += 2;
 
@@ -857,13 +856,22 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         }
         dns_encoded_name_len += 1; // final null terminator
 
-        // Calculate encoded answer length (if answer is also a domain name)
         var dns_encoded_answer_len: usize = 0;
-        var ans_it = std.mem.splitScalar(u8, answer, '.');
-        while (ans_it.next()) |label| {
-            dns_encoded_answer_len += 1 + label.len; // length byte + label
+        switch (qtype) {
+            .A, .AAAA => {
+                dns_encoded_answer_len = answer.len;
+            },
+            else => {
+
+                // Calculate encoded answer length (if answer is also a domain name)
+                var ans_it = std.mem.splitScalar(u8, answer, '.');
+                while (ans_it.next()) |label| {
+                    dns_encoded_answer_len += 1 + label.len; // length byte + label
+                }
+                dns_encoded_answer_len += 1; // final null terminator
+
+            },
         }
-        dns_encoded_answer_len += 1; // final null terminator
 
         const qtype_len = @sizeOf(QueryType);
         const class_len = @sizeOf(DnsClass);
@@ -872,17 +880,10 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
 
         const extend_len: usize = dns_encoded_name_len + qtype_len + class_len + ttl_len + rd_len + dns_encoded_answer_len;
 
-        print("extending buffer.\n", .{});
-
         // extend the payload
         var ans_buf = try self.owner.extend_payload(start_offset, extend_len);
-        @memset(ans_buf, 'a');
         var abuffer = ans_buf[0..];
         var buf_offset: usize = 0;
-
-        print("ans buf: {x}\n", .{ans_buf});
-
-        print("writing name.\n", .{});
 
         // Write the encoded NAME
         it = std.mem.splitScalar(u8, name, '.');
@@ -895,65 +896,50 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         abuffer[buf_offset] = 0; // null terminator
         buf_offset += 1;
 
-        print("ans buf: {x}\n", .{ans_buf});
-
-        print("writing qtype.\n", .{});
-
         // Write QTYPE
         std.mem.writeInt(u16, abuffer[buf_offset .. buf_offset + 2][0..2], @intFromEnum(qtype), .big);
         buf_offset += 2;
-
-        print("ans buf: {x}\n", .{ans_buf});
-
-        print("writing qclass.\n", .{});
 
         // Write QCLASS
         std.mem.writeInt(u16, abuffer[buf_offset .. buf_offset + 2][0..2], @intFromEnum(qclass), .big);
         buf_offset += 2;
 
-        print("ans buf: {x}\n", .{ans_buf});
-
-        print("writing ttl.\n", .{});
-
         // Write TTL
         std.mem.writeInt(u32, abuffer[buf_offset .. buf_offset + 4][0..4], ttl, .big);
         buf_offset += 4;
-
-        print("ans buf: {x}\n", .{ans_buf});
-
-        print("writing rd len.\n", .{});
 
         // Write RD LENGTH (length of encoded answer)
         const rdlength: u16 = @intCast(dns_encoded_answer_len);
         std.mem.writeInt(u16, abuffer[buf_offset .. buf_offset + 2][0..2], rdlength, .big);
         buf_offset += 2;
 
-        print("ans buf: {x}\n", .{ans_buf});
+        // handle record type
 
-        print("writing rdata.\n", .{});
-
-        // Write encoded RDATA (the answer as a domain name)
-        ans_it = std.mem.splitScalar(u8, answer, '.');
-        while (ans_it.next()) |label| {
-            abuffer[buf_offset] = @intCast(label.len);
-            buf_offset += 1;
-            @memcpy(abuffer[buf_offset .. buf_offset + label.len], label);
-            buf_offset += label.len;
+        switch (qtype) {
+            .A, .AAAA => {
+                print("answer: {x}\n", .{answer});
+                print("rdlength: {}\n", .{rdlength});
+                print("writing IP at offset: {}\n", .{buf_offset});
+                @memmove(abuffer[buf_offset..], answer);
+            },
+            else => {
+                // Write encoded RDATA (the answer as a domain name)
+                var ans_it = std.mem.splitScalar(u8, answer, '.');
+                while (ans_it.next()) |label| {
+                    abuffer[buf_offset] = @intCast(label.len);
+                    buf_offset += 1;
+                    @memcpy(abuffer[buf_offset .. buf_offset + label.len], label);
+                    buf_offset += label.len;
+                }
+                abuffer[buf_offset] = 0; // null terminator for answer
+            },
         }
-        abuffer[buf_offset] = 0; // null terminator for answer
-        // buf_offset += 1; // Don't add here, we already know total size
-
-        print("ans buf: {x}\n", .{ans_buf});
-
-        print("increasing ancount.\n", .{});
 
         // Update header
         var hdr = self.get_mutable_header();
         var ancount = hdr.get_ancount();
         ancount += 1;
         hdr.set_ancount(ancount);
-
-        print("final: {x}\n", .{ans_buf});
     }
 
     fn decompress(self: *DNSLayer) !void {

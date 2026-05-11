@@ -11,6 +11,7 @@ test {
     _ = @import("vlan.zig");
     _ = @import("arp.zig");
     _ = @import("ipv4.zig");
+    _ = @import("ipv4_address.zig");
     _ = @import("ipv6.zig");
     _ = @import("icmp.zig");
     _ = @import("udp.zig");

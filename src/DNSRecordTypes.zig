@@ -59,8 +59,18 @@ pub const ARecord = struct {
     pub fn get_ip(self: *ARecord) ?IPv4Address {
         const data = self.get_data();
         if (data.len >= 16) {
-            const ip_u32: u32 = std.mem.readInt(u32, data[12..16], .big);
-            const ip = IPv4Address.init_from_u32(ip_u32);
+            var offset: usize = 0;
+
+            _ = DNS.DNSLayer.decode_name(self.get_data(), &offset) catch {
+                print("error decoding name.\n", .{});
+                return null;
+            };
+
+            offset += 10; //  rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
+
+            const ip_u32: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
+
+            const ip = IPv4Address.init_from_u32(@byteSwap(ip_u32));
             return ip;
         }
 
@@ -70,7 +80,18 @@ pub const ARecord = struct {
     pub fn set_ip(self: *ARecord, ipv4: IPv4Address) void {
         const data = self.get_data_mut();
         if (data.len >= 16) {
-            std.mem.writeInt(u32, data[12..16], ipv4.to_u32(), .big);
+            var offset: usize = 0;
+
+            _ = DNS.DNSLayer.decode_name(self.get_data(), &offset) catch {
+                print("error decoding name.\n", .{});
+                return;
+            };
+
+            offset += 10; //  rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
+
+            const ip_ptr = std.mem.bytesAsValue(u32, data[offset .. offset + @sizeOf(u32)]);
+
+            ip_ptr.* = @byteSwap(ipv4.to_u32());
         }
     }
 
