@@ -25,20 +25,6 @@ const MXRecord = DNSRecordTypes.MXRecord;
 const PTRRecord = DNSRecordTypes.PTRRecord;
 const NSRecord = DNSRecordTypes.NSRecord;
 
-// TODO: incorperate with AnswerRecord
-pub const DNSAnswer = struct {
-    qtype: QueryType,
-    qclass: DnsClass,
-    ttl: u32,
-    rdlength: u16,
-    buffer: Buffer,
-
-    pub fn init(qtype: QueryType, qclass: DnsClass, ttl: u32, rdlength: u16, allocator: Allocator) DNSAnswer {
-        const self = DNSAnswer{ .qtype = qtype, .qclass = qclass, .ttl = ttl, .rdlength = rdlength, .buffer = .init_empty(allocator) };
-        return self;
-    }
-};
-
 pub const DNSHeaderFlags = packed struct {
     /// Response Code
     rcode: u4 = 0,
