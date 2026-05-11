@@ -36,7 +36,6 @@ pub const GenericRecord = struct {
 pub const ARecord = struct {
     offset: usize,
     length: usize,
-    qtype: QueryType,
     qclass: DnsClass,
     layer: *DNSLayer,
     next_answer: ?*AnswerRecord = null,
@@ -122,7 +121,8 @@ pub const ARecord = struct {
     }
 
     pub fn get_rr_type(self: ARecord) QueryType {
-        return self.qtype;
+        _ = self;
+        return QueryType.A;
     }
 };
 
@@ -130,7 +130,6 @@ pub const ARecord = struct {
 pub const AAAARecord = struct {
     offset: usize,
     length: usize,
-    qtype: QueryType,
     qclass: DnsClass,
     layer: *DNSLayer,
     next_answer: ?*AnswerRecord = null,
@@ -171,7 +170,8 @@ pub const AAAARecord = struct {
     }
 
     pub fn get_rr_type(self: AAAARecord) QueryType {
-        return self.qtype;
+        _ = self;
+        return QueryType.AAAA;
     }
 };
 
@@ -179,7 +179,6 @@ pub const AAAARecord = struct {
 pub const NSRecord = struct {
     offset: usize,
     length: usize,
-    qtype: QueryType,
     qclass: DnsClass,
     layer: *DNSLayer,
     next_answer: ?*AnswerRecord = null,
@@ -323,7 +322,8 @@ pub const NSRecord = struct {
     }
 
     pub fn get_rr_type(self: NSRecord) QueryType {
-        return self.qtype;
+        _ = self;
+        return QueryType.NS;
     }
 };
 
@@ -331,7 +331,6 @@ pub const NSRecord = struct {
 pub const CNAMERecord = struct {
     offset: usize,
     length: usize,
-    qtype: QueryType,
     qclass: DnsClass,
     layer: *DNSLayer,
     next_answer: ?*AnswerRecord = null,
@@ -365,262 +364,6 @@ pub const CNAMERecord = struct {
         return try decode_name(self.layer.get_data(), self.get_data()[offset..], allocator);
     }
 
-    fn update_proceeding_records(self: *CNAMERecord, delta: isize) void {
-        const pos = self.offset + 12;
-        const ptr0: [1]u8 = .{0xC0};
-
-        var cur = self.next_answer;
-        while (cur) |ans| {
-            var next_data = ans.get_data_mut();
-            var off: usize = 0;
-
-            while (off < next_data.len - 1) {
-                const ptr_in_ans = next_data[off .. off + 2];
-                if (ptr_in_ans[0] == ptr0[0]) {
-                    var pointer: u16 = (@as(u16, ptr_in_ans[0] & 0x3F) << 8) | @as(u16, ptr_in_ans[1]);
-                    print("original ptr: {}\n", .{pointer});
-
-                    if (pointer > pos) {
-                        // Convert to signed to handle negative delta, then back to unsigned
-                        const new_pointer = @as(i32, pointer) + delta;
-                        if (new_pointer < 0) {
-                            // Handle error case - pointer would become negative
-                            @panic("pointer would become negative");
-                        }
-                        pointer = @as(u16, @intCast(new_pointer));
-                        print("changed ptr: {}\n", .{pointer});
-
-                        ptr_in_ans[0] = @as(u8, 0xC0 | @as(u8, @truncate((pointer >> 8) & 0x3F)));
-                        ptr_in_ans[1] = @as(u8, @truncate(pointer & 0xFF));
-                    }
-                }
-                off += 2;
-            }
-            cur = ans.get_next_record();
-        }
-    }
-
-    fn update_rest_ptrs(self: *CNAMERecord, ignore: [2]u8) !void {
-        print("ignoring offset: {x}\n", .{ignore});
-        const end = self.offset + self.length;
-
-        var first: bool = true;
-        var new_ptr_loc: [2]u8 = undefined;
-        var difference: isize = 0;
-
-        var cur = self.next_answer;
-        while (cur) |ans| {
-            var answers_data: []u8 = undefined;
-
-            switch (ans.get_rr_type()) {
-                .A => {
-                    answers_data = ans.get_data_mut()[0..2];
-                },
-                .CNAME => {
-                    answers_data = ans.get_data_mut();
-                },
-                else => {
-                    cur = ans.get_next_record();
-                    continue;
-                },
-            }
-
-            const total_len = answers_data.len;
-            var i: usize = 0;
-
-            while (i < total_len - 1) {
-                if (answers_data[i] & 0xC0 == 0xC0) {
-                    const pointer: u16 = @as(u16, answers_data[i] & 0x3F) << 8 | @as(u16, answers_data[i + 1]);
-
-                    print("found ptr: {}.\n", .{pointer});
-
-                    if (pointer >= self.offset and pointer < end) {
-                        if (!(answers_data[i] == ignore[0] and answers_data[i + 1] == ignore[1])) {
-                            var ptr_begin = self.layer.get_data()[pointer..];
-
-                            // Find the end of the label
-                            var idx: usize = 0;
-                            var label_end: bool = false;
-                            var zero_count: usize = 0;
-                            while (!label_end) {
-                                if (ptr_begin[idx] == 0) {
-                                    zero_count += 1;
-                                }
-                                if (zero_count == 1) {
-                                    label_end = true;
-                                }
-                                idx += 1;
-                            }
-
-                            ptr_begin = ptr_begin[0..idx];
-                            const label_len: isize = @intCast(ptr_begin.len);
-
-                            if (first) {
-                                const extend_start = ans.get_offset() + i;
-                                const begin = self.layer.get_data()[extend_start .. extend_start + 2];
-                                difference = label_len - @as(isize, @intCast(begin.len));
-
-                                // Handle both positive and negative differences
-                                if (difference > 0) {
-                                    // Extend the payload
-                                    _ = try self.layer.extend_payload(extend_start, @as(usize, @intCast(difference)));
-                                } else if (difference < 0) {
-                                    // Shrink the payload
-                                    _ = try self.layer.shorten_payload(extend_start, @as(usize, @intCast(-difference)));
-                                }
-                                // difference == 0: no change needed
-
-                                // Copy the label
-                                const src = self.layer.get_data()[pointer .. pointer + idx];
-                                var tmp: [512]u8 = undefined;
-                                @memcpy(tmp[0..src.len], src);
-                                const label: []u8 = tmp[0..src.len];
-                                @memcpy(self.layer.get_data()[extend_start .. extend_start + label.len], label);
-
-                                // Update the pointer location
-                                new_ptr_loc[0] = 0xC0 | @as(u8, @truncate((extend_start >> 8) & 0x3F));
-                                new_ptr_loc[1] = @as(u8, @truncate(extend_start & 0xFF));
-
-                                // Update answer record length
-                                ans.set_length(ans.get_length() + @as(usize, @intCast(difference)));
-
-                                // Update subsequent record offsets
-                                print("Update subsequent record offsets:\n", .{});
-                                var next = ans.get_next_record();
-                                while (next) |next_record| {
-                                    const cur_offset = next_record.get_offset();
-                                    print("cur_offset: {}\n", .{cur_offset});
-                                    next_record.set_offset(cur_offset + @as(usize, @intCast(difference)));
-                                    print("new offset: {}\n", .{next_record.get_offset()});
-                                    next = next_record.get_next_record();
-                                }
-
-                                first = false;
-                            } else {
-                                // Replace pointer with new location
-                                answers_data[i] = new_ptr_loc[0];
-                                answers_data[i + 1] = new_ptr_loc[1];
-                            }
-                        }
-                    } else if (!first) {
-                        const new_ptr: u16 = (@as(u16, new_ptr_loc[0] & 0x3F) << 8) | @as(u16, new_ptr_loc[1]);
-                        if (pointer > new_ptr) {
-                            print("pointer {} greater than new_ptr.\n", .{pointer});
-                            // Use signed arithmetic for pointer adjustment
-                            const ext_pointer = @as(i32, pointer) + difference;
-                            if (ext_pointer < 0) {
-                                @panic("pointer would become negative");
-                            }
-                            print("ext_pointer: {}\n", .{ext_pointer});
-
-                            answers_data[i] = 0xC0 | @as(u8, @truncate((@as(u16, @intCast(ext_pointer)) >> 8) & 0x3F));
-                            answers_data[i + 1] = @as(u8, @truncate(@as(u16, @intCast(ext_pointer)) & 0xFF));
-                        } else {
-                            print("pointer {} not greater than new_ptr.\n", .{pointer});
-                        }
-                    }
-
-                    i += 2;
-                    continue;
-                }
-                i += 1;
-            }
-            cur = ans.get_next_record();
-        }
-    }
-
-    /// Takes a non-dns-label cname value and converts it to label format using a helper method and the allocator provided.
-    /// The formatted cname value is copied over the current one with these cases:
-    /// if the formatted cname value is of the same length as the current one, the DNSLayer buffer remains unchanged
-    /// else if the new cname is shorter or longer, then the dns layers buffer is shortened or extended, respectively
-    ///
-    /// currently broken. don't use it.
-    fn set_cname(self: *CNAMERecord, cname: []const u8, allocator: Allocator) !void {
-        // need to check if the cname being changed contains any sub label ptrs which proceeding records rely on
-        // e.g. .net in a cname can be relied on proceeding records
-        // in this case, find the next record that uses this ptr, edit the cname record to include that sub-label
-        // and then update the proceeding records so that they use the ptr to the above
-        const data = self.get_data_mut();
-        const new_cname_wire = try encodeQnameSimple(allocator, cname);
-        defer allocator.free(new_cname_wire);
-
-        const current_rdata = data[12..];
-        const old_len = current_rdata.len;
-        const new_len = new_cname_wire.len;
-
-        const cname_start = self.offset + 12;
-
-        var ptr: [2]u8 = undefined; // generate compression ptr for this cname record being changed
-        ptr[0] = 0xC0 | @as(u8, @truncate((cname_start >> 8) & 0x3F));
-        ptr[1] = @as(u8, @truncate(cname_start & 0xFF));
-
-        if (new_len > old_len) {
-            const extend_len = new_len - old_len;
-            const cname_offset = self.offset + 12;
-
-            print("extend len: {}\n", .{extend_len});
-
-            // Extend the payload
-            _ = try self.layer.extend_payload(cname_offset, extend_len);
-
-            // Update this record's length
-            self.length += extend_len;
-
-            // Update all subsequent records' offsets and lengths
-            var next_record: ?*AnswerRecord = self.next_answer;
-            while (next_record) |next| {
-                next.set_offset(next.get_offset() + extend_len);
-                next_record = next.get_next_record();
-            }
-
-            // Update ALL compression pointers in the packet
-            self.update_proceeding_records(@intCast(extend_len));
-            try self.update_rest_ptrs(ptr); // needs to be called now
-
-            // Refresh data pointer and write new CNAME
-            const new_data = self.get_data_mut();
-            @memcpy(new_data[12..], new_cname_wire);
-        } else if (new_len < old_len) {
-            print("new cname len is less than current. current: {} new: {}\n", .{ old_len, new_len });
-            const shrink_len: isize = @as(isize, @intCast(old_len)) - @as(isize, @intCast(new_len));
-            print("shrink len: {}\n", .{shrink_len});
-            const cname_offset = self.offset + 12;
-
-            // Shrink the records RR
-            _ = try self.layer.shorten_payload(cname_offset, @intCast(shrink_len));
-            print("shortened.\n", .{});
-
-            // Update this record's length
-            self.length -= @intCast(shrink_len); // int cast required here because shrink_len is isize
-
-            // Update subsequent records' offsets and lengths
-            print("Update subsequent records' offsets and lengths:\n", .{});
-            var next_record: ?*AnswerRecord = self.next_answer;
-            while (next_record) |next| {
-                const cur_offset = next.get_offset();
-                print("cur record offset: {}\n", .{cur_offset});
-                next.set_offset(cur_offset - @as(usize, @intCast(shrink_len)));
-                print("cur record new offset: {}\n", .{next.get_offset()});
-                next_record = next.get_next_record();
-            }
-
-            print("shrink len: {}\n", .{-shrink_len});
-
-            // Update compression pointers
-            self.update_proceeding_records(-shrink_len);
-            print("proceeding records updated.\n", .{});
-            try self.update_rest_ptrs(ptr); // needs to be called now
-            print("rest of ptrs updated.\n", .{});
-
-            // Write new CNAME
-            const new_data = self.get_data_mut();
-            @memcpy(new_data[12..], new_cname_wire);
-        } else {
-            // Same length, simple overwrite
-            @memcpy(data[12..], new_cname_wire);
-        }
-    }
-
     pub fn to_string(self: *CNAMERecord, allocator: Allocator) ![]const u8 {
         var list: std.ArrayList(u8) = .empty;
 
@@ -645,7 +388,8 @@ pub const CNAMERecord = struct {
     }
 
     pub fn get_rr_type(self: CNAMERecord) QueryType {
-        return self.qtype;
+        _ = self;
+        return QueryType.CNAME;
     }
 };
 
@@ -653,7 +397,6 @@ pub const CNAMERecord = struct {
 pub const TXTRecord = struct {
     offset: usize,
     length: usize,
-    qtype: QueryType,
     qclass: DnsClass,
     layer: *DNSLayer,
     next_answer: ?*AnswerRecord = null,
@@ -681,7 +424,8 @@ pub const TXTRecord = struct {
     }
 
     pub fn get_rr_type(self: TXTRecord) QueryType {
-        return self.qtype;
+        _ = self;
+        return QueryType.TXT;
     }
 };
 
@@ -689,7 +433,6 @@ pub const TXTRecord = struct {
 pub const MXRecord = struct {
     offset: usize,
     length: usize,
-    qtype: QueryType,
     qclass: DnsClass,
     layer: *DNSLayer,
     next_answer: ?*AnswerRecord = null,
@@ -709,14 +452,14 @@ pub const MXRecord = struct {
     }
 
     pub fn get_rr_type(self: MXRecord) QueryType {
-        return self.qtype;
+        _ = self;
+        return QueryType.MX;
     }
 };
 
 pub const PTRRecord = struct {
     offset: usize,
     length: usize,
-    qtype: QueryType,
     qclass: DnsClass,
     layer: *DNSLayer,
     next_answer: ?*AnswerRecord = null,
@@ -735,9 +478,285 @@ pub const PTRRecord = struct {
     }
 
     pub fn get_rr_type(self: PTRRecord) QueryType {
-        return self.qtype;
+        _ = self;
+        return QueryType.PTR;
     }
 };
+
+pub const SOARecord = struct {
+    offset: usize,
+    length: usize,
+    qclass: DnsClass,
+    layer: *DNSLayer,
+    next_answer: ?*AnswerRecord = null,
+    prev_answer: ?*AnswerRecord = null,
+
+    pub fn get_data(self: *SOARecord) []const u8 {
+        return self.layer.get_data()[self.offset .. self.offset + self.length];
+    }
+
+    pub fn get_data_mut(self: *SOARecord) []u8 {
+        return self.layer.get_data()[self.offset .. self.offset + self.length];
+    }
+
+    pub fn get_name(self: *SOARecord, allocator: Allocator) ![]u8 {
+        return try decode_name(self.layer.get_data(), self.get_data()[12..], allocator);
+    }
+
+    /// Primary Name Server
+    pub fn get_mname(self: *SOARecord, allocator: Allocator) ![]u8 {
+        var offset: usize = 0;
+
+        _ = try DNS.DNSLayer.decode_name(self.get_data(), &offset);
+
+        offset += 10; //  rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
+
+        return try decode_name(self.layer.get_data(), self.get_data()[offset..], allocator);
+    }
+
+    /// Responsible Authorities Mailbox
+    pub fn get_rname(self: *SOARecord, allocator: Allocator) ![]u8 {
+        var offset: usize = 0;
+
+        _ = try DNS.DNSLayer.decode_name(self.get_data(), &offset);
+
+        offset += 10; //  rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
+
+        _ = try DNS.DNSLayer.decode_name(self.get_data(), &offset);
+
+        return try decode_name(self.layer.get_data(), self.get_data()[offset..], allocator);
+    }
+
+    pub fn get_serial(self: *SOARecord) u32 {
+        const data = self.get_data();
+        var offset: usize = 0;
+
+        // advance offset past NAME
+        advance_past_name(self.get_data(), &offset) catch {
+            print("error decoding name.\n", .{});
+            return 0;
+        };
+
+        // At this point, offset points to the byte AFTER the last label's null terminator
+        // So we're now at the TYPE field
+
+        // Skip TYPE (2), CLASS (2), TTL (4), RDLENGTH (2)
+        offset += 10;
+
+        // adance offset past MNAME
+        advance_past_name(self.get_data(), &offset) catch {
+            print("error decoding mname.\n", .{});
+            return 0;
+        };
+
+        // advance offset past RNAME
+        advance_past_name(self.get_data(), &offset) catch {
+            print("error decoding rname.\n", .{});
+            print("bytes from current offset: {x}\n", .{data[offset..]});
+            return 0;
+        };
+
+        const serial_be: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
+        return @byteSwap(serial_be);
+    }
+
+    pub fn get_refresh_interval(self: *SOARecord) u32 {
+        const data = self.get_data();
+        var offset: usize = 0;
+
+        // advance offset past NAME
+        advance_past_name(self.get_data(), &offset) catch {
+            print("error decoding name.\n", .{});
+            return 0;
+        };
+
+        // At this point, offset points to the byte AFTER the last label's null terminator
+        // So we're now at the TYPE field
+
+        // Skip TYPE (2), CLASS (2), TTL (4), RDLENGTH (2)
+        offset += 10;
+
+        // adance offset past MNAME
+        advance_past_name(self.get_data(), &offset) catch {
+            print("error decoding mname.\n", .{});
+            return 0;
+        };
+
+        // advance offset past RNAME
+        advance_past_name(self.get_data(), &offset) catch {
+            print("error decoding rname.\n", .{});
+            print("bytes from current offset: {x}\n", .{data[offset..]});
+            return 0;
+        };
+
+        // advance past serial
+        offset += 4;
+
+        const re_be: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
+        return @byteSwap(re_be);
+    }
+
+    pub fn get_retry_interval(self: *SOARecord) u32 {
+        const data = self.get_data();
+        var offset: usize = 0;
+
+        // advance offset past NAME
+        advance_past_name(self.get_data(), &offset) catch {
+            print("error decoding name.\n", .{});
+            return 0;
+        };
+
+        // At this point, offset points to the byte AFTER the last label's null terminator
+        // So we're now at the TYPE field
+
+        // Skip TYPE (2), CLASS (2), TTL (4), RDLENGTH (2)
+        offset += 10;
+
+        // adance offset past MNAME
+        advance_past_name(self.get_data(), &offset) catch {
+            print("error decoding mname.\n", .{});
+            return 0;
+        };
+
+        // advance offset past RNAME
+        advance_past_name(self.get_data(), &offset) catch {
+            print("error decoding rname.\n", .{});
+            print("bytes from current offset: {x}\n", .{data[offset..]});
+            return 0;
+        };
+
+        // advance past serial
+        offset += 4;
+
+        // advance past refresh interval
+        offset += 4;
+
+        const exp_limit: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
+        return @byteSwap(exp_limit);
+    }
+
+    pub fn get_expire_limit(self: *SOARecord) u32 {
+        const data = self.get_data();
+        var offset: usize = 0;
+
+        // advance offset past NAME
+        advance_past_name(self.get_data(), &offset) catch {
+            print("error decoding name.\n", .{});
+            return 0;
+        };
+
+        // At this point, offset points to the byte AFTER the last label's null terminator
+        // So we're now at the TYPE field
+
+        // Skip TYPE (2), CLASS (2), TTL (4), RDLENGTH (2)
+        offset += 10;
+
+        // adance offset past MNAME
+        advance_past_name(self.get_data(), &offset) catch {
+            print("error decoding mname.\n", .{});
+            return 0;
+        };
+
+        // advance offset past RNAME
+        advance_past_name(self.get_data(), &offset) catch {
+            print("error decoding rname.\n", .{});
+            print("bytes from current offset: {x}\n", .{data[offset..]});
+            return 0;
+        };
+
+        // advance past serial
+        offset += 4;
+
+        // advance past refresh interval
+        offset += 4;
+
+        // advance past retry interval
+        offset += 4;
+
+        const exp_limit: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
+        return @byteSwap(exp_limit);
+    }
+
+    pub fn get_minimum_ttl(self: *SOARecord) u32 {
+        const data = self.get_data();
+        var offset: usize = 0;
+
+        // advance offset past NAME
+        advance_past_name(self.get_data(), &offset) catch {
+            print("error decoding name.\n", .{});
+            return 0;
+        };
+
+        // At this point, offset points to the byte AFTER the last label's null terminator
+        // So we're now at the TYPE field
+
+        // Skip TYPE (2), CLASS (2), TTL (4), RDLENGTH (2)
+        offset += 10;
+
+        // adance offset past MNAME
+        advance_past_name(self.get_data(), &offset) catch {
+            print("error decoding mname.\n", .{});
+            return 0;
+        };
+
+        // advance offset past RNAME
+        advance_past_name(self.get_data(), &offset) catch {
+            print("error decoding rname.\n", .{});
+            print("bytes from current offset: {x}\n", .{data[offset..]});
+            return 0;
+        };
+
+        // advance past serial
+        offset += 4;
+
+        // advance past refresh interval
+        offset += 4;
+
+        // advance past retry interval
+        offset += 4;
+
+        // advance past expire limit
+        offset += 4;
+
+        const min_ttl: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
+        return @byteSwap(min_ttl);
+    }
+
+    pub fn get_rr_type(self: SOARecord) QueryType {
+        _ = self;
+        return QueryType.SOA;
+    }
+};
+
+pub fn advance_past_name(slice: []const u8, offset: *usize) !void {
+    while (offset.* < slice.len) {
+        const byte = slice[offset.*];
+        if (byte == 0) {
+            offset.* += 1;
+            return;
+        }
+        if ((byte & 0xC0) == 0xC0) {
+            offset.* += 2;
+            return;
+        }
+        offset.* += 1 + byte; // Skip length byte and label
+    }
+    return error.InvalidPacket;
+}
+
+// MNAME - variable len
+
+// RNAME - variable len
+
+// SERIAL - 4 bytes / u32
+
+// REFRESH INTERVAL - 4 bytes / u32
+
+// RETRY INTERVAL - 4 bytes / u32
+
+// EXPIRE LIMIT - 4 bytes / u32
+
+// MIN TTL - 4 bytes / u32
 
 pub fn decode_name(layer_data: []const u8, record_data: []const u8, allocator: Allocator) ![]u8 {
     const full_packet = layer_data; // get the entire dns layers data - this is required for pointer jumps
@@ -957,3 +976,259 @@ pub fn buildCompressionDict(allocator: Allocator, domains: []const []const u8) !
 
     return dict;
 }
+
+//   fn update_proceeding_records(self: *CNAMERecord, delta: isize) void {
+//       const pos = self.offset + 12;
+//       const ptr0: [1]u8 = .{0xC0};
+//
+//       var cur = self.next_answer;
+//       while (cur) |ans| {
+//           var next_data = ans.get_data_mut();
+//           var off: usize = 0;
+//
+//           while (off < next_data.len - 1) {
+//               const ptr_in_ans = next_data[off .. off + 2];
+//               if (ptr_in_ans[0] == ptr0[0]) {
+//                   var pointer: u16 = (@as(u16, ptr_in_ans[0] & 0x3F) << 8) | @as(u16, ptr_in_ans[1]);
+//                   print("original ptr: {}\n", .{pointer});
+//
+//                   if (pointer > pos) {
+//                       // Convert to signed to handle negative delta, then back to unsigned
+//                       const new_pointer = @as(i32, pointer) + delta;
+//                       if (new_pointer < 0) {
+//                           // Handle error case - pointer would become negative
+//                           @panic("pointer would become negative");
+//                       }
+//                       pointer = @as(u16, @intCast(new_pointer));
+//                       print("changed ptr: {}\n", .{pointer});
+//
+//                       ptr_in_ans[0] = @as(u8, 0xC0 | @as(u8, @truncate((pointer >> 8) & 0x3F)));
+//                       ptr_in_ans[1] = @as(u8, @truncate(pointer & 0xFF));
+//                   }
+//               }
+//               off += 2;
+//           }
+//           cur = ans.get_next_record();
+//       }
+//   }
+//
+//   fn update_rest_ptrs(self: *CNAMERecord, ignore: [2]u8) !void {
+//       print("ignoring offset: {x}\n", .{ignore});
+//       const end = self.offset + self.length;
+//
+//       var first: bool = true;
+//       var new_ptr_loc: [2]u8 = undefined;
+//       var difference: isize = 0;
+//
+//       var cur = self.next_answer;
+//       while (cur) |ans| {
+//           var answers_data: []u8 = undefined;
+//
+//           switch (ans.get_rr_type()) {
+//               .A => {
+//                   answers_data = ans.get_data_mut()[0..2];
+//               },
+//               .CNAME => {
+//                   answers_data = ans.get_data_mut();
+//               },
+//               else => {
+//                   cur = ans.get_next_record();
+//                   continue;
+//               },
+//           }
+//
+//           const total_len = answers_data.len;
+//           var i: usize = 0;
+//
+//           while (i < total_len - 1) {
+//               if (answers_data[i] & 0xC0 == 0xC0) {
+//                   const pointer: u16 = @as(u16, answers_data[i] & 0x3F) << 8 | @as(u16, answers_data[i + 1]);
+//
+//                   print("found ptr: {}.\n", .{pointer});
+//
+//                   if (pointer >= self.offset and pointer < end) {
+//                       if (!(answers_data[i] == ignore[0] and answers_data[i + 1] == ignore[1])) {
+//                           var ptr_begin = self.layer.get_data()[pointer..];
+//
+//                           // Find the end of the label
+//                           var idx: usize = 0;
+//                           var label_end: bool = false;
+//                           var zero_count: usize = 0;
+//                           while (!label_end) {
+//                               if (ptr_begin[idx] == 0) {
+//                                   zero_count += 1;
+//                               }
+//                               if (zero_count == 1) {
+//                                   label_end = true;
+//                               }
+//                               idx += 1;
+//                           }
+//
+//                           ptr_begin = ptr_begin[0..idx];
+//                           const label_len: isize = @intCast(ptr_begin.len);
+//
+//                           if (first) {
+//                               const extend_start = ans.get_offset() + i;
+//                               const begin = self.layer.get_data()[extend_start .. extend_start + 2];
+//                               difference = label_len - @as(isize, @intCast(begin.len));
+//
+//                               // Handle both positive and negative differences
+//                               if (difference > 0) {
+//                                   // Extend the payload
+//                                   _ = try self.layer.extend_payload(extend_start, @as(usize, @intCast(difference)));
+//                               } else if (difference < 0) {
+//                                   // Shrink the payload
+//                                   _ = try self.layer.shorten_payload(extend_start, @as(usize, @intCast(-difference)));
+//                               }
+//                               // difference == 0: no change needed
+//
+//                               // Copy the label
+//                               const src = self.layer.get_data()[pointer .. pointer + idx];
+//                               var tmp: [512]u8 = undefined;
+//                               @memcpy(tmp[0..src.len], src);
+//                               const label: []u8 = tmp[0..src.len];
+//                               @memcpy(self.layer.get_data()[extend_start .. extend_start + label.len], label);
+//
+//                               // Update the pointer location
+//                               new_ptr_loc[0] = 0xC0 | @as(u8, @truncate((extend_start >> 8) & 0x3F));
+//                               new_ptr_loc[1] = @as(u8, @truncate(extend_start & 0xFF));
+//
+//                               // Update answer record length
+//                               ans.set_length(ans.get_length() + @as(usize, @intCast(difference)));
+//
+//                               // Update subsequent record offsets
+//                               print("Update subsequent record offsets:\n", .{});
+//                               var next = ans.get_next_record();
+//                               while (next) |next_record| {
+//                                   const cur_offset = next_record.get_offset();
+//                                   print("cur_offset: {}\n", .{cur_offset});
+//                                   next_record.set_offset(cur_offset + @as(usize, @intCast(difference)));
+//                                   print("new offset: {}\n", .{next_record.get_offset()});
+//                                   next = next_record.get_next_record();
+//                               }
+//
+//                               first = false;
+//                           } else {
+//                               // Replace pointer with new location
+//                               answers_data[i] = new_ptr_loc[0];
+//                               answers_data[i + 1] = new_ptr_loc[1];
+//                           }
+//                       }
+//                   } else if (!first) {
+//                       const new_ptr: u16 = (@as(u16, new_ptr_loc[0] & 0x3F) << 8) | @as(u16, new_ptr_loc[1]);
+//                       if (pointer > new_ptr) {
+//                           print("pointer {} greater than new_ptr.\n", .{pointer});
+//                           // Use signed arithmetic for pointer adjustment
+//                           const ext_pointer = @as(i32, pointer) + difference;
+//                           if (ext_pointer < 0) {
+//                               @panic("pointer would become negative");
+//                           }
+//                           print("ext_pointer: {}\n", .{ext_pointer});
+//
+//                           answers_data[i] = 0xC0 | @as(u8, @truncate((@as(u16, @intCast(ext_pointer)) >> 8) & 0x3F));
+//                           answers_data[i + 1] = @as(u8, @truncate(@as(u16, @intCast(ext_pointer)) & 0xFF));
+//                       } else {
+//                           print("pointer {} not greater than new_ptr.\n", .{pointer});
+//                       }
+//                   }
+//
+//                   i += 2;
+//                   continue;
+//               }
+//               i += 1;
+//           }
+//           cur = ans.get_next_record();
+//       }
+//   }
+//
+//   /// Takes a non-dns-label cname value and converts it to label format using a helper method and the allocator provided.
+//   /// The formatted cname value is copied over the current one with these cases:
+//   /// if the formatted cname value is of the same length as the current one, the DNSLayer buffer remains unchanged
+//   /// else if the new cname is shorter or longer, then the dns layers buffer is shortened or extended, respectively
+//   ///
+//   /// currently broken. don't use it.
+//   fn set_cname(self: *CNAMERecord, cname: []const u8, allocator: Allocator) !void {
+//       // need to check if the cname being changed contains any sub label ptrs which proceeding records rely on
+//       // e.g. .net in a cname can be relied on proceeding records
+//       // in this case, find the next record that uses this ptr, edit the cname record to include that sub-label
+//       // and then update the proceeding records so that they use the ptr to the above
+//       const data = self.get_data_mut();
+//       const new_cname_wire = try encodeQnameSimple(allocator, cname);
+//       defer allocator.free(new_cname_wire);
+//
+//       const current_rdata = data[12..];
+//       const old_len = current_rdata.len;
+//       const new_len = new_cname_wire.len;
+//
+//       const cname_start = self.offset + 12;
+//
+//       var ptr: [2]u8 = undefined; // generate compression ptr for this cname record being changed
+//       ptr[0] = 0xC0 | @as(u8, @truncate((cname_start >> 8) & 0x3F));
+//       ptr[1] = @as(u8, @truncate(cname_start & 0xFF));
+//
+//       if (new_len > old_len) {
+//           const extend_len = new_len - old_len;
+//           const cname_offset = self.offset + 12;
+//
+//           print("extend len: {}\n", .{extend_len});
+//
+//           // Extend the payload
+//           _ = try self.layer.extend_payload(cname_offset, extend_len);
+//
+//           // Update this record's length
+//           self.length += extend_len;
+//
+//           // Update all subsequent records' offsets and lengths
+//           var next_record: ?*AnswerRecord = self.next_answer;
+//           while (next_record) |next| {
+//               next.set_offset(next.get_offset() + extend_len);
+//               next_record = next.get_next_record();
+//           }
+//
+//           // Update ALL compression pointers in the packet
+//           self.update_proceeding_records(@intCast(extend_len));
+//           try self.update_rest_ptrs(ptr); // needs to be called now
+//
+//           // Refresh data pointer and write new CNAME
+//           const new_data = self.get_data_mut();
+//           @memcpy(new_data[12..], new_cname_wire);
+//       } else if (new_len < old_len) {
+//           print("new cname len is less than current. current: {} new: {}\n", .{ old_len, new_len });
+//           const shrink_len: isize = @as(isize, @intCast(old_len)) - @as(isize, @intCast(new_len));
+//           print("shrink len: {}\n", .{shrink_len});
+//           const cname_offset = self.offset + 12;
+//
+//           // Shrink the records RR
+//           _ = try self.layer.shorten_payload(cname_offset, @intCast(shrink_len));
+//           print("shortened.\n", .{});
+//
+//           // Update this record's length
+//           self.length -= @intCast(shrink_len); // int cast required here because shrink_len is isize
+//
+//           // Update subsequent records' offsets and lengths
+//           print("Update subsequent records' offsets and lengths:\n", .{});
+//           var next_record: ?*AnswerRecord = self.next_answer;
+//           while (next_record) |next| {
+//               const cur_offset = next.get_offset();
+//               print("cur record offset: {}\n", .{cur_offset});
+//               next.set_offset(cur_offset - @as(usize, @intCast(shrink_len)));
+//               print("cur record new offset: {}\n", .{next.get_offset()});
+//               next_record = next.get_next_record();
+//           }
+//
+//           print("shrink len: {}\n", .{-shrink_len});
+//
+//           // Update compression pointers
+//           self.update_proceeding_records(-shrink_len);
+//           print("proceeding records updated.\n", .{});
+//           try self.update_rest_ptrs(ptr); // needs to be called now
+//           print("rest of ptrs updated.\n", .{});
+//
+//           // Write new CNAME
+//           const new_data = self.get_data_mut();
+//           @memcpy(new_data[12..], new_cname_wire);
+//       } else {
+//           // Same length, simple overwrite
+//           @memcpy(data[12..], new_cname_wire);
+//       }
+//   }

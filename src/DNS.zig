@@ -24,6 +24,7 @@ const TXTRecord = DNSRecordTypes.TXTRecord;
 const MXRecord = DNSRecordTypes.MXRecord;
 const PTRRecord = DNSRecordTypes.PTRRecord;
 const NSRecord = DNSRecordTypes.NSRecord;
+const SOARecord = DNSRecordTypes.SOARecord;
 
 pub const DNSHeaderFlags = packed struct {
     /// Response Code
@@ -201,37 +202,42 @@ pub const AnswerRecord = union(enum) {
     mx: MXRecord,
     ptr: PTRRecord,
     ns: NSRecord,
+    soa: SOARecord,
     generic: GenericRecord,
 
     pub fn init(offset: usize, length: usize, qtype: QueryType, qclass: DnsClass, layer: *DNSLayer) AnswerRecord {
         switch (qtype) {
             // TODO: reduce repeating code
             .A => {
-                return AnswerRecord{ .a = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
+                return AnswerRecord{ .a = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
             },
 
             .AAAA => {
-                return AnswerRecord{ .aaaa = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
+                return AnswerRecord{ .aaaa = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
             },
 
             .CNAME => {
-                return AnswerRecord{ .cname = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
+                return AnswerRecord{ .cname = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
             },
 
             .TXT => {
-                return AnswerRecord{ .txt = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
+                return AnswerRecord{ .txt = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
             },
 
             .MX => {
-                return AnswerRecord{ .mx = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
+                return AnswerRecord{ .mx = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
             },
 
             .PTR => {
-                return AnswerRecord{ .ptr = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
+                return AnswerRecord{ .ptr = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
             },
 
             .NS => {
-                return AnswerRecord{ .ns = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
+                return AnswerRecord{ .ns = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
+            },
+
+            .SOA => {
+                return AnswerRecord{ .soa = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
             },
 
             .GENERIC => {
@@ -356,7 +362,7 @@ pub const AnswerRecord = union(enum) {
 
     pub fn get_rr_type(self: *AnswerRecord) QueryType {
         return switch (self.*) {
-            inline else => |*rr| rr.qtype,
+            inline else => |*rr| rr.get_rr_type(),
         };
     }
 
@@ -405,9 +411,6 @@ pub const Queries = struct {
     }
 };
 
-/// DNSLayer represents the DNSHeader and it's queries and answers (if there are any)
-/// Queries are stored as a singly linked list as most DNS packets usually contain only one query
-/// Answers are stored as a doubly linked list as there is commonly more than one answer
 pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative Records
     owner: LayerOwner,
 
@@ -549,7 +552,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         }
     }
 
-    // this is primarily being used to advance offsets when parsing answers
+    // this is primarily being used to advance offsets when names (queries or answers)
     pub fn decode_name(raw: []const u8, offset: *usize) ![]const u8 {
         const start = offset.*;
         var end = start;
@@ -797,10 +800,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
                 return error.InvalidPacket;
 
             // Parse NAME
-            //const name_offset = offset;
-            // This can be a pointer/offset compression (0xC0..) or raw labels
-            // decode_name function to handle pointers and labels
-            _ = try decode_name(data, &offset);
+            _ = try decode_name(data, &offset); // advances the offset
 
             // QTYPE
             offset += 2;
@@ -826,7 +826,9 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
     }
 
     /// append an answer to the DNSLayer in the Answers section
-    /// Note: Compression ptr support not yet implemented
+    /// for A, AAAA answers, pass answer as &ipv4_addr.array or &ipv6.array to coerce as slice
+    /// all values will be copied
+    /// Note: Compression pointer support not yet implemented
     pub fn add_answer(self: *DNSLayer, name: []const u8, qtype: QueryType, qclass: DnsClass, ttl: u32, answer: []const u8) !void {
         var start_offset: usize = DNSHeaderSize;
 
@@ -903,9 +905,6 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
 
         switch (qtype) {
             .A, .AAAA => {
-                print("answer: {x}\n", .{answer});
-                print("rdlength: {}\n", .{rdlength});
-                print("writing IP at offset: {}\n", .{buf_offset});
                 @memmove(abuffer[buf_offset..], answer);
             },
             else => {
@@ -926,6 +925,136 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         var ancount = hdr.get_ancount();
         ancount += 1;
         hdr.set_ancount(ancount);
+    }
+
+    pub fn find_last_a_ans_offset(self: *DNSLayer) !?usize {
+        const data = self.get_data();
+        var offset = DNSHeaderSize;
+
+        if (try self.find_last_ans_offset()) |last_q_off| {
+            offset = last_q_off;
+        }
+
+        const hdr = self.get_immutable_header();
+        const ancount = hdr.get_ancount();
+
+        var i: u32 = 0;
+        while (i < ancount) : (i += 1) {
+            if (offset + 12 > data.len) // minimum RR header size: NAME(2) + TYPE(2) + CLASS(2) + TTL(4) + RDLENGTH(2)
+                return error.InvalidPacket;
+
+            // Parse NAME
+            _ = try decode_name(data, &offset); // advances the offset
+
+            // QTYPE
+            offset += 2;
+
+            // QCLASS
+            offset += 2;
+
+            // TTL
+            offset += 4;
+
+            // RDLENGTH
+            const rdlength = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
+            offset += 2;
+
+            if (offset + rdlength > data.len) {
+                return error.InvalidPacket;
+            }
+
+            offset += rdlength;
+        }
+
+        return offset;
+    }
+
+    /// Returns AnswerRecords (doubly linkedlist)
+    /// null-opt is returned when there are no answers
+    pub fn get_auth_answers(self: *DNSLayer, allocator: Allocator) !?AnswerRecords {
+        const data = self.get_data();
+
+        var offset: usize = DNSHeaderSize;
+
+        if (try self.find_last_ans_offset()) |last_q_offset| {
+            offset = last_q_offset;
+        }
+
+        const hdr = self.get_immutable_header();
+
+        const ancount = hdr.get_ancount();
+
+        if (ancount == 0) {
+            return null;
+        }
+
+        var ansrecords: AnswerRecords = (.{});
+
+        var cur: ?*AnswerRecord = null;
+
+        var i: u32 = 0;
+        while (i < ancount) : (i += 1) {
+            if (offset + 12 > data.len) // minimum RR header size: NAME(2) + TYPE(2) + CLASS(2) + TTL(4) + RDLENGTH(2)
+                return error.InvalidPacket;
+
+            // Parse NAME
+            const name_offset = offset;
+            // This can be a pointer/offset compression (0xC0..) or raw labels
+            // decode_name function to handle pointers and labels
+            _ = try decode_name(data, &offset);
+
+            // Parse TYPE
+            const rtype = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
+            offset += 2;
+
+            // Parse CLASS
+            const rclass = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
+            offset += 2;
+
+            // Parse TTL
+            const ttl = std.mem.readInt(u32, @ptrCast(data[offset .. offset + 4].ptr), .big);
+            offset += 4;
+
+            _ = ttl;
+
+            // Parse RDLENGTH
+            const rdlength = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
+            offset += 2;
+
+            if (offset + rdlength > data.len) {
+                return error.InvalidPacket;
+            }
+
+            offset += rdlength;
+
+            const whole_record = data[name_offset..offset];
+
+            // Create a AnswerRecord "node" for AnswerRecord linkedlist
+            const answer = try allocator.create(AnswerRecord);
+
+            const rtype_e: QueryType = QueryType.from_u16(rtype);
+            const class_e: DnsClass = @enumFromInt(rclass);
+
+            answer.* = AnswerRecord.init(name_offset, whole_record.len, rtype_e, class_e, self);
+
+            // append to linkedlist
+            if (cur) |ans| { // if the last answer is not null
+                ans.set_next_record(answer); // set the last answer next answer to the answer created (answer being added)
+                answer.set_prev_record(ans); // set the answer created (answer being added)'s prev answer to the last answer
+
+            }
+
+            cur = answer; // the last answer is now the answer that's being added
+            if (ansrecords.first == null) {
+                ansrecords.first = cur;
+            }
+
+            ansrecords.answer_count += 1;
+        }
+
+        ansrecords.last = cur;
+
+        return ansrecords;
     }
 
     fn decompress(self: *DNSLayer) !void {

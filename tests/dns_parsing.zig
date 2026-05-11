@@ -160,29 +160,27 @@ test "build dns a response layer" {
     while (cur) |ans| {
         const name = try ans.get_name(allocator);
         defer allocator.free(name);
-        print("{s} {any} {any} ttl: {} ", .{ name, ans.get_rr_type(), ans.get_class_type(), ans.get_ttl() });
+        //    print("{s} {any} {any} ttl: {} ", .{ name, ans.get_rr_type(), ans.get_class_type(), ans.get_ttl() });
 
         if (ans.get_rr_type() == DNS.QueryType.A) {
             ans.a.set_ip(try IPv4.IPv4Address.init_from_string("192.168.1.111"));
 
             const ip_addr = ans.a.get_ip() orelse {
-                print("-\n", .{});
+                //           print("-\n", .{});
                 cur = ans.get_next_record();
                 continue;
             };
 
-            print("{x} ", .{&ip_addr.array});
+            //      print("{x} ", .{&ip_addr.array});
 
             const ip_str = try ip_addr.to_string(allocator);
 
             defer allocator.free(ip_str);
-            print("{s}\n", .{ip_str});
+            //     print("{s}\n", .{ip_str});
         }
 
         cur = ans.get_next_record();
     }
-
-    print("raw: {x}\n", .{dns_layer_iface.get_data()});
 }
 
 test "parse dns response layer" {
@@ -316,6 +314,81 @@ test "parse cname response" {
             };
 
             defer allocator.free(cname);
+        }
+        cur = ans.get_next_record();
+    }
+}
+
+test "parse https w ar response" {
+    const dns_https_aa_resp: [146]u8 = [_]u8{ 0x96, 0xaa, 0x81, 0x80, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0xd, 0x67, 0x65, 0x77, 0x31, 0x2d, 0x73, 0x70, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x7, 0x73, 0x70, 0x6f, 0x74, 0x69, 0x66, 0x79, 0x3, 0x63, 0x6f, 0x6d, 0x0, 0x0, 0x41, 0x0, 0x1, 0xc0, 0xc, 0x0, 0x5, 0x0, 0x1, 0x0, 0x0, 0x0, 0x81, 0x0, 0x1a, 0xd, 0x65, 0x64, 0x67, 0x65, 0x2d, 0x77, 0x65, 0x62, 0x2d, 0x67, 0x65, 0x77, 0x31, 0x9, 0x64, 0x75, 0x61, 0x6c, 0x2d, 0x67, 0x73, 0x6c, 0x62, 0xc0, 0x1a, 0xc0, 0x45, 0x0, 0x6, 0x0, 0x1, 0x0, 0x0, 0x2, 0xda, 0x0, 0x35, 0x4, 0x64, 0x6e, 0x73, 0x31, 0x3, 0x70, 0x30, 0x35, 0x5, 0x6e, 0x73, 0x6f, 0x6e, 0x65, 0x3, 0x6e, 0x65, 0x74, 0x0, 0xa, 0x68, 0x6f, 0x73, 0x74, 0x6d, 0x61, 0x73, 0x74, 0x65, 0x72, 0xc0, 0x66, 0x62, 0x2b, 0x8b, 0x48, 0x0, 0x0, 0xa8, 0xc0, 0x0, 0x0, 0x1c, 0x20, 0x0, 0x12, 0x75, 0x0, 0x0, 0x0, 0xe, 0x10 };
+
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+    defer _ = debug_allocator.detectLeaks();
+
+    const allocator = debug_allocator.allocator();
+
+    const dns_buf = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", dns_https_aa_resp.len);
+    @memmove(dns_buf, dns_https_aa_resp[0..]);
+
+    const dns_owner: LayerOwner = LayerOwner{ .owned_buffer = try .init(dns_buf, allocator) };
+
+    var dns_layer = try LayerIface.init(DNS.DNSLayer, dns_owner);
+    defer dns_layer.deinit();
+
+    var ans_list = try dns_layer.dnsLayer.get_auth_answers(allocator) orelse {
+        try expect(false); // no dns answers
+        return;
+    };
+
+    defer ans_list.deinit(allocator);
+
+    print("auth answer count: {}\n", .{ans_list.answer_count});
+
+    var cur: ?*DNS.AnswerRecord = ans_list.first;
+    while (cur) |ans| {
+        if (ans.get_rr_type() == DNS.QueryType.SOA) {
+            print("soa record: {x}\n", .{ans.get_data()});
+            const name = try ans.get_name(allocator);
+            defer allocator.free(name);
+
+            print("{s} {any} {any} ttl: {}\n", .{ name, ans.get_rr_type(), ans.get_class_type(), ans.get_ttl() });
+
+            const mname = ans.soa.get_mname(allocator) catch {
+                cur = ans.get_next_record();
+                print("\n", .{});
+                continue;
+            };
+
+            defer allocator.free(mname);
+
+            print("mname: {s}\n", .{mname});
+
+            const rname = ans.soa.get_rname(allocator) catch {
+                cur = ans.get_next_record();
+                print("\n", .{});
+                continue;
+            };
+
+            defer allocator.free(rname);
+
+            print("rname: {s}\n", .{rname});
+
+            const serial = ans.soa.get_serial();
+
+            print("serial: {}\n", .{serial});
+
+            const ref_int = ans.soa.get_refresh_interval();
+            print("refresh interval: {}\n", .{ref_int});
+
+            const rtry_int = ans.soa.get_retry_interval();
+            print("retry interval: {}\n", .{rtry_int});
+
+            const expire_limit = ans.soa.get_expire_limit();
+            print("expire limit: {}\n", .{expire_limit});
+
+            const min_ttl = ans.soa.get_minimum_ttl();
+            print("min ttl: {}\n", .{min_ttl});
         }
         cur = ans.get_next_record();
     }
