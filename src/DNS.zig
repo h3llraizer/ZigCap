@@ -193,6 +193,7 @@ pub const Query = struct {
 ///     MX,
 ///     PTR,
 ///     NS,
+///     SOA,
 ///     Generic,
 pub const AnswerRecord = union(enum) {
     a: ARecord,
@@ -209,42 +210,42 @@ pub const AnswerRecord = union(enum) {
         switch (qtype) {
             // TODO: reduce repeating code
             .A => {
-                return AnswerRecord{ .a = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
+                return .{ .a = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
             },
 
             .AAAA => {
-                return AnswerRecord{ .aaaa = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
+                return .{ .aaaa = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
             },
 
             .CNAME => {
-                return AnswerRecord{ .cname = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
+                return .{ .cname = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
             },
 
             .TXT => {
-                return AnswerRecord{ .txt = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
+                return .{ .txt = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
             },
 
             .MX => {
-                return AnswerRecord{ .mx = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
+                return .{ .mx = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
             },
 
             .PTR => {
-                return AnswerRecord{ .ptr = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
+                return .{ .ptr = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
             },
 
             .NS => {
-                return AnswerRecord{ .ns = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
+                return .{ .ns = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
             },
 
             .SOA => {
-                return AnswerRecord{ .soa = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
+                return .{ .soa = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
             },
 
             .GENERIC => {
-                return AnswerRecord{ .generic = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
+                return .{ .generic = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
             },
 
-            else => return AnswerRecord{ .generic = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } },
+            else => return .{ .generic = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } },
         }
     }
 
@@ -331,7 +332,7 @@ pub const AnswerRecord = union(enum) {
 
         var offset: usize = 0;
 
-        _ = DNSLayer.decode_name(self.get_data(), &offset) catch {
+        _ = DNSLayer.advance_past_name(self.get_data(), &offset) catch {
             print("error decoding name.\n", .{});
             return 0;
         };
@@ -348,7 +349,7 @@ pub const AnswerRecord = union(enum) {
 
         var offset: usize = 0;
 
-        _ = DNSLayer.decode_name(self.get_data(), &offset) catch {
+        _ = DNSLayer.advance_past_name(self.get_data(), &offset) catch {
             print("error decoding name.\n", .{});
             return;
         };
@@ -695,6 +696,22 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         return queries;
     }
 
+    pub fn advance_past_name(slice: []const u8, offset: *usize) !void {
+        while (offset.* < slice.len) {
+            const byte = slice[offset.*];
+            if (byte == 0) {
+                offset.* += 1;
+                return;
+            }
+            if ((byte & 0xC0) == 0xC0) {
+                offset.* += 2;
+                return;
+            }
+            offset.* += 1 + byte; // Skip length byte and label
+        }
+        return error.InvalidPacket;
+    }
+
     /// Returns AnswerRecords (doubly linkedlist)
     /// null-opt is returned when there are no answers
     pub fn get_answers(self: *DNSLayer, allocator: Allocator) !?AnswerRecords {
@@ -727,7 +744,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             const name_offset = offset;
             // This can be a pointer/offset compression (0xC0..) or raw labels
             // decode_name function to handle pointers and labels
-            _ = try decode_name(data, &offset);
+            _ = try advance_past_name(data, &offset);
 
             // Parse TYPE
             const rtype = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
@@ -783,7 +800,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         return ansrecords;
     }
 
-    pub fn find_last_ans_offset(self: *DNSLayer) !?usize {
+    fn find_last_ans_offset(self: *DNSLayer) !?usize {
         const data = self.get_data();
         var offset = DNSHeaderSize;
 
@@ -800,7 +817,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
                 return error.InvalidPacket;
 
             // Parse NAME
-            _ = try decode_name(data, &offset); // advances the offset
+            _ = try advance_past_name(data, &offset); // advances the offset
 
             // QTYPE
             offset += 2;
@@ -829,6 +846,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
     /// for A, AAAA answers, pass answer as &ipv4_addr.array or &ipv6.array to coerce as slice
     /// all values will be copied
     /// Note: Compression pointer support not yet implemented
+    /// Note: SOA records need to be built manually and passed as a slice (answer) - helper implmentation coming soon
     pub fn add_answer(self: *DNSLayer, name: []const u8, qtype: QueryType, qclass: DnsClass, ttl: u32, answer: []const u8) !void {
         var start_offset: usize = DNSHeaderSize;
 
@@ -846,7 +864,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
 
         var dns_encoded_answer_len: usize = 0;
         switch (qtype) {
-            .A, .AAAA => {
+            .A, .AAAA, .SOA => {
                 dns_encoded_answer_len = answer.len;
             },
             else => {
@@ -904,7 +922,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         // handle record type
 
         switch (qtype) {
-            .A, .AAAA => {
+            .A, .AAAA, .SOA => {
                 @memmove(abuffer[buf_offset..], answer);
             },
             else => {
@@ -944,7 +962,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
                 return error.InvalidPacket;
 
             // Parse NAME
-            _ = try decode_name(data, &offset); // advances the offset
+            _ = try advance_past_name(data, &offset); // advances the offset
 
             // QTYPE
             offset += 2;
@@ -1001,7 +1019,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             const name_offset = offset;
             // This can be a pointer/offset compression (0xC0..) or raw labels
             // decode_name function to handle pointers and labels
-            _ = try decode_name(data, &offset);
+            _ = try advance_past_name(data, &offset);
 
             // Parse TYPE
             const rtype = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);

@@ -511,6 +511,10 @@ pub const SOARecord = struct {
 
         offset += 10; //  rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
 
+        if (self.get_data().len < offset) {
+            return "";
+        }
+
         return try decode_name(self.layer.get_data(), self.get_data()[offset..], allocator);
     }
 
@@ -523,6 +527,10 @@ pub const SOARecord = struct {
         offset += 10; //  rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
 
         _ = try DNS.DNSLayer.decode_name(self.get_data(), &offset);
+
+        if (self.get_data().len < offset) {
+            return "";
+        }
 
         return try decode_name(self.layer.get_data(), self.get_data()[offset..], allocator);
     }
@@ -555,6 +563,10 @@ pub const SOARecord = struct {
             print("bytes from current offset: {x}\n", .{data[offset..]});
             return 0;
         };
+
+        if (self.get_data().len < offset + 4) {
+            return 0;
+        }
 
         const serial_be: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
         return @byteSwap(serial_be);
@@ -591,6 +603,10 @@ pub const SOARecord = struct {
 
         // advance past serial
         offset += 4;
+
+        if (self.get_data().len < offset + 4) {
+            return 0;
+        }
 
         const re_be: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
         return @byteSwap(re_be);
@@ -630,6 +646,10 @@ pub const SOARecord = struct {
 
         // advance past refresh interval
         offset += 4;
+
+        if (self.get_data().len < offset + 4) {
+            return 0;
+        }
 
         const exp_limit: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
         return @byteSwap(exp_limit);
@@ -672,6 +692,10 @@ pub const SOARecord = struct {
 
         // advance past retry interval
         offset += 4;
+
+        if (self.get_data().len < offset + 4) {
+            return 0;
+        }
 
         const exp_limit: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
         return @byteSwap(exp_limit);
@@ -717,6 +741,10 @@ pub const SOARecord = struct {
 
         // advance past expire limit
         offset += 4;
+
+        if (self.get_data().len < offset + 4) {
+            return 0;
+        }
 
         const min_ttl: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
         return @byteSwap(min_ttl);
