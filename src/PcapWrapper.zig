@@ -6,7 +6,7 @@ const IPv6Address = @import("IPv6.zig").IPv6Address;
 const link_layer_type = @import("ProtocolEnums.zig").link_layer_type;
 
 const pcap = @cImport({
-    @cDefine("WIN32", "1"); // needed on Windows
+    //@cDefine("WIN32", "1"); // needed on Windows
     @cInclude("pcap.h");
 });
 

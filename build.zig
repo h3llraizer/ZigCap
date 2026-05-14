@@ -20,32 +20,67 @@ pub fn build(b: *std.Build) void {
         .root_module = mod,
     });
 
-    const npcap_path =
-        b.option([]const u8, "npcap-sdk", "Path to Npcap SDK") orelse "third_party/npcap-sdk-1.15";
+    const tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
+    });
 
-    const np_include_path = b.pathJoin(&.{ npcap_path, "Include" });
-    const np_lib_path = b.pathJoin(&.{ npcap_path, "Lib", "x64" });
+    // Check the target OS
+    if (target.result.os.tag == .windows) {
+        // Add Windows-specific build logic here
+        std.debug.print("Building for Windows\n", .{});
 
-    mod.addIncludePath(.{ .cwd_relative = np_include_path });
-    mod.addLibraryPath(.{ .cwd_relative = np_lib_path });
+        const npcap_path =
+            b.option([]const u8, "npcap-sdk", "Path to Npcap SDK") orelse "third_party/npcap-sdk-1.15";
 
-    mod.linkSystemLibrary("wpcap", .{});
-    mod.linkSystemLibrary("Packet", .{});
+        const np_include_path = b.pathJoin(&.{ npcap_path, "Include" });
+        const np_lib_path = b.pathJoin(&.{ npcap_path, "Lib", "x64" });
 
-    const wind_path =
-        b.option([]const u8, "wind_sdk", "Path to WinDivert SDK") orelse "third_party/WinDivert-2.2.2-A/";
+        mod.addIncludePath(.{ .cwd_relative = np_include_path });
+        mod.addLibraryPath(.{ .cwd_relative = np_lib_path });
 
-    const wd_include_path = b.pathJoin(&.{ wind_path, "include" });
-    const wd_lib_path = b.pathJoin(&.{ wind_path, "x64" });
+        mod.linkSystemLibrary("wpcap", .{});
+        mod.linkSystemLibrary("Packet", .{});
 
-    mod.addIncludePath(.{ .cwd_relative = wd_include_path });
-    mod.addLibraryPath(.{ .cwd_relative = wd_lib_path });
+        const wind_path =
+            b.option([]const u8, "wind_sdk", "Path to WinDivert SDK") orelse "third_party/WinDivert-2.2.2-A/";
 
-    mod.linkSystemLibrary("ws2_32", .{});
-    mod.linkSystemLibrary("Advapi32", .{});
-    mod.linkSystemLibrary("WinDivert", .{});
-    mod.linkSystemLibrary("iphlpapi", .{});
+        const wd_include_path = b.pathJoin(&.{ wind_path, "include" });
+        const wd_lib_path = b.pathJoin(&.{ wind_path, "x64" });
 
+        mod.addIncludePath(.{ .cwd_relative = wd_include_path });
+        mod.addLibraryPath(.{ .cwd_relative = wd_lib_path });
+
+        mod.linkSystemLibrary("ws2_32", .{});
+        mod.linkSystemLibrary("Advapi32", .{});
+        mod.linkSystemLibrary("WinDivert", .{});
+        mod.linkSystemLibrary("iphlpapi", .{});
+
+        tests.root_module.addImport("zigcap", mod);
+
+        tests.addIncludePath(.{ .cwd_relative = np_include_path });
+        tests.addLibraryPath(.{ .cwd_relative = np_lib_path });
+
+        tests.linkSystemLibrary("wpcap");
+        tests.linkSystemLibrary("Packet");
+
+        tests.addIncludePath(.{ .cwd_relative = wd_include_path });
+        tests.addLibraryPath(.{ .cwd_relative = wd_lib_path });
+
+        tests.linkSystemLibrary("ws2_32");
+        tests.linkSystemLibrary("Advapi32");
+        tests.linkSystemLibrary("WinDivert");
+        tests.linkSystemLibrary("iphlpapi");
+    } else if (target.result.os.tag == .linux) {
+        std.debug.print("Building for Linux\n", .{});
+        mod.linkSystemLibrary("pcap", .{});
+    } else if (target.result.os.tag == .macos) {
+        std.debug.print("Building for macOS\n", .{});
+    }
     // Create documentation
     const install_docs = b.addInstallDirectory(.{
         .source_dir = lib.getEmittedDocs(),
@@ -61,30 +96,6 @@ pub fn build(b: *std.Build) void {
     // =========================
     // TESTS
     // =========================
-    const tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/main.zig"),
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-        }),
-    });
-
-    tests.root_module.addImport("zigcap", mod);
-
-    tests.addIncludePath(.{ .cwd_relative = np_include_path });
-    tests.addLibraryPath(.{ .cwd_relative = np_lib_path });
-
-    tests.linkSystemLibrary("wpcap");
-    tests.linkSystemLibrary("Packet");
-
-    tests.addIncludePath(.{ .cwd_relative = wd_include_path });
-    tests.addLibraryPath(.{ .cwd_relative = wd_lib_path });
-
-    tests.linkSystemLibrary("ws2_32");
-    tests.linkSystemLibrary("Advapi32");
-    tests.linkSystemLibrary("WinDivert");
-    tests.linkSystemLibrary("iphlpapi");
 
     const run_tests = b.addRunArtifact(tests);
 

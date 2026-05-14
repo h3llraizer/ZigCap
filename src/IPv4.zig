@@ -269,8 +269,8 @@ pub const IPv4Layer = struct {
     }
 
     /// not yet fully implemented
-    /// ideally need to pass a buffer instead of IPOption and Allocator
-    /// the allocator in this case is the one which the caller created for the IPOption
+    //ideally need to pass a buffer instead of IPOption and Allocator
+    /// the allocator in this case is the one which the caller used to init IPOption
     pub fn add_option(self: *IPv4Layer, option: IPOption, allocator: Allocator) !void {
         const hdr = self.get_mutable_header();
         const current_ihl: u8 = hdr.get_ihl();
@@ -336,8 +336,8 @@ pub const IPv4Layer = struct {
         new_hdr.set_ihl(@intCast(new_data));
     }
 
-    /// for internal use when the IPv4 header doesn't round to 4 byte
-    /// e.g. when an option is added
+    // when the IPv4 header doesn't round to 4 byte
+    // e.g. when an option is added
     fn pad_buffer(self: *IPv4Layer) !void {
         const hdr_len = self.get_header_len();
 
@@ -608,7 +608,7 @@ pub const IPOption = struct {
         if (len > 40) return error.OptionTooLong;
         return IPOption{
             .type = opt_type,
-            .length = @as(u8, @intCast(len)),
+            .length = @as(u8, @intCast(data.len)),
             .data = data,
         };
     }
