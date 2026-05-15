@@ -343,26 +343,20 @@ test "parse https w ar response" {
 
     defer ans_list.deinit(allocator);
 
-    print("auth answer count: {}\n", .{ans_list.answer_count});
+    try expect(ans_list.answer_count == 1);
 
     var cur: ?*DNS.AnswerRecord = ans_list.first;
     while (cur) |ans| {
         if (ans.get_rr_type() == DNS.QueryType.SOA) {
-            print("soa record: {x}\n", .{ans.get_data()});
             const name = try ans.get_name(allocator);
             defer allocator.free(name);
 
-            print("{s} {any} {any} ttl: {}\n", .{ name, ans.get_rr_type(), ans.get_class_type(), ans.get_ttl() });
-
             const mname = ans.soa.get_mname(allocator) catch {
                 cur = ans.get_next_record();
-                print("\n", .{});
                 continue;
             };
 
             defer allocator.free(mname);
-
-            print("mname: {s}\n", .{mname});
 
             const rname = ans.soa.get_rname(allocator) catch {
                 cur = ans.get_next_record();
@@ -372,23 +366,25 @@ test "parse https w ar response" {
 
             defer allocator.free(rname);
 
-            print("rname: {s}\n", .{rname});
-
             const serial = ans.soa.get_serial();
 
-            print("serial: {}\n", .{serial});
+            try expect(serial == 1647020872);
 
             const ref_int = ans.soa.get_refresh_interval();
-            print("refresh interval: {}\n", .{ref_int});
+
+            try expect(ref_int == 43200);
 
             const rtry_int = ans.soa.get_retry_interval();
-            print("retry interval: {}\n", .{rtry_int});
+
+            try expect(rtry_int == 7200);
 
             const expire_limit = ans.soa.get_expire_limit();
-            print("expire limit: {}\n", .{expire_limit});
+
+            try expect(expire_limit == 1209600);
 
             const min_ttl = ans.soa.get_minimum_ttl();
-            print("min ttl: {}\n", .{min_ttl});
+
+            try expect(min_ttl == 3600);
         }
         cur = ans.get_next_record();
     }

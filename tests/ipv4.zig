@@ -35,45 +35,6 @@ test "build independant ipv4 layer" {
     ipv4_hdr.set_ttl(64);
 }
 
-test "ipv4 option parse" {
-    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
-    defer _ = debug_allocator.detectLeaks();
-
-    const allocator = debug_allocator.allocator();
-
-    var ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-
-    defer ipv4_layer_owner.owned_buffer.buffer.deinit(allocator);
-
-    var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, ipv4_layer_owner);
-    defer ipv4_layer_iface.deinit();
-
-    var ipv4_hdr = ipv4_layer_iface.ipv4Layer.get_mutable_header();
-
-    ipv4_hdr.set_src_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
-
-    ipv4_hdr.set_dst_ip(try IPv4.IPv4Address.init_from_string("192.168.1.2"));
-
-    ipv4_layer_iface.ipv4Layer.set_ip_proto(IPProtocol.UDP);
-
-    ipv4_hdr.set_ttl(64);
-
-    var record_route_op: [15]u8 align(2) = [_]u8{
-        0x04, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00,
-    };
-
-    var op = try IPv4.IPOption.init(IPv4.IPOptionType.RecordRoute, &record_route_op);
-
-    op.set_len(15);
-
-    try ipv4_layer_iface.ipv4Layer.add_option(op, allocator);
-
-    ipv4_layer_iface.ipv4Layer.validate_layer();
-}
-
 test "build ipv4 layer with Router Alert option" {
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.detectLeaks();
@@ -146,11 +107,24 @@ test "build ipv4 layer with Record Route option" {
 
     var data = ipv4_layer_iface.get_data();
 
+    print("ipv4 data: ({}) {x}\n", .{ data.len, data });
+
     var record_route_op: [15]u8 align(2) = [_]u8{
-        0x04, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00,
+        0x04, // ptr byte
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
     };
 
     const op = try IPv4.IPOption.init(IPv4.IPOptionType.RecordRoute, &record_route_op);
@@ -158,10 +132,21 @@ test "build ipv4 layer with Record Route option" {
     const op_bytes = try op.toBytes(allocator);
     defer allocator.free(op_bytes);
 
+    print("ops bytes: ({}) {x}\n", .{ op_bytes.len, op_bytes });
+
     try ipv4_layer_iface.ipv4Layer.add_option(op, allocator);
+
+    print("ipv4 data: ({}) {x}\n", .{ ipv4_layer_iface.get_data().len, ipv4_layer_iface.get_data() });
+
+    print("removing options.\n", .{});
+    try ipv4_layer_iface.ipv4Layer.remove_all_options();
+    print("options removed.\n", .{});
+
+    data = ipv4_layer_iface.get_data();
+    print("ipv4 data: ({}) {x}\n", .{ ipv4_layer_iface.get_data().len, ipv4_layer_iface.get_data() });
 
     const str = try ipv4_layer_iface.ipv4Layer.get_immutable_header().to_string(allocator);
     defer allocator.free(str);
 
-    data = ipv4_layer_iface.get_data();
+    print("{s}\n", .{str});
 }

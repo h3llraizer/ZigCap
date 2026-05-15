@@ -28,7 +28,7 @@ pub fn build(b: *std.Build) void {
             .link_libc = true,
         }),
     });
-
+    tests.root_module.addImport("zigcap", mod);
     // Check the target OS
     if (target.result.os.tag == .windows) {
         // Add Windows-specific build logic here
@@ -60,7 +60,7 @@ pub fn build(b: *std.Build) void {
         mod.linkSystemLibrary("WinDivert", .{});
         mod.linkSystemLibrary("iphlpapi", .{});
 
-        tests.root_module.addImport("zigcap", mod);
+        //        tests.root_module.addImport("zigcap", mod);
 
         tests.addIncludePath(.{ .cwd_relative = np_include_path });
         tests.addLibraryPath(.{ .cwd_relative = np_lib_path });

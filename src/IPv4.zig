@@ -276,7 +276,8 @@ pub const IPv4Layer = struct {
         const current_ihl: u8 = hdr.get_ihl();
         const current_options_len: u8 = (current_ihl - 5) * 4;
 
-        const new_option_bytes: []align(2) u8 = try option.toBytes(allocator); // owned slice copy
+        // owned slice copy
+        const new_option_bytes: []align(2) u8 = try option.toBytes(allocator);
         defer allocator.free(new_option_bytes);
 
         const new_options_len = current_options_len + new_option_bytes.len;
@@ -318,22 +319,15 @@ pub const IPv4Layer = struct {
     /// or shorting the owned_buffer
     /// in both cases, the IHL is set to default (5 / 20 bytes)
     pub fn remove_all_options(self: *IPv4Layer) !void {
-        const current_ihl: usize = @intCast(self.get_header_len());
+        const header_len: usize = @intCast(self.get_header_len());
 
-        const ops_len = current_ihl - MinHeaderLength;
+        const ops_len = header_len - MinHeaderLength;
 
-        switch (self.owner) {
-            .packet_layer => |layer| {
-                try layer.packet.shorten_layer(layer, MinHeaderLength, ops_len);
-            },
-            .owned_buffer => |*buffer| {
-                try buffer.shorten(MinHeaderLength, ops_len);
-            },
-        }
+        try self.owner.shorten_payload(MinHeaderLength, ops_len);
 
-        const new_hdr = self.get_mutable_header(); // get header again because ptr to to last initialised one got mutated
-        const new_data = self.get_header_len(); // data.len - payload.len
-        new_hdr.set_ihl(@intCast(new_data));
+        const new_hdr = self.get_mutable_header(); // get header again because ptr to to previously initialised one got mutated
+        new_hdr.set_ihl(@intCast(MinHeaderLength));
+        new_hdr.set_length(@intCast(self.get_data().len));
     }
 
     // when the IPv4 header doesn't round to 4 byte
@@ -645,7 +639,7 @@ pub const IPOption = struct {
         try bytes.append(allocator, @intFromEnum(self.type));
 
         if (self.length > 1) {
-            try bytes.append(allocator, self.length);
+            try bytes.append(allocator, @intCast(self.data.len + 2)); // 1byte type, 1byte length byte
             try bytes.appendSlice(allocator, self.data);
         }
 
