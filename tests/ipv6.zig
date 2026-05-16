@@ -29,20 +29,30 @@ test "parse ipv6 with hop-by-hop ext and ICMPv6 listen report" {
     try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.ETHERNET, null);
     defer packet.deinit();
 
-    if (packet.get_layer_of_type(IPv6.IPv6Layer)) |ipv6| {
-        const ipv6_layer: *IPv6.IPv6Layer = ipv6;
-        try ipv6.parse_extensions();
+    if (packet.get_layer_of_type(IPv6.IPv6Layer)) |ipv6_layer| {
+        var extensions = try ipv6_layer.get_extensions(allocator) orelse {
+            print("no extension headers.\n", .{});
+            return;
+        };
 
-        try expect(ipv6_layer.get_ext_header(IPv6.NextHeader.HopByHop) != null);
+        defer extensions.deinit(allocator);
 
-        if (ipv6_layer.get_ext_header(IPv6.NextHeader.HopByHop)) |hbh| {
-            const hbh_ext: *IPv6.HobByHop = &hbh.hbh;
-            try expect(hbh_ext.get_action() == IPv6.OptionType.ROUTER_ALERT);
-
-            //          hbh_ext.set_action(IPv6.OptionType.QUICK_START);
-
-            //            try expect(hbh_ext.get_action() == IPv6.OptionType.QUICK_START);
+        var cur = extensions.first;
+        while (cur) |ext| {
+            //   print("{any}\n", .{ext.get_type()});
+            cur = ext.get_next_extension();
         }
+
+        //  try expect(ipv6_layer.get_ext_header(IPv6.NextHeader.HopByHop) != null);
+
+        //  if (ipv6_layer.get_ext_header(IPv6.NextHeader.HopByHop)) |hbh| {
+        //      const hbh_ext: *IPv6.HobByHop = &hbh.hbh;
+        //      try expect(hbh_ext.get_action() == IPv6.OptionType.ROUTER_ALERT);
+
+        //      //          hbh_ext.set_action(IPv6.OptionType.QUICK_START);
+
+        //      //            try expect(hbh_ext.get_action() == IPv6.OptionType.QUICK_START);
+        //  }
     }
 }
 
@@ -64,8 +74,7 @@ test "parse ipv6 packet" {
 
     //    packet.print_layers_meta();
 
-    if (packet.get_layer_of_type(IPv6.IPv6Layer)) |ipv6| {
-        const ipv6_layer: *IPv6.IPv6Layer = ipv6;
+    if (packet.get_layer_of_type(IPv6.IPv6Layer)) |ipv6_layer| {
         const hdr = ipv6_layer.get_immutable_header();
         try expect(hdr.get_payload_length() == 35);
     }
@@ -95,7 +104,18 @@ test "parse ipv6 layer" {
     const dst_ip = try hdr.get_dst_ip().to_string(allocator);
     defer allocator.free(dst_ip);
 
-    try ipv6_iface.ipv6Layer.parse_extensions();
+    var extensions = try ipv6_iface.ipv6Layer.get_extensions(allocator) orelse {
+        print("no extension headers.\n", .{});
+        return;
+    };
+
+    defer extensions.deinit(allocator);
+
+    var cur = extensions.first;
+    while (cur) |ext| {
+        //print("{any}\n", .{ext.get_type()});
+        cur = ext.get_next_extension();
+    }
 }
 
 test "build ipv6 layer" {

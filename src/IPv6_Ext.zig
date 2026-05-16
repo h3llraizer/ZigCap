@@ -3,20 +3,30 @@ const IPv6 = @import("IPv6.zig");
 
 // IPv6 Next Header Types
 pub const NextHeader = enum(u8) {
+    ///Contains optional information that must be examined by every node along the packet’s path. Examples: Router Alert option, jumbo payload option. Used for network services like multicast routing or diagnostic tools.
     HopByHop = 0,
     ICMP = 1,
     IGMP = 2,
     TCP = 6,
     UDP = 17,
     IPv6 = 41,
+    ///Specifies a list of one or more intermediate nodes (waypoints) that the packet must visit. Used for source routing, Mobile IPv6 route optimization, and multicast distribution.
     Routing = 43,
+    ///Enables fragmentation of packets in IPv6 (which normally doesn’t allow routers to fragment). Carries fragment offset, identification, and more-fragments flag.
     Fragment = 44,
+    ///Provides confidentiality (encryption), optional authentication, and integrity protection. Used in IPsec VPNs.
     ESP = 50,
+    ///Provides integrity, authentication, and optional anti-replay protection for IPv6 packets. Used in IPsec for secure communications. Does not provide encryption.
     AH = 51,
+    /// IPv6 Protocol version of ICMP
     ICMPv6 = 58,
+    ///Indicates the end of the header chain. Used when no upper-layer protocol exists (e.g., ICMPv6 errors).
     NoNext = 59,
+    ///Contains optional information intended only for the final destination node(s). Can appear twice: before a routing header (intermediate) or before the upper-layer header (final). Examples: home address option for Mobile IPv6.
     DestOpts = 60,
+    ///Supports Mobile IPv6 operations, including binding updates, home agent registration, and mobility signaling.
     Mobility = 135,
+    ///Provides a cryptographic identifier for a host, decoupling host identity from IP addresses. Enables mobility, multi-homing, and secure host-to-host communication without changing IP addresses.
     HostIdentity = 139,
     Shim6 = 140,
     Reserved = 253,

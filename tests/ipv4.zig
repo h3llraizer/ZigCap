@@ -107,8 +107,6 @@ test "build ipv4 layer with Record Route option" {
 
     var data = ipv4_layer_iface.get_data();
 
-    print("ipv4 data: ({}) {x}\n", .{ data.len, data });
-
     var record_route_op: [15]u8 align(2) = [_]u8{
         0x04, // ptr byte
         0x00,
@@ -132,21 +130,12 @@ test "build ipv4 layer with Record Route option" {
     const op_bytes = try op.toBytes(allocator);
     defer allocator.free(op_bytes);
 
-    print("ops bytes: ({}) {x}\n", .{ op_bytes.len, op_bytes });
-
     try ipv4_layer_iface.ipv4Layer.add_option(op, allocator);
 
-    print("ipv4 data: ({}) {x}\n", .{ ipv4_layer_iface.get_data().len, ipv4_layer_iface.get_data() });
-
-    print("removing options.\n", .{});
     try ipv4_layer_iface.ipv4Layer.remove_all_options();
-    print("options removed.\n", .{});
 
     data = ipv4_layer_iface.get_data();
-    print("ipv4 data: ({}) {x}\n", .{ ipv4_layer_iface.get_data().len, ipv4_layer_iface.get_data() });
 
     const str = try ipv4_layer_iface.ipv4Layer.get_immutable_header().to_string(allocator);
     defer allocator.free(str);
-
-    print("{s}\n", .{str});
 }

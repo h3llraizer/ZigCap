@@ -199,7 +199,6 @@ pub const IPv4Header = extern struct {
 /// IPv4 options can be added one at a time and removed all at once.
 pub const IPv4Layer = struct {
     owner: LayerOwner,
-    const Protocol = tcp_ip_protocol.ipv4;
 
     pub fn init(owner: LayerOwner) LayerError!IPv4Layer {
         switch (owner) {
@@ -480,7 +479,7 @@ pub const IPv4Layer = struct {
 
     pub fn get_protocol(self: *IPv4Layer) tcp_ip_protocol {
         _ = self;
-        return IPv4Layer.Protocol;
+        return tcp_ip_protocol.ipv4;
     }
 
     pub fn deinit(self: *IPv4Layer) void {
