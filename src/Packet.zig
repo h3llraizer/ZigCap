@@ -34,6 +34,7 @@ pub const Layer = struct {
         return Layer{ .offset = offset, .length = length, .layer_iface = layer_iface, .packet = packet };
     }
 
+    /// Returns data from first byte of header to last byte of packet
     pub fn get_data(self: *Layer) []u8 {
         return self.packet.buffer.buffer.items[self.offset..];
     }

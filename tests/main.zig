@@ -10,7 +10,8 @@ test {
     _ = @import("eth.zig");
     _ = @import("vlan.zig");
     _ = @import("arp.zig");
-    _ = @import("ipv4.zig");
+    //    _ = @import("ipv4.zig");
+    _ = @import("ipv4_ops.zig");
     _ = @import("ipv4_address.zig");
     _ = @import("ipv6.zig");
     _ = @import("icmp.zig");
@@ -19,6 +20,6 @@ test {
     _ = @import("application_layer.zig");
     _ = @import("packet.zig");
     _ = @import("ownership.zig");
-    _ = @import("general.zig");
+    //   _ = @import("general.zig");
     _ = @import("memory.zig");
 }

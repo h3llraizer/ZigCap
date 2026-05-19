@@ -93,6 +93,12 @@ pub const LayerIface = union(enum) {
         };
     }
 
+    pub fn get_owner(self: *LayerIface) *LayerOwner {
+        return switch (self.*) {
+            inline else => |*layer| &layer.owner,
+        };
+    }
+
     pub fn validate_layer(self: *LayerIface) void {
         return switch (self.*) {
             inline else => |*layer| layer.validate_layer(),

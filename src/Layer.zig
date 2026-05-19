@@ -1,6 +1,7 @@
 const std = @import("std");
 const Packet = @import("Packet.zig");
 const Buffer = @import("Buffer.zig").Buffer;
+const LayerIface = @import("LayerIface.zig").LayerIface;
 
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
@@ -21,7 +22,7 @@ pub const LayerOwner = union(enum) {
     }
 
     /// to be removed
-    pub fn get_allocator(self: *LayerOwner) Allocator {
+    fn get_allocator(self: *LayerOwner) Allocator {
         switch (self.*) {
             .packet_layer => |layer| {
                 return layer.packet.layer_allocator;
@@ -76,6 +77,67 @@ pub const LayerOwner = union(enum) {
         switch (self.*) {
             .packet_layer => {
                 return; // Layer in packet - don't free
+            },
+            .owned_buffer => |*buffer| {
+                return buffer.deinit(); // standalone layer - it is mutable by default
+            },
+        }
+    }
+};
+
+pub const TLVOwner = union(enum) {
+    layer: LayerIface,
+    owned_buffer: Buffer,
+
+    pub fn get_data(self: *TLVOwner) []u8 {
+        return switch (self.*) {
+            .layer => |*layer| layer.get_data(),
+            .owned_buffer => |buffer| buffer.buffer.items,
+        };
+    }
+
+    pub fn extend_buffer(self: *TLVOwner, offset: usize, extend_len: usize) ![]u8 {
+        var buf: []u8 = undefined;
+        switch (self.*) {
+            .layer => |*layer| {
+                buf = try layer.get_owner().extend_payload(offset, extend_len); // TODO: extend at offset instead
+            },
+            .owned_buffer => |*buffer| {
+                buf = try buffer.extend(offset, extend_len);
+            },
+        }
+
+        @memset(buf, 0);
+
+        return buf;
+    }
+
+    pub fn shorten_buffer(self: *TLVOwner, offset: usize, shorten_len: usize) !void {
+        switch (self.*) {
+            .layer => |*layer| {
+                try layer.get_owner().shorten_payload(offset, shorten_len);
+            },
+            .owned_buffer => |*buffer| {
+                try buffer.shorten(offset, shorten_len);
+            },
+        }
+    }
+
+    pub fn is_layer_owned(self: *TLVOwner) bool {
+        switch (self.*) {
+            .layer => {
+                return true;
+            },
+            .owned_buffer => {
+                return false;
+            },
+        }
+    }
+
+    pub fn deinit(self: *TLVOwner) void {
+        switch (self.*) {
+            .layer => {
+                return; // TLV in Layer - don't free
             },
             .owned_buffer => |*buffer| {
                 return buffer.deinit(); // standalone layer - it is mutable by default

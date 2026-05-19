@@ -6,6 +6,7 @@ const UDP = @import("UDP.zig");
 const TCP = @import("TCP.zig");
 const ICMP = @import("ICMP.zig");
 const LayerOwner = @import("Layer.zig").LayerOwner;
+const TLVOwner = @import("Layer.zig").TLVOwner;
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
 
@@ -16,8 +17,11 @@ const panic = std.debug.panic;
 const LayerError = ProtocolEnums.LayerError;
 const IPProtocol = ProtocolEnums.IPProtocol;
 
+pub const IPv4Options = @import("IPv4_Options.zig");
+
 pub const MaxHeaderLength = 60; //IPv4MinHeader Length
 pub const MinHeaderLength = 20;
+const HeaderAlignment = 4;
 
 const default_hdr = IPv4Header{
     .version_ihl = 0x45,
@@ -55,6 +59,8 @@ pub const IPv4Header = extern struct {
         return default_hdr;
     }
 
+    /// returns the Internet-Header-Length from the version_ihl.
+    /// To get the header length, multiply the returned value by 4. e.g. hdr.get_ihl() * 4
     pub fn get_ihl(self: *const IPv4Header) u8 {
         const hdr_len = (self.version_ihl & 0x0F);
 
@@ -196,6 +202,40 @@ pub const IPv4Header = extern struct {
     }
 };
 
+pub const IPOpt = union(enum) {
+    offset: usize,
+    length: usize,
+    layer: *IPv4Layer,
+
+    pub fn get_type(self: *const IPOpt) ?IPOptionType {
+        const type_b = self.layer.get_data()[self.offset];
+        const options_list = std.enums.values(IPOptionType);
+        for (options_list) |opt| {
+            if (@intFromEnum(opt) == type_b) {
+                return opt;
+            }
+        }
+
+        return null;
+    }
+};
+
+pub const IPOptions = struct {
+    first: ?*IPOption = null,
+    opts_count: usize = 0,
+
+    pub fn deinit(self: *IPOptions, allocator: Allocator) void {
+        var cur = self.first;
+        while (cur) |opt| {
+            const next = opt.next_opt;
+            allocator.destroy(opt);
+            cur = next;
+        }
+
+        self.opts_count = 0;
+    }
+};
+
 /// IPv4 options can be added one at a time and removed all at once.
 pub const IPv4Layer = struct {
     owner: LayerOwner,
@@ -261,62 +301,263 @@ pub const IPv4Layer = struct {
         return self.get_payload().len;
     }
 
-    pub fn get_options(self: *IPv4Layer) []const u8 {
-        const header_len = self.get_header_len();
-        //        const ops_start = header_len - MinHeaderLength;
+    fn get_options(self: *IPv4Layer) []u8 {
+        const header_len = self.get_immutable_header().get_ihl() * 4;
         return self.get_data()[MinHeaderLength..header_len];
     }
 
-    /// not yet fully implemented
-    //ideally need to pass a buffer instead of IPOption and Allocator
-    /// the allocator in this case is the one which the caller used to init IPOption
-    pub fn add_option(self: *IPv4Layer, option: IPOption, allocator: Allocator) !void {
-        const hdr = self.get_mutable_header();
-        const current_ihl: u8 = hdr.get_ihl();
-        const current_options_len: u8 = (current_ihl - 5) * 4;
-
-        // owned slice copy
-        const new_option_bytes: []align(2) u8 = try option.toBytes(allocator);
-        defer allocator.free(new_option_bytes);
-
-        const new_options_len = current_options_len + new_option_bytes.len;
-        const new_ihl: usize = 5 + (new_options_len + 3) / 4;
-        const new_header_len = new_ihl * 4;
-
-        if (new_header_len > MaxHeaderLength) {
-            return error.OptionsTooLong;
+    pub fn get_first_op(self: *IPv4Layer) ?IPv4Options.IPv4Options {
+        const ops_buf = self.get_options();
+        const options_list = std.enums.values(IPOptionType)[1..];
+        for (options_list) |option| {
+            if (@intFromEnum(option) == ops_buf[0]) {
+                const length: usize = @intCast(ops_buf[1]);
+                return IPv4Options.IPv4Options.init(
+                    option,
+                    TLVOwner{ .layer = LayerIface{ .ipv4Layer = self.* } },
+                    length,
+                    null,
+                    null,
+                );
+            }
         }
 
-        const data = self.get_data();
-        var ops_buf: []u8 = undefined;
-
-        const current_header_len = self.get_header_len();
-
-        const extend_len = new_header_len - current_header_len;
-
-        if (current_header_len < new_header_len) {
-            ops_buf = try self.owner.extend_payload(current_header_len, extend_len);
-        } else { // bad
-            print("using data as ops buf.\n", .{});
-            ops_buf = data; //use existing buffer - not good
-            // TODO: refactor to avoid this
-        }
-
-        @memmove(ops_buf[0..new_options_len], new_option_bytes);
-
-        // zero the remaining bytes
-        @memset(ops_buf[new_options_len..], 0);
-
-        // get header again because ptr to last initialised one got mutated
-        const new_hdr = self.get_mutable_header();
-
-        new_hdr.set_ihl(@intCast(new_header_len));
-        new_hdr.set_length(@intCast(self.get_data().len));
+        return null;
     }
 
-    /// removes all IPv4 options by either calling the owning Packets shorten_layer method
-    /// or shorting the owned_buffer
-    /// in both cases, the IHL is set to default (5 / 20 bytes)
+    pub fn get_ip_opts(self: *IPv4Layer, allocator: Allocator) !?*IPv4Options.IPv4Options {
+        const ops_buf = self.get_options();
+
+        if (ops_buf.len == 0) {
+            return null;
+        }
+
+        print("ops buf len: {}\n", .{ops_buf.len});
+
+        const options_list = std.enums.values(IPOptionType)[1..];
+
+        var cur: ?*IPv4Options.IPv4Options = null;
+
+        var offset: usize = 0;
+
+        while (offset < ops_buf.len - 1) {
+            for (options_list) |option| {
+                if (@intFromEnum(option) == ops_buf[0]) {
+                    const length: usize = @intCast(ops_buf[1]);
+                    const opt = try allocator.create(IPv4Options.IPv4Options);
+
+                    opt.* = IPv4Options.IPv4Options.init(
+                        option,
+                        TLVOwner{ .layer = LayerIface{ .ipv4Layer = self.* } },
+                        length,
+                        null,
+                        null,
+                    );
+
+                    if (cur) |cur_opt| {
+                        cur_opt.set_next_opt(opt);
+                        opt.set_prev_opt(cur_opt);
+                        cur = opt;
+                    } else {
+                        cur = opt;
+                    }
+
+                    offset += length;
+                    continue;
+                }
+            }
+
+            offset += 1;
+        }
+
+        return cur;
+    }
+
+    pub fn get_opts(self: *IPv4Layer, allocator: Allocator) !?IPOptions {
+        const ops_buf = self.get_options();
+
+        if (ops_buf.len == 0) {
+            return null;
+        }
+
+        print("ops_buf: ({}) {x}\n", .{ ops_buf.len, ops_buf });
+
+        var opts: IPOptions = .{};
+
+        var cur: ?*IPOption = null;
+
+        const options_list = std.enums.values(IPOptionType)[1..];
+        var offset: usize = 0;
+        var op_type_found: bool = false;
+        var length_byte_found: bool = false;
+
+        var type_offset: usize = 0;
+        var length_offset: usize = 0;
+
+        var data_offset: usize = 0;
+
+        while (offset < ops_buf.len - 1) {
+            if (op_type_found == false) {
+                for (options_list) |option| {
+                    if (@intFromEnum(option) == ops_buf[offset]) {
+                        op_type_found = true;
+                        type_offset = offset;
+                        offset += 1;
+                        data_offset += 1;
+                        var ptr_byte = false;
+                        if (IPOptionType.requires_ptr_byte(option)) {
+                            ptr_byte = true;
+                            data_offset += 1;
+                        }
+
+                        const op_len: usize = @intCast(ops_buf[offset]);
+
+                        if (op_len <= ops_buf.len) {
+                            data_offset += 1;
+                            length_offset = offset;
+
+                            offset += op_len;
+                            offset -= 1; // type byte
+                            if (ptr_byte) offset -= 1;
+
+                            length_byte_found = true;
+                        }
+                    }
+                }
+            }
+
+            if (op_type_found == true and length_byte_found == true) {
+                const option = try allocator.create(IPOption);
+
+                const op_len: usize = @intCast(ops_buf[length_offset]);
+
+                option.* = try IPOption.init(
+                    @as(IPOptionType, @enumFromInt(ops_buf[type_offset])),
+                    ops_buf[data_offset..op_len],
+                );
+
+                // append to linkedlist
+                if (cur) |opt| { // if the last answer is not null
+                    opt.next_opt = option; // set the last answer next answer to the answer created (answer being added)
+                }
+
+                cur = option; // the last answer is now the answer that's being added
+                if (opts.first == null) {
+                    opts.first = cur;
+                }
+
+                opts.opts_count += 1;
+
+                op_type_found = false;
+                length_byte_found = false;
+                type_offset = 0;
+                length_offset = 0;
+
+                continue;
+            }
+
+            offset += 1; // type & op byte wasn't found. Increment offset by 1
+        }
+
+        return opts;
+    }
+
+    fn check_pad(self: *IPv4Layer) ?usize {
+        const ops_buf = self.get_options();
+
+        if (ops_buf.len == 0) {
+            return null;
+        }
+
+        const options_list = std.enums.values(IPOptionType);
+
+        var offset: usize = 0;
+        var op_type_found: bool = false;
+        var length_byte_found: bool = false;
+        var last_length: usize = 0;
+
+        while (offset < ops_buf.len - 1) {
+            if (op_type_found == false) {
+                for (options_list) |option| { // TODO: make this comptime
+                    if (@intFromEnum(option) == ops_buf[offset]) {
+                        op_type_found = true;
+                        offset += 1;
+
+                        if (IPOptionType.requires_ptr_byte(option)) {
+                            if (offset + 1 <= ops_buf.len) {
+                                offset += 1;
+                            }
+                        }
+
+                        const op_len: usize = @intCast(ops_buf[offset]);
+
+                        if (op_len <= ops_buf.len) {
+                            length_byte_found = true;
+                            last_length = offset;
+
+                            offset += op_len;
+                        }
+                    }
+                }
+            }
+
+            if (op_type_found == true and length_byte_found == true) {
+                op_type_found = false;
+                length_byte_found = false;
+                continue;
+            }
+
+            offset += 1; // op-byte wasn't found. Increment offset by 1
+        }
+
+        if (last_length != 0) {
+            const pad_bytes = ops_buf.len - last_length;
+            return pad_bytes;
+        }
+
+        return null;
+    }
+
+    pub fn add_option(self: *IPv4Layer, option: *IPv4Options.IPv4Options) !void {
+        const new_option_bytes = option.get_data();
+
+        print("new_option_bytes: {x}\n", .{new_option_bytes});
+
+        const new_option_bytes_len: usize = new_option_bytes.len;
+
+        print("new_option_bytes_len: {}\n", .{new_option_bytes_len});
+
+        const current_ihl: u8 = self.get_immutable_header().get_ihl();
+
+        const current_header_len: u8 = current_ihl * 4;
+
+        var pad_bytes: usize = 0;
+
+        if (self.check_pad()) |pad| {
+            pad_bytes = pad;
+        }
+
+        var new_header_len: usize = current_header_len + @as(usize, @intCast(new_option_bytes_len));
+
+        print("new_header_len: {}\n", .{new_header_len});
+
+        const pad_required = if (new_header_len % HeaderAlignment == 0) 0 else HeaderAlignment - (new_header_len % HeaderAlignment);
+
+        print("pad_required: {}\n", .{pad_required});
+
+        new_header_len += pad_required;
+
+        const ops_buf = try self.owner.extend_payload(
+            @intCast(current_header_len),
+            new_option_bytes_len + pad_required,
+        );
+
+        @memmove(ops_buf[0..new_option_bytes_len], new_option_bytes);
+
+        self.get_mutable_header().set_ihl(@intCast(new_header_len));
+        self.get_mutable_header().set_length(@intCast(self.get_data().len));
+    }
+
     pub fn remove_all_options(self: *IPv4Layer) !void {
         const header_len: usize = @intCast(self.get_header_len());
 
@@ -329,43 +570,11 @@ pub const IPv4Layer = struct {
         new_hdr.set_length(@intCast(self.get_data().len));
     }
 
-    // when the IPv4 header doesn't round to 4 byte
-    // e.g. when an option is added
-    fn pad_buffer(self: *IPv4Layer) !void {
-        const hdr_len = self.get_header_len();
-
-        const pad_bytes_required: usize = 4 - (hdr_len % 4);
-
-        if (pad_bytes_required > 0) {
-            var pad_buf: []u8 = undefined;
-
-            switch (self.owner) {
-                .packet_layer => |layer| {
-                    pad_buf = try layer.packet.extend_layer(layer, pad_bytes_required);
-                },
-                .owned_buffer => |*buffer| {
-                    pad_buf = try buffer.extend(MinHeaderLength, pad_bytes_required); // temp - needs to extend from current ihl length not base header length
-                },
-            }
-
-            @memset(pad_buf, 0);
-
-            const new_hdr_len: usize = self.get_header_len();
-
-            var hdr = self.get_mutable_header();
-
-            hdr.set_ihl(@intCast(new_hdr_len));
-        }
-    }
-
     /// calculates checksum by setting ihl (version bit) to header len
     /// calculates total length (ipv4.total_length)
     /// calls the checksum calculation function in the IPv4 header (see IPv4Header.calculate_checksum())
     pub fn validate_layer(self: *IPv4Layer) void {
-        var hdr = self.get_mutable_header();
-
         const hdr_len = self.get_header_len();
-        hdr.set_ihl(@intCast(hdr_len));
 
         self.calculate_length();
 
@@ -386,6 +595,8 @@ pub const IPv4Layer = struct {
     /// for self owned layer: takes total length of data (payload not included because it doesnt't have one)
     pub fn get_header_len(self: *IPv4Layer) usize {
         const hdr = self.get_immutable_header();
+
+        //return hdr.get_length();
         const hdr_length: usize = @intCast(hdr.get_ihl() * 4);
         const data = self.get_data();
 
@@ -440,6 +651,7 @@ pub const IPv4Layer = struct {
             IPProtocol.UDP => {
                 return try LayerIface.init(UDP.UDPLayer, LayerOwner{ .packet_layer = layer });
             },
+            // TODO: handle IGMP - peak the buffer to find the version
             else => {
                 return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
             },
@@ -588,61 +800,87 @@ pub const IPOptionType = enum(u8) {
     RFC3692Exp3 = 158,
     RFC3692Exp4 = 222,
     _,
+
+    pub fn requires_ptr_byte(opt: IPOptionType) bool {
+        switch (opt) {
+            .RecordRoute, .LooseSourceRoute, .StrictSourceRoute, .Timestamp => {
+                return true;
+            },
+            else => return false,
+        }
+    }
 };
 
 /// not fully implemented yet
 pub const IPOption = struct {
     type: IPOptionType,
     length: u8,
-    data: []align(2) u8,
+    ptr: ?u8 = null,
+    data: []u8,
+    next_opt: ?*IPOption = null,
 
-    pub fn init(opt_type: IPOptionType, data: []align(2) u8) !IPOption {
-        const len = 2 + data.len; // type + length + data
-        if (len > 40) return error.OptionTooLong;
-        return IPOption{
+    pub fn init(opt_type: IPOptionType, data: []u8) !IPOption {
+        var len = 2 + data.len; // type + length + data
+        if (IPOptionType.requires_ptr_byte(opt_type)) {
+            len += 1;
+        }
+
+        if (len > MaxHeaderLength) return error.OptionTooLong;
+
+        var opt = IPOption{
             .type = opt_type,
             .length = @as(u8, @intCast(data.len)),
             .data = data,
         };
+
+        if (IPOptionType.requires_ptr_byte(opt_type)) {
+            opt.ptr = @intCast((len - data.len) + 1); // add 1 for the length of the ptr byte itself
+        }
+
+        return opt;
     }
 
+    /// Type only (NoOperation or EndOfOptions)
     pub fn initNoData(opt_type: IPOptionType) IPOption {
         return IPOption{
             .type = opt_type,
-            .length = 1, // type only (NoOperation or EndOfOptions)
+            .length = 1,
             .data = &[_]u8{},
         };
     }
 
     //Use NOP to insert a byte to align the next option
     //Use EOL, then pad with zeros to reach a 4-byte boundary at the end
-
-    pub fn set_len(self: *IPOption, len: usize) void {
-        self.length = @intCast(len);
-    }
-
-    pub fn swap_byte(self: *IPOption, pos: usize, byte: u8) void {
-        self.data[pos] = byte;
-    }
-
-    pub fn pad_nop(self: *IPOption, offset: usize, len: usize, allocator: Allocator) !void {
-        const new_buf = try allocator.realloc(self.data[offset..], self.data.len + len);
-        @memset(new_buf[0..], 0);
-        self.data = new_buf;
-    }
-
     pub fn toBytes(self: IPOption, allocator: Allocator) ![]align(2) u8 {
         var bytes: std.array_list.Aligned(u8, std.mem.Alignment.@"2") = .empty;
         defer bytes.deinit(allocator);
 
-        try bytes.append(allocator, @intFromEnum(self.type));
+        try bytes.append(allocator, @intFromEnum(self.type)); // append the type
 
-        if (self.length > 1) {
-            try bytes.append(allocator, @intCast(self.data.len + 2)); // 1byte type, 1byte length byte
-            try bytes.appendSlice(allocator, self.data);
+        var len: u8 = 0;
+
+        len += 1; // 1-byte for type
+        len += 1; // 1-byte for length
+
+        if (self.ptr) |p| { // if there's a ptr byte required for this option
+            _ = p;
+            len += 1; // 1-byte for ptr
         }
 
-        return bytes.toOwnedSlice(allocator) catch &[_]u8{};
+        len += @intCast(self.data.len);
+
+        if (self.length > 1) {
+            try bytes.append(allocator, @intCast(len)); // append length byte
+        }
+
+        if (self.ptr) |p| {
+            try bytes.append(allocator, p); // append ptr byte if it exists
+
+        }
+
+        try bytes.appendSlice(allocator, self.data); // append the data
+
+        return bytes.toOwnedSlice(allocator);
     }
 };
 
