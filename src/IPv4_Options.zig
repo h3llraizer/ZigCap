@@ -736,6 +736,8 @@ pub const Timestamp = struct {
             const bytes: [4]u8 = std.mem.toBytes(@byteSwap(record.timestamp));
             if (std.mem.indexOf(u8, data, &bytes)) |offset| {
                 try self.owner.shorten_buffer(offset, @sizeOf(u32));
+                self.get_data_mut()[1] -= 4;
+                self.set_hdr_vals(-4);
                 return;
             }
         }
@@ -750,10 +752,32 @@ pub const Timestamp = struct {
         if (std.mem.indexOf(u8, data, &full_rec)) |offset| {
             try self.owner.shorten_buffer(self.get_offset() + 4 + offset, 8);
             self.get_data_mut()[1] -= 8;
+            self.set_hdr_vals(-8);
             return;
         }
 
         print("no action.\n", .{});
+    }
+
+    fn get_mutable_hdr(self: *Timestamp) *IPv4.IPv4Header {
+        const data = self.owner.get_data();
+
+        if (data.len < IPv4.MinHeaderLength) {
+            panic("IPv4 data len ({}) less than IPv4HeaderSize", .{data.len});
+        }
+
+        const aligned_ptr: [*]align(@alignOf(IPv4.IPv4Header)) u8 = @alignCast(data.ptr);
+        return @ptrCast(aligned_ptr);
+    }
+
+    fn set_hdr_vals(self: *Timestamp, len: isize) void {
+        if (self.owner.is_layer_owned()) {
+            const hdr = self.get_mutable_hdr();
+            const new_len: isize = hdr.get_length() + len;
+            print("setting len to: {}\n", .{new_len});
+            hdr.set_length(@intCast(new_len));
+            hdr.set_ihl(@intCast(hdr.get_length()));
+        }
     }
 
     pub fn add_ts_record(self: *Timestamp, record: TimestampRecord) !void {
@@ -762,6 +786,7 @@ pub const Timestamp = struct {
                 return error.InvalidTimestampOnlyRecord; // TS Only does not contain IP addresses
             }
             try self.add_timestamp(record.timestamp);
+            self.set_hdr_vals(4);
             return;
         }
 
@@ -769,8 +794,16 @@ pub const Timestamp = struct {
             return error.IPRequiredForNonTSOnlyRecord; // caller must provide an IP, even if 0.0.0.0 for place holder
         }
 
+        print("adding record. owner is layer: {any}\n", .{self.owner.is_layer_owned()});
+
         try self.add_ip(record.ip.?);
         try self.add_timestamp(record.timestamp);
+        self.set_hdr_vals(8);
+        // if (self.owner.is_layer_owned()) {
+        //     const hdr = self.get_mutable_hdr();
+        //     hdr.set_length(hdr.get_length() + 8);
+        //     hdr.set_ihl(@intCast(hdr.get_length()));
+        // }
     }
 
     pub fn deinit(self: *Timestamp) void {

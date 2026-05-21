@@ -305,7 +305,11 @@ test "build timestamp opt" {
 
     var option = try ipv4_layer.get_ip_opts(allocator);
     while (option) |cur_opt| {
-        print("{any} {x}\n", .{ cur_opt.get_opt_type(), cur_opt.get_data() });
+        print("{any} {x} is layer owned: {any}\n", .{
+            cur_opt.get_opt_type(),
+            cur_opt.get_data(),
+            cur_opt.timestamp.owner.is_layer_owned(),
+        });
         const next = cur_opt.get_next();
         if (cur_opt.get_opt_type() == .Timestamp) {
             var ts_records = try cur_opt.timestamp.get_records(allocator) orelse {
@@ -327,4 +331,27 @@ test "build timestamp opt" {
         allocator.destroy(cur_opt);
         option = next;
     }
+
+    print("IPv4 Header: IHL: {}/{} TL: {}\n", .{ ipv4_layer.get_immutable_header().get_ihl(), ipv4_layer.get_immutable_header().get_ihl() * 4, ipv4_layer.get_immutable_header().get_length() });
+
+    var ipv4_opt = ipv4_layer.get_first_op() orelse {
+        try expect(false);
+        return;
+    };
+
+    try expect(ipv4_opt.get_opt_type() == IPv4.IPOptionType.Timestamp);
+
+    rec = .{ .ip = try IPv4.IPv4Address.init_from_string("192.168.1.254"), .timestamp = 333333 };
+
+    try ipv4_opt.timestamp.add_ts_record(rec);
+
+    print("IPv4 Header: IHL: {}/{} TL: {}\n", .{ ipv4_layer.get_immutable_header().get_ihl(), ipv4_layer.get_immutable_header().get_ihl() * 4, ipv4_layer.get_immutable_header().get_length() });
+
+    //try ipv4_opt.timestamp.remove_ts_record(rec);
+
+    print("IPv4 Header: IHL: {}/{} TL: {}\n", .{ ipv4_layer.get_immutable_header().get_ihl(), ipv4_layer.get_immutable_header().get_ihl() * 4, ipv4_layer.get_immutable_header().get_length() });
+
+    print("opt is layer owned: {any}\n", .{opt.timestamp.owner.is_layer_owned()});
+
+    print("ipv4 data: ({}) {x}\n", .{ ipv4_layer.get_data().len, ipv4_layer.get_data() });
 }
