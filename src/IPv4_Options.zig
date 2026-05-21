@@ -10,7 +10,7 @@ const panic = std.debug.panic;
 
 const LayerError = ProtocolEnums.LayerError;
 
-pub const IPv4Options = union(enum) {
+pub const IPv4Option = union(enum) {
     record_route: RecordRoute,
     loose_route: LooseSourceRoute,
     strict_route: StrictSourceRoute,
@@ -20,12 +20,12 @@ pub const IPv4Options = union(enum) {
         opt: IPv4.IPOptionType,
         owner: TLVOwner,
         length: usize,
-        prev: ?*IPv4Options,
-        next: ?*IPv4Options,
-    ) IPv4Options {
+        prev: ?*IPv4Option,
+        next: ?*IPv4Option,
+    ) IPv4Option {
         switch (opt) {
             .RecordRoute => {
-                return IPv4Options{ .record_route = RecordRoute{
+                return IPv4Option{ .record_route = RecordRoute{
                     .owner = owner,
                     .length = length,
                     .prev_op = prev,
@@ -33,7 +33,7 @@ pub const IPv4Options = union(enum) {
                 } };
             },
             .LooseSourceRoute => {
-                return IPv4Options{ .loose_route = LooseSourceRoute{
+                return IPv4Option{ .loose_route = LooseSourceRoute{
                     .owner = owner,
                     .length = length,
                     .prev_op = prev,
@@ -41,7 +41,7 @@ pub const IPv4Options = union(enum) {
                 } };
             },
             .StrictSourceRoute => {
-                return IPv4Options{ .strict_route = StrictSourceRoute{
+                return IPv4Option{ .strict_route = StrictSourceRoute{
                     .owner = owner,
                     .length = length,
                     .prev_op = prev,
@@ -49,7 +49,7 @@ pub const IPv4Options = union(enum) {
                 } };
             },
             .RouterAlert => {
-                return IPv4Options{ .router_alert = RouterAlert{
+                return IPv4Option{ .router_alert = RouterAlert{
                     .owner = owner,
                     .length = length,
                     .prev_op = prev,
@@ -60,43 +60,49 @@ pub const IPv4Options = union(enum) {
         }
     }
 
-    pub fn get_data(self: *IPv4Options) []const u8 {
+    pub fn get_data(self: *IPv4Option) []const u8 {
         return switch (self.*) {
             inline else => |*opt| opt.get_data(),
         };
     }
 
-    pub fn get_length(self: *IPv4Options) usize {
+    pub fn get_length(self: *IPv4Option) usize {
         return switch (self.*) {
             inline else => |*opt| opt.length,
         };
     }
 
-    pub fn get_next(self: *IPv4Options) ?*IPv4Options {
+    pub fn get_next(self: *IPv4Option) ?*IPv4Option {
         return switch (self.*) {
             inline else => |*opt| opt.next_op,
         };
     }
 
-    pub fn set_next_opt(self: *IPv4Options, next_opt: *IPv4Options) void {
+    pub fn set_next_opt(self: *IPv4Option, next_opt: *IPv4Option) void {
         switch (self.*) {
             inline else => |*opt| opt.next_op = next_opt,
         }
     }
 
-    pub fn get_prev(self: *IPv4Options) ?*IPv4Options {
+    pub fn get_prev(self: *IPv4Option) ?*IPv4Option {
         return switch (self.*) {
             inline else => |*opt| opt.prev_op,
         };
     }
 
-    pub fn set_prev_opt(self: *IPv4Options, prev_opt: *IPv4Options) void {
+    pub fn set_prev_opt(self: *IPv4Option, prev_opt: *IPv4Option) void {
         switch (self.*) {
             inline else => |*opt| opt.prev_op = prev_opt,
         }
     }
 
-    pub fn deinit(self: *IPv4Options) void {
+    pub fn get_opt_type(self: *IPv4Option) IPv4.IPOptionType {
+        const opt_type_v = self.get_data()[0];
+
+        return @enumFromInt(opt_type_v);
+    }
+
+    pub fn deinit(self: *IPv4Option) void {
         return switch (self.*) {
             inline else => |*opt| opt.deinit(),
         };
@@ -132,10 +138,10 @@ fn get_ips_list(data: []const u8, allocator: Allocator) !?[]IPv4.IPv4Address {
 
     while (offset < data.len) {
         var ip_arr: [4]u8 = undefined;
-        @memmove(&ip_arr, data[offset .. offset + 4]);
+        @memmove(&ip_arr, data[offset .. offset + @sizeOf(IPv4.IPv4Address)]);
         ip_list[ips_added] = IPv4.IPv4Address.init_from_array(ip_arr);
         ips_added += 1;
-        offset += 4;
+        offset += @sizeOf(IPv4.IPv4Address);
     }
 
     return ip_list;
@@ -165,10 +171,12 @@ fn get_ips_count(data: []const u8) usize {
     return ip_count;
 }
 
-fn add_ip_to_buf(data: []u8, owner: *TLVOwner, ip: IPv4.IPv4Address) !void {
+// TODO: set type correctly
+fn add_ip_to_buf(data: []u8, owner: *TLVOwner, ip: IPv4.IPv4Address, opt_type: IPv4.IPOptionType) !void {
     if (data.len == 0) {
         var buf = try owner.extend_buffer(0, 3);
-        buf[0] = @intFromEnum(IPv4.IPOptionType.RecordRoute);
+        buf[0] = @intFromEnum(opt_type);
+        print("setting initial values for option: {any}\n", .{opt_type});
         buf[1] = 3; // min length for RecordRoute Opt - 1byte type, 1 byte length, 1byte ptr
         buf[2] = 4; // default ptr byte set to index after ptr byte
     }
@@ -218,8 +226,8 @@ pub fn remove_ip_from_list(owner: *TLVOwner, ip: IPv4.IPv4Address) !void {
 pub const RecordRoute = struct {
     owner: TLVOwner,
     length: usize,
-    prev_op: ?*IPv4Options = null,
-    next_op: ?*IPv4Options = null,
+    prev_op: ?*IPv4Option = null,
+    next_op: ?*IPv4Option = null,
 
     fn get_offset(self: *RecordRoute) usize {
         var offset: usize = 0;
@@ -267,7 +275,7 @@ pub const RecordRoute = struct {
     }
 
     pub fn add_ip(self: *RecordRoute, ip: IPv4.IPv4Address) !void {
-        return add_ip_to_buf(self.get_data_mut(), &self.owner, ip);
+        return add_ip_to_buf(self.get_data_mut(), &self.owner, ip, IPv4.IPOptionType.RecordRoute);
     }
 
     pub fn remove_ip(self: *RecordRoute, ip: IPv4.IPv4Address) !void {
@@ -282,13 +290,13 @@ pub const RecordRoute = struct {
 pub const LooseSourceRoute = struct {
     owner: TLVOwner,
     length: usize,
-    prev_op: ?*IPv4Options = null,
-    next_op: ?*IPv4Options = null,
+    prev_op: ?*IPv4Option = null,
+    next_op: ?*IPv4Option = null,
 
     fn get_offset(self: *LooseSourceRoute) usize {
         var offset: usize = 0;
 
-        if (self.owner.is_packet_owned()) {
+        if (self.owner.is_layer_owned()) {
             offset = IPv4.MinHeaderLength;
         }
 
@@ -304,7 +312,7 @@ pub const LooseSourceRoute = struct {
     pub fn get_data(self: *LooseSourceRoute) []const u8 {
         const data = self.owner.get_data();
 
-        return data;
+        return data[self.get_offset()..];
     }
 
     fn get_data_mut(self: *LooseSourceRoute) []u8 {
@@ -331,7 +339,7 @@ pub const LooseSourceRoute = struct {
     }
 
     pub fn add_ip(self: *LooseSourceRoute, ip: IPv4.IPv4Address) !void {
-        return add_ip_to_buf(self.get_data_mut(), &self.owner, ip);
+        return add_ip_to_buf(self.get_data_mut(), &self.owner, ip, IPv4.IPOptionType.LooseSourceRoute);
     }
 
     pub fn remove_ip(self: *LooseSourceRoute, ip: IPv4.IPv4Address) !void {
@@ -346,8 +354,8 @@ pub const LooseSourceRoute = struct {
 pub const StrictSourceRoute = struct {
     owner: TLVOwner,
     length: usize,
-    prev_op: ?*IPv4Options = null,
-    next_op: ?*IPv4Options = null,
+    prev_op: ?*IPv4Option = null,
+    next_op: ?*IPv4Option = null,
 
     fn get_offset(self: *StrictSourceRoute) usize {
         var offset: usize = 0;
@@ -395,7 +403,7 @@ pub const StrictSourceRoute = struct {
     }
 
     pub fn add_ip(self: *StrictSourceRoute, ip: IPv4.IPv4Address) !void {
-        return add_ip_to_buf(self.get_data_mut(), &self.owner, ip);
+        return add_ip_to_buf(self.get_data_mut(), &self.owner, ip, IPv4.IPOptionType.StrictSourceRoute);
     }
 
     pub fn remove_ip(self: *StrictSourceRoute, ip: IPv4.IPv4Address) !void {
@@ -410,8 +418,8 @@ pub const StrictSourceRoute = struct {
 pub const RouterAlert = struct {
     owner: TLVOwner,
     length: usize,
-    prev_op: ?*IPv4Options = null,
-    next_op: ?*IPv4Options = null,
+    prev_op: ?*IPv4Option = null,
+    next_op: ?*IPv4Option = null,
 
     fn get_offset(self: *RouterAlert) usize {
         var offset: usize = 0;

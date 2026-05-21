@@ -17,7 +17,7 @@ const panic = std.debug.panic;
 const LayerError = ProtocolEnums.LayerError;
 const IPProtocol = ProtocolEnums.IPProtocol;
 
-pub const IPv4Options = @import("IPv4_Options.zig");
+pub const IPv4Option = @import("IPv4_Options.zig").IPv4Option;
 
 pub const MaxHeaderLength = 60; //IPv4MinHeader Length
 pub const MinHeaderLength = 20;
@@ -202,24 +202,6 @@ pub const IPv4Header = extern struct {
     }
 };
 
-pub const IPOpt = union(enum) {
-    offset: usize,
-    length: usize,
-    layer: *IPv4Layer,
-
-    pub fn get_type(self: *const IPOpt) ?IPOptionType {
-        const type_b = self.layer.get_data()[self.offset];
-        const options_list = std.enums.values(IPOptionType);
-        for (options_list) |opt| {
-            if (@intFromEnum(opt) == type_b) {
-                return opt;
-            }
-        }
-
-        return null;
-    }
-};
-
 pub const IPOptions = struct {
     first: ?*IPOption = null,
     opts_count: usize = 0,
@@ -306,13 +288,13 @@ pub const IPv4Layer = struct {
         return self.get_data()[MinHeaderLength..header_len];
     }
 
-    pub fn get_first_op(self: *IPv4Layer) ?IPv4Options.IPv4Options {
+    pub fn get_first_op(self: *IPv4Layer) ?IPv4Option {
         const ops_buf = self.get_options();
         const options_list = std.enums.values(IPOptionType)[1..];
         for (options_list) |option| {
             if (@intFromEnum(option) == ops_buf[0]) {
                 const length: usize = @intCast(ops_buf[1]);
-                return IPv4Options.IPv4Options.init(
+                return IPv4Option.init(
                     option,
                     TLVOwner{ .layer = LayerIface{ .ipv4Layer = self.* } },
                     length,
@@ -325,18 +307,19 @@ pub const IPv4Layer = struct {
         return null;
     }
 
-    pub fn get_ip_opts(self: *IPv4Layer, allocator: Allocator) !?*IPv4Options.IPv4Options {
+    pub fn get_ip_opts(self: *IPv4Layer, allocator: Allocator) !?*IPv4Option {
         const ops_buf = self.get_options();
 
         if (ops_buf.len == 0) {
             return null;
         }
 
-        print("ops buf len: {}\n", .{ops_buf.len});
+        print("FIRS OPTION: {any}\n", .{@as(IPOptionType, @enumFromInt(ops_buf[0]))});
+        print("ops buf: {x}\n", .{ops_buf});
 
         const options_list = std.enums.values(IPOptionType)[1..];
 
-        var cur: ?*IPv4Options.IPv4Options = null;
+        var cur: ?*IPv4Option = null;
 
         var offset: usize = 0;
 
@@ -344,9 +327,9 @@ pub const IPv4Layer = struct {
             for (options_list) |option| {
                 if (@intFromEnum(option) == ops_buf[0]) {
                     const length: usize = @intCast(ops_buf[1]);
-                    const opt = try allocator.create(IPv4Options.IPv4Options);
+                    const opt = try allocator.create(IPv4Option);
 
-                    opt.* = IPv4Options.IPv4Options.init(
+                    opt.* = IPv4Option.init(
                         option,
                         TLVOwner{ .layer = LayerIface{ .ipv4Layer = self.* } },
                         length,
@@ -518,7 +501,7 @@ pub const IPv4Layer = struct {
         return null;
     }
 
-    pub fn add_option(self: *IPv4Layer, option: *IPv4Options.IPv4Options) !void {
+    pub fn add_option(self: *IPv4Layer, option: *IPv4Option) !void {
         const new_option_bytes = option.get_data();
 
         print("new_option_bytes: {x}\n", .{new_option_bytes});
