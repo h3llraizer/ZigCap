@@ -62,7 +62,7 @@ test "build rr opt" {
 
     try ipv4_layer.add_option(&opt);
 
-    var cur: ?*IPv4.IPv4Option = try ipv4_layer.get_ip_opts(allocator);
+    var cur: ?*IPv4.IPv4Option = try ipv4_layer.get_options(allocator);
 
     var count: usize = 0;
     while (cur) |option| {
@@ -127,7 +127,7 @@ test "build lsr opt" {
 
     try ipv4_layer.add_option(&opt);
 
-    var cur: ?*IPv4.IPv4Option = try ipv4_layer.get_ip_opts(allocator);
+    var cur: ?*IPv4.IPv4Option = try ipv4_layer.get_options(allocator);
 
     var count: usize = 0;
     while (cur) |option| {
@@ -192,7 +192,7 @@ test "build ssr opt" {
 
     try ipv4_layer.add_option(&opt);
 
-    var cur: ?*IPv4.IPv4Option = try ipv4_layer.get_ip_opts(allocator);
+    var cur: ?*IPv4.IPv4Option = try ipv4_layer.get_options(allocator);
 
     var count: usize = 0;
     while (cur) |option| {
@@ -259,8 +259,6 @@ test "build timestamp opt" {
     try opt.timestamp.set_mode_flag(IPv4.IPv4Options.TimestampMode.append_addrs);
     try opt.timestamp.set_overflow(0);
 
-    print("opt data: ({}) {x}\n", .{ opt.get_data().len, opt.get_data() });
-
     var rec = IPv4.IPv4Options.TimestampRecord{
         .timestamp = 999999,
         .ip = try IPv4.IPv4Address.init_from_string("172.72.3.1"),
@@ -275,11 +273,7 @@ test "build timestamp opt" {
 
     try opt.timestamp.add_ts_record(rec);
 
-    print("opt data: ({}) {x}\n", .{ opt.get_data().len, opt.get_data() });
-
     //try opt.timestamp.remove_ts_record(rec);
-
-    print("opt data: ({}) {x}\n", .{ opt.get_data().len, opt.get_data() });
 
     var records = try opt.timestamp.get_records(allocator) orelse {
         try expect(false); // records not found
@@ -290,7 +284,7 @@ test "build timestamp opt" {
     while (cur) |record| {
         if (record.ip) |ipv4| {
             const ipv4_str = try ipv4.to_string(allocator);
-            print("IP: {s}\n", .{ipv4_str});
+            print("IP: {s} ", .{ipv4_str});
             allocator.free(ipv4_str);
         }
         print("TS: {d}\n", .{record.timestamp});
@@ -313,7 +307,7 @@ test "build timestamp opt" {
 
     try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
 
-    //   var option = try ipv4_layer.get_ip_opts(allocator);
+    //   var option = try ipv4_layer.get_options(allocator);
     //   while (option) |cur_opt| {
     //       print("{any} {x} is layer owned: {any}\n", .{
     //           cur_opt.get_opt_type(),
@@ -342,12 +336,6 @@ test "build timestamp opt" {
     //       option = next;
     //   }
 
-    print("IPv4 Header: IHL: {}/{} TL: {}\n", .{
-        ipv4_layer.get_immutable_header().get_ihl(),
-        ipv4_layer.get_immutable_header().get_ihl() * 4,
-        ipv4_layer.get_immutable_header().get_length(),
-    });
-
     var ipv4_opt = ipv4_layer.get_first_op() orelse {
         try expect(false);
         return;
@@ -359,27 +347,7 @@ test "build timestamp opt" {
 
     try ipv4_opt.timestamp.add_ts_record(rec);
 
-    print("IPv4 Header: IHL: {}/{} TL: {}\n", .{
-        ipv4_layer.get_immutable_header().get_ihl(),
-        ipv4_layer.get_immutable_header().get_ihl() * 4,
-        ipv4_layer.get_immutable_header().get_length(),
-    });
-
     try ipv4_opt.timestamp.remove_ts_record(rec);
-
-    print("IPv4 Header: IHL: {}/{} TL: {}\n", .{
-        ipv4_layer.get_immutable_header().get_ihl(),
-        ipv4_layer.get_immutable_header().get_ihl() * 4,
-        ipv4_layer.get_immutable_header().get_length(),
-    });
-
-    print("opt is layer owned: {any}\n", .{opt.timestamp.owner.is_layer_owned()});
-
-    print("ipv4 data: ({}) {x}\n", .{ ipv4_layer.get_data().len, ipv4_layer.get_data() });
-
-    const hdr_str = try ipv4_layer.get_immutable_header().to_string(allocator);
-    print("hdr_str: {s}\n", .{hdr_str});
-    allocator.free(hdr_str);
 
     try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
 }
@@ -399,12 +367,8 @@ test "build timestamp opt in packet" {
     var opt = IPv4.IPv4Option.init(IPv4.IPOptionType.Timestamp, tlv_owner, 4, null, null);
     defer opt.deinit();
 
-    print("opt offset owner buffer: {}\n", .{opt.timestamp.get_offset()});
-
     try opt.timestamp.set_mode_flag(IPv4.IPv4Options.TimestampMode.append_addrs);
     try opt.timestamp.set_overflow(0);
-
-    print("opt data: ({}) {x}\n", .{ opt.get_data().len, opt.get_data() });
 
     var rec = IPv4.IPv4Options.TimestampRecord{
         .timestamp = 999999,
@@ -420,12 +384,6 @@ test "build timestamp opt in packet" {
 
     try opt.timestamp.add_ts_record(rec);
 
-    print("opt data: ({}) {x}\n", .{ opt.get_data().len, opt.get_data() });
-
-    //try opt.timestamp.remove_ts_record(rec);
-
-    print("opt data: ({}) {x}\n", .{ opt.get_data().len, opt.get_data() });
-
     var records = try opt.timestamp.get_records(allocator) orelse {
         try expect(false); // records not found
         return;
@@ -435,7 +393,7 @@ test "build timestamp opt in packet" {
     while (cur) |record| {
         if (record.ip) |ipv4| {
             const ipv4_str = try ipv4.to_string(allocator);
-            print("IP: {s}\n", .{ipv4_str});
+            print("IP: {s} ", .{ipv4_str});
             allocator.free(ipv4_str);
         }
         print("TS: {d}\n", .{record.timestamp});
@@ -451,10 +409,6 @@ test "build timestamp opt in packet" {
 
     try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
 
-    const h_str = try ipv4_layer.get_immutable_header().to_string(allocator);
-    print("h_str: {s}\n", .{h_str});
-    allocator.free(h_str);
-
     var option = ipv4_layer.get_first_op() orelse {
         try expect(false);
         return;
@@ -462,7 +416,7 @@ test "build timestamp opt in packet" {
 
     try expect(option.get_opt_type() == IPv4.IPOptionType.Timestamp);
 
-    //   var option = try ipv4_layer.get_ip_opts(allocator);
+    //   var option = try ipv4_layer.get_options(allocator);
     //   while (option) |cur_opt| {
     //       print("{any} {x} is layer owned: {any}\n", .{
     //           cur_opt.get_opt_type(),
@@ -491,12 +445,6 @@ test "build timestamp opt in packet" {
     //       option = next;
     //   }
 
-    print("IPv4 Header: IHL: {}/{} TL: {}\n", .{
-        ipv4_layer.get_immutable_header().get_ihl(),
-        ipv4_layer.get_immutable_header().get_ihl() * 4,
-        ipv4_layer.get_immutable_header().get_length(),
-    });
-
     var ipv4_opt = ipv4_layer.get_first_op() orelse {
         try expect(false);
         return;
@@ -512,31 +460,9 @@ test "build timestamp opt in packet" {
 
     try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
 
-    print("ipv4 opt data: {x}\n", .{ipv4_opt.get_data()});
-
-    print("IPv4 Header: IHL: {}/{} TL: {}\n", .{
-        ipv4_layer.get_immutable_header().get_ihl(),
-        ipv4_layer.get_immutable_header().get_ihl() * 4,
-        ipv4_layer.get_immutable_header().get_length(),
-    });
-
     try ipv4_opt.timestamp.remove_ts_record(rec);
 
     try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
-
-    print("IPv4 Header: IHL: {}/{} TL: {}\n", .{
-        ipv4_layer.get_immutable_header().get_ihl(),
-        ipv4_layer.get_immutable_header().get_ihl() * 4,
-        ipv4_layer.get_immutable_header().get_length(),
-    });
-
-    print("opt is layer owned: {any}\n", .{opt.timestamp.owner.is_layer_owned()});
-
-    print("ipv4 data: ({}) {x}\n", .{ ipv4_layer.get_data().len, ipv4_layer.get_data() });
-
-    const hdr_str = try ipv4_layer.get_immutable_header().to_string(allocator);
-    print("hdr_str: {s}\n", .{hdr_str});
-    allocator.free(hdr_str);
 
     var packet = try Packet.create(allocator, allocator);
     defer packet.deinit();
@@ -545,21 +471,16 @@ test "build timestamp opt in packet" {
 
     _ = try packet.add_layer(&ipv4_layer_iface);
 
-    const pstr = try packet.to_string(allocator);
-    print("{s}\n", .{pstr});
-    allocator.free(pstr);
-
     if (packet.get_layer_of_type(IPv4.IPv4Layer)) |ip_layer| {
         var first_opt = ip_layer.get_first_op() orelse {
             try expect(false); // first op not found in packet ipv4 layer
             return;
         };
-        print("opt offset packet layer owned: {}\n", .{first_opt.timestamp.get_offset()});
         try first_opt.timestamp.add_ts_record(rec);
-        const hdr = try ip_layer.get_immutable_header().to_string(allocator);
-        print("{s}\n", .{hdr});
-        allocator.free(hdr);
 
         try expect(ip_layer.get_immutable_header().dscp_ecn == 0);
+    } else {
+        try expect(false); // ip layer not found in packet
+        return;
     }
 }

@@ -203,7 +203,7 @@ pub const Packet = struct {
         return self.last_layer;
     }
 
-    pub fn add_layer(self: *Packet, layer_iface: *LayerIface) !bool {
+    pub fn add_layer(self: *Packet, layer_iface: *LayerIface) !void {
         const data = layer_iface.get_data();
 
         const layer: *Layer = try self.layer_allocator.create(Layer); // create the layer
@@ -230,8 +230,6 @@ pub const Packet = struct {
 
         // copy the data into the slice
         @memmove(layer_buffer, data);
-
-        return true; // tbh it probably shouldn't even need to return a true, just void with error union
     }
 
     pub fn get_layer_of_type(self: *Packet, layer_type: anytype) ?*layer_type {

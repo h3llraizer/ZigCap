@@ -268,13 +268,13 @@ pub const IPv4Layer = struct {
         return self.get_payload().len;
     }
 
-    fn get_options(self: *IPv4Layer) []u8 {
+    fn get_opt_buf(self: *IPv4Layer) []u8 {
         const header_len = self.get_immutable_header().get_ihl() * 4;
         return self.get_data()[MinHeaderLength..header_len];
     }
 
     pub fn get_first_op(self: *IPv4Layer) ?IPv4Option {
-        const ops_buf = self.get_options();
+        const ops_buf = self.get_opt_buf();
         const options_list = std.enums.values(IPOptionType)[1..];
         for (options_list) |option| {
             if (@intFromEnum(option) == ops_buf[0]) {
@@ -292,8 +292,8 @@ pub const IPv4Layer = struct {
         return null;
     }
 
-    pub fn get_ip_opts(self: *IPv4Layer, allocator: Allocator) !?*IPv4Option {
-        const ops_buf = self.get_options();
+    pub fn get_options(self: *IPv4Layer, allocator: Allocator) !?*IPv4Option {
+        const ops_buf = self.get_opt_buf();
 
         if (ops_buf.len == 0) {
             return null;
@@ -339,7 +339,7 @@ pub const IPv4Layer = struct {
     }
 
     fn check_pad(self: *IPv4Layer) ?usize {
-        const ops_buf = self.get_options();
+        const ops_buf = self.get_opt_buf();
 
         if (ops_buf.len == 0) {
             return null;
@@ -397,11 +397,11 @@ pub const IPv4Layer = struct {
     pub fn add_option(self: *IPv4Layer, option: *IPv4Option) !void {
         const new_option_bytes = option.get_data();
 
-        print("new_option_bytes: {x}\n", .{new_option_bytes});
+        //   print("new_option_bytes: {x}\n", .{new_option_bytes});
 
         const new_option_bytes_len: usize = new_option_bytes.len;
 
-        print("new_option_bytes_len: {}\n", .{new_option_bytes_len});
+        //     print("new_option_bytes_len: {}\n", .{new_option_bytes_len});
 
         const current_ihl: u8 = self.get_immutable_header().get_ihl();
 
@@ -415,11 +415,11 @@ pub const IPv4Layer = struct {
 
         var new_header_len: usize = current_header_len + @as(usize, @intCast(new_option_bytes_len));
 
-        print("new_header_len: {}\n", .{new_header_len});
+        //    print("new_header_len: {}\n", .{new_header_len});
 
         const pad_required = if (new_header_len % HeaderAlignment == 0) 0 else HeaderAlignment - (new_header_len % HeaderAlignment);
 
-        print("pad_required: {}\n", .{pad_required});
+        //    print("pad_required: {}\n", .{pad_required});
 
         new_header_len += pad_required;
 

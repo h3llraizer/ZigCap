@@ -123,8 +123,8 @@ pub const TLVOwner = union(enum) {
         }
     }
 
-    pub fn is_layer_owned(self: *TLVOwner) bool {
-        switch (self.*) {
+    pub fn is_layer_owned(self: TLVOwner) bool {
+        switch (self) {
             .layer => {
                 return true;
             },

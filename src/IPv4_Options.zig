@@ -65,6 +65,15 @@ pub const IPv4Option = union(enum) {
                 } };
             },
             .Timestamp => {
+                print("timestamp op being init'd.\n", .{});
+                if (!owner.is_layer_owned()) {
+                    print("data len: {}\n", .{owner.owned_buffer.buffer.items.len});
+                } else {
+                    if (owner.layer.is_packet_owned()) {
+                        print("packet owned.\n", .{});
+                        print("data len: {}\n", .{owner.layer.packet_layer.length});
+                    }
+                }
                 return IPv4Option{ .timestamp = Timestamp{
                     .owner = owner,
                     .length = length,
@@ -670,7 +679,7 @@ pub const Timestamp = struct {
 
     pub fn get_records(self: *Timestamp, allocator: Allocator) !?TimestampRecords {
         const data = self.get_data();
-        if (data.len < 7) {
+        if (data.len < 8) {
             return null;
         }
 
@@ -680,7 +689,7 @@ pub const Timestamp = struct {
 
         var offset: usize = 4; // 1byte type, 1byte length, 1byte flag/of, 1byte ptr
 
-        const offset_inc: usize = if (self.get_mode_flag() == .ts_only) 4 else 8;
+        const offset_inc: usize = if (self.get_mode_flag() == .ts_only) @sizeOf(u32) else (@sizeOf(u32) + @sizeOf(IPv4.IPv4Address));
 
         while (offset + offset_inc <= data.len) {
             const record = try allocator.create(TimestampRecord);
@@ -691,9 +700,9 @@ pub const Timestamp = struct {
                 record.* = .{ .timestamp = @byteSwap(timestamp) };
             } else {
                 var ip: IPv4.IPv4Address = .init_from_u32(0x00000000);
-                const timestamp: u32 = std.mem.bytesToValue(u32, self.get_data()[offset + 4 .. offset + offset_inc]);
+                const timestamp: u32 = std.mem.bytesToValue(u32, self.get_data()[offset + @sizeOf(IPv4.IPv4Address) .. offset + offset_inc]);
 
-                @memmove(&ip.array, self.get_data()[offset .. offset + 4]);
+                @memmove(&ip.array, self.get_data()[offset .. offset + @sizeOf(IPv4.IPv4Address)]);
 
                 record.* = .{ .ip = ip, .timestamp = @byteSwap(timestamp) };
             }
@@ -724,17 +733,6 @@ pub const Timestamp = struct {
         return records;
     }
 
-    pub fn get_ip_list(self: *Timestamp, allocator: Allocator) !?[]IPv4.IPv4Address {
-        const data = self.get_data();
-
-        return get_ips_list(data, allocator);
-    }
-
-    pub fn get_ip_count(self: *Timestamp) usize {
-        const data = self.get_data();
-        return get_ips_count(data);
-    }
-
     fn add_ip(self: *Timestamp, ip: IPv4.IPv4Address) !void {
         return add_ip_to_buffer(self.get_offset(), &self.owner, ip, IPv4.IPOptionType.Timestamp);
     }
@@ -749,8 +747,8 @@ pub const Timestamp = struct {
             const bytes: [4]u8 = std.mem.toBytes(@byteSwap(record.timestamp));
             if (std.mem.indexOf(u8, data, &bytes)) |offset| {
                 try self.owner.shorten_buffer(offset, @sizeOf(u32));
-                self.get_data_mut()[1] -= 4;
-                self.set_hdr_vals(-4);
+                self.get_data_mut()[1] -= @sizeOf(u32);
+                self.set_hdr_vals(-@sizeOf(u32));
                 return;
             }
         }
@@ -763,13 +761,11 @@ pub const Timestamp = struct {
         @memmove(full_rec[4..8], &ts_bytes);
 
         if (std.mem.indexOf(u8, data, &full_rec)) |offset| {
-            try self.owner.shorten_buffer(self.get_offset() + 4 + offset, 8);
-            self.get_data_mut()[1] -= 8;
-            self.set_hdr_vals(-8);
+            try self.owner.shorten_buffer(self.get_offset() + 4 + offset, (@sizeOf(u32) + @sizeOf(IPv4.IPv4Address)));
+            self.get_data_mut()[1] -= (@sizeOf(u32) + @sizeOf(IPv4.IPv4Address));
+            self.set_hdr_vals(-(@sizeOf(u32) + @sizeOf(IPv4.IPv4Address)));
             return;
         }
-
-        print("no action.\n", .{});
     }
 
     fn get_mutable_hdr(self: *Timestamp) *IPv4.IPv4Header {
@@ -798,7 +794,7 @@ pub const Timestamp = struct {
                 return error.InvalidTimestampOnlyRecord; // TS Only does not contain IP addresses
             }
             try self.add_timestamp(record.timestamp);
-            self.set_hdr_vals(4);
+            self.set_hdr_vals(@sizeOf(u32));
             return;
         }
 
@@ -806,11 +802,9 @@ pub const Timestamp = struct {
             return error.IPRequiredForNonTSOnlyRecord; // caller must provide an IP, even if 0.0.0.0 for place holder
         }
 
-        print("adding record. owner is layer: {any}\n", .{self.owner.is_layer_owned()});
-
         try self.add_ip(record.ip.?);
         try self.add_timestamp(record.timestamp);
-        self.set_hdr_vals(8);
+        self.set_hdr_vals((@sizeOf(u32) + @sizeOf(IPv4.IPv4Address)));
     }
 
     pub fn deinit(self: *Timestamp) void {
