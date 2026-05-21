@@ -2,14 +2,15 @@
 A packet capture and parsing library for Zig.
 
 ## Status
-ZigCap is currently **experimental** and under active development. APIs may change frequently.
+ZigCap is currently **experimental** and under active development. All changes are being made on the main branch until the overall design is stable. APIs may change frequently.
+
 
 ## Features
 Currently supported functionality:
 - Build packets
 - Parse and modify existing packets
 - Build standalone layers (not attached to Packet)
-- Sniff and Inject packets with the PcapWrapper (tested on Windows)
+- Sniff and Inject packets with the PcapWrapper (tested on Windows & Linux)
 - Sniff, Block, Modify or Drop Packets with the WinDivertWrapper (Windows)
 
 ## Supported Protocols
@@ -25,11 +26,8 @@ Currently supported functionality:
 - Generic / Application Layer (`src/GenericLayer.zig`)
 
 Note, these protocols are supported but not fully implemented with their extended features:
-- IPv4-header options only have basic support to add options only
-- a select few TCP-Header options are parsable (cannot be added or removed from layers yet)
-- a select few IPv6-Header extensions are parsable (cannot be added or removed from layers yet)
-
-
+- IPv4-header options covered are currently Record Route, Loose Source Route, Strict Source Route, Timestamp, Router Alert
+- a select few TCP-Header/IPv6 options/extensions are parsable but adding/removing them is fragile.
 
 ## Testing
 All tests are currently passing (`tests/`).
@@ -40,3 +38,6 @@ Contributions are welcome, but note:
 - Open issues or PRs may overlap with ongoing work
 
 Feel free to open an issue or submit a pull request regardless.
+
+## Breaking changes
+

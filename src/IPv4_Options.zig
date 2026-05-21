@@ -187,10 +187,10 @@ fn get_ips_count(data: []const u8) usize {
     return ip_count;
 }
 
-fn add_ip_to_buf(data: []u8, owner: *TLVOwner, ip: IPv4.IPv4Address, opt_type: IPv4.IPOptionType) !void {
-    if (data.len == 0) {
+fn add_ip_to_buffer(offset: usize, owner: *TLVOwner, ip: IPv4.IPv4Address, opt_type: IPv4.IPOptionType) !void {
+    if (owner.get_data()[offset..].len == 0) {
         if (opt_type == .Timestamp) {
-            var buf = try owner.extend_buffer(0, 4);
+            var buf = try owner.extend_buffer(offset, 4);
             buf[0] = @intFromEnum(opt_type);
             buf[1] = 4;
             buf[2] = 0;
@@ -212,7 +212,7 @@ fn add_ip_to_buf(data: []u8, owner: *TLVOwner, ip: IPv4.IPv4Address, opt_type: I
     // This is the cause of the dscp length increase
     // dscp is at offset 1 in the ipv4 header
     // so each time this is called, it's increasing by 4
-    owner.get_data()[1] += @sizeOf(IPv4.IPv4Address); // increase the length
+    owner.get_data()[offset + 1] += @sizeOf(IPv4.IPv4Address); // increase the length
 }
 
 fn remove_ip_from_list(owner: *TLVOwner, ip: IPv4.IPv4Address) !void {
@@ -287,8 +287,8 @@ fn get_ip_offset(owner: *TLVOwner, ip: IPv4.IPv4Address, cur_offset: usize) ?usi
     return null;
 }
 
-fn add_timestamp_to_buf(data: []u8, owner: *TLVOwner, timestamp: u32, opt_type: IPv4.IPOptionType) !void {
-    if (data.len == 0) {
+fn add_timestamp_to_buffer(offset: usize, owner: *TLVOwner, timestamp: u32, opt_type: IPv4.IPOptionType) !void {
+    if (owner.get_data()[offset..].len == 0) {
         var buf = try owner.extend_buffer(0, 4);
         buf[0] = @intFromEnum(opt_type);
         buf[1] = 4; // min length for RecordRoute Opt - 1byte type, 1 byte length, 1byte ptr
@@ -299,7 +299,7 @@ fn add_timestamp_to_buf(data: []u8, owner: *TLVOwner, timestamp: u32, opt_type: 
     const buf = try owner.extend_buffer(owner.get_data().len, @sizeOf(u32));
     @memmove(buf, &std.mem.toBytes(@byteSwap(timestamp))); // copy the ip
 
-    owner.get_data()[1] += @sizeOf(u32); // increase the length
+    owner.get_data()[offset + 1] += @sizeOf(u32); // increase the length
 }
 
 pub const RecordRoute = struct {
@@ -354,7 +354,7 @@ pub const RecordRoute = struct {
     }
 
     pub fn add_ip(self: *RecordRoute, ip: IPv4.IPv4Address) !void {
-        return add_ip_to_buf(self.get_data_mut(), &self.owner, ip, IPv4.IPOptionType.RecordRoute);
+        return add_ip_to_buffer(self.get_offset(), &self.owner, ip, IPv4.IPOptionType.RecordRoute);
     }
 
     pub fn remove_ip(self: *RecordRoute, ip: IPv4.IPv4Address) !void {
@@ -418,7 +418,7 @@ pub const LooseSourceRoute = struct {
     }
 
     pub fn add_ip(self: *LooseSourceRoute, ip: IPv4.IPv4Address) !void {
-        return add_ip_to_buf(self.get_data_mut(), &self.owner, ip, IPv4.IPOptionType.LooseSourceRoute);
+        return add_ip_to_buffer(self.get_offset(), &self.owner, ip, IPv4.IPOptionType.LooseSourceRoute);
     }
 
     pub fn remove_ip(self: *LooseSourceRoute, ip: IPv4.IPv4Address) !void {
@@ -482,7 +482,7 @@ pub const StrictSourceRoute = struct {
     }
 
     pub fn add_ip(self: *StrictSourceRoute, ip: IPv4.IPv4Address) !void {
-        return add_ip_to_buf(self.get_data_mut(), &self.owner, ip, IPv4.IPOptionType.StrictSourceRoute);
+        return add_ip_to_buffer(self.get_offset(), &self.owner, ip, IPv4.IPOptionType.StrictSourceRoute);
     }
 
     pub fn remove_ip(self: *StrictSourceRoute, ip: IPv4.IPv4Address) !void {
@@ -541,7 +541,6 @@ pub const RouterAlert = struct {
             buf[1] = 4; // min length for RecordRoute Opt - 1byte type, 1 byte length, 1byte ptr
         }
 
-        //const buf = try self.owner.extend_payload(self.owner.get_data().len, @sizeOf(u16));
         @memmove(self.get_data_mut()[2..4], &std.mem.toBytes(val)); // copy the ip
     }
 
@@ -666,7 +665,7 @@ pub const Timestamp = struct {
     }
 
     fn add_timestamp(self: *Timestamp, timestamp: u32) !void {
-        try add_timestamp_to_buf(self.get_data_mut(), &self.owner, timestamp, IPv4.IPOptionType.Timestamp);
+        try add_timestamp_to_buffer(self.get_offset(), &self.owner, timestamp, IPv4.IPOptionType.Timestamp);
     }
 
     pub fn get_records(self: *Timestamp, allocator: Allocator) !?TimestampRecords {
@@ -737,7 +736,7 @@ pub const Timestamp = struct {
     }
 
     fn add_ip(self: *Timestamp, ip: IPv4.IPv4Address) !void {
-        return add_ip_to_buf(self.get_data_mut(), &self.owner, ip, IPv4.IPOptionType.Timestamp);
+        return add_ip_to_buffer(self.get_offset(), &self.owner, ip, IPv4.IPOptionType.Timestamp);
     }
 
     fn remove_ip(self: *Timestamp, ip: IPv4.IPv4Address) !void {
