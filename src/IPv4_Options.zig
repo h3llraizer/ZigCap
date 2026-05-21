@@ -26,6 +26,13 @@ pub const IPv4Option = union(enum) {
     ) IPv4Option {
         switch (opt) {
             .RecordRoute => {
+                //const len = owner.get_data().len;
+                //if (!owner.is_layer_owned()) {
+                //    if (len < 3) {
+                //        try owner.extend_buffer(len, 3 - len);
+                //    }
+                //}
+
                 return IPv4Option{ .record_route = RecordRoute{
                     .owner = owner,
                     .length = length,

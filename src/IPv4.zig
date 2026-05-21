@@ -203,22 +203,6 @@ pub const IPv4Header = extern struct {
     }
 };
 
-pub const IPOptions = struct {
-    first: ?*IPOption = null,
-    opts_count: usize = 0,
-
-    pub fn deinit(self: *IPOptions, allocator: Allocator) void {
-        var cur = self.first;
-        while (cur) |opt| {
-            const next = opt.next_opt;
-            allocator.destroy(opt);
-            cur = next;
-        }
-
-        self.opts_count = 0;
-    }
-};
-
 /// IPv4 options can be added one at a time and removed all at once.
 pub const IPv4Layer = struct {
     owner: LayerOwner,
@@ -315,9 +299,6 @@ pub const IPv4Layer = struct {
             return null;
         }
 
-        print("FIRS OPTION: {any}\n", .{@as(IPOptionType, @enumFromInt(ops_buf[0]))});
-        print("ops buf: {x}\n", .{ops_buf});
-
         const options_list = std.enums.values(IPOptionType)[1..];
 
         var cur: ?*IPv4Option = null;
@@ -355,95 +336,6 @@ pub const IPv4Layer = struct {
         }
 
         return cur;
-    }
-
-    pub fn get_opts(self: *IPv4Layer, allocator: Allocator) !?IPOptions {
-        const ops_buf = self.get_options();
-
-        if (ops_buf.len == 0) {
-            return null;
-        }
-
-        print("ops_buf: ({}) {x}\n", .{ ops_buf.len, ops_buf });
-
-        var opts: IPOptions = .{};
-
-        var cur: ?*IPOption = null;
-
-        const options_list = std.enums.values(IPOptionType)[1..];
-        var offset: usize = 0;
-        var op_type_found: bool = false;
-        var length_byte_found: bool = false;
-
-        var type_offset: usize = 0;
-        var length_offset: usize = 0;
-
-        var data_offset: usize = 0;
-
-        while (offset < ops_buf.len - 1) {
-            if (op_type_found == false) {
-                for (options_list) |option| {
-                    if (@intFromEnum(option) == ops_buf[offset]) {
-                        op_type_found = true;
-                        type_offset = offset;
-                        offset += 1;
-                        data_offset += 1;
-                        var ptr_byte = false;
-                        if (IPOptionType.requires_ptr_byte(option)) {
-                            ptr_byte = true;
-                            data_offset += 1;
-                        }
-
-                        const op_len: usize = @intCast(ops_buf[offset]);
-
-                        if (op_len <= ops_buf.len) {
-                            data_offset += 1;
-                            length_offset = offset;
-
-                            offset += op_len;
-                            offset -= 1; // type byte
-                            if (ptr_byte) offset -= 1;
-
-                            length_byte_found = true;
-                        }
-                    }
-                }
-            }
-
-            if (op_type_found == true and length_byte_found == true) {
-                const option = try allocator.create(IPOption);
-
-                const op_len: usize = @intCast(ops_buf[length_offset]);
-
-                option.* = try IPOption.init(
-                    @as(IPOptionType, @enumFromInt(ops_buf[type_offset])),
-                    ops_buf[data_offset..op_len],
-                );
-
-                // append to linkedlist
-                if (cur) |opt| { // if the last answer is not null
-                    opt.next_opt = option; // set the last answer next answer to the answer created (answer being added)
-                }
-
-                cur = option; // the last answer is now the answer that's being added
-                if (opts.first == null) {
-                    opts.first = cur;
-                }
-
-                opts.opts_count += 1;
-
-                op_type_found = false;
-                length_byte_found = false;
-                type_offset = 0;
-                length_offset = 0;
-
-                continue;
-            }
-
-            offset += 1; // type & op byte wasn't found. Increment offset by 1
-        }
-
-        return opts;
     }
 
     fn check_pad(self: *IPv4Layer) ?usize {
@@ -792,79 +684,6 @@ pub const IPOptionType = enum(u8) {
             },
             else => return false,
         }
-    }
-};
-
-/// not fully implemented yet
-pub const IPOption = struct {
-    type: IPOptionType,
-    length: u8,
-    ptr: ?u8 = null,
-    data: []u8,
-    next_opt: ?*IPOption = null,
-
-    pub fn init(opt_type: IPOptionType, data: []u8) !IPOption {
-        var len = 2 + data.len; // type + length + data
-        if (IPOptionType.requires_ptr_byte(opt_type)) {
-            len += 1;
-        }
-
-        if (len > MaxHeaderLength) return error.OptionTooLong;
-
-        var opt = IPOption{
-            .type = opt_type,
-            .length = @as(u8, @intCast(data.len)),
-            .data = data,
-        };
-
-        if (IPOptionType.requires_ptr_byte(opt_type)) {
-            opt.ptr = @intCast((len - data.len) + 1); // add 1 for the length of the ptr byte itself
-        }
-
-        return opt;
-    }
-
-    /// Type only (NoOperation or EndOfOptions)
-    pub fn initNoData(opt_type: IPOptionType) IPOption {
-        return IPOption{
-            .type = opt_type,
-            .length = 1,
-            .data = &[_]u8{},
-        };
-    }
-
-    //Use NOP to insert a byte to align the next option
-    //Use EOL, then pad with zeros to reach a 4-byte boundary at the end
-    pub fn toBytes(self: IPOption, allocator: Allocator) ![]align(2) u8 {
-        var bytes: std.array_list.Aligned(u8, std.mem.Alignment.@"2") = .empty;
-        defer bytes.deinit(allocator);
-
-        try bytes.append(allocator, @intFromEnum(self.type)); // append the type
-
-        var len: u8 = 0;
-
-        len += 1; // 1-byte for type
-        len += 1; // 1-byte for length
-
-        if (self.ptr) |p| { // if there's a ptr byte required for this option
-            _ = p;
-            len += 1; // 1-byte for ptr
-        }
-
-        len += @intCast(self.data.len);
-
-        if (self.length > 1) {
-            try bytes.append(allocator, @intCast(len)); // append length byte
-        }
-
-        if (self.ptr) |p| {
-            try bytes.append(allocator, p); // append ptr byte if it exists
-
-        }
-
-        try bytes.appendSlice(allocator, self.data); // append the data
-
-        return bytes.toOwnedSlice(allocator);
     }
 };
 

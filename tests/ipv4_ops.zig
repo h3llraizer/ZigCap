@@ -269,37 +269,62 @@ test "build timestamp opt" {
 
     print("opt data: ({}) {x}\n", .{ opt.get_data().len, opt.get_data() });
 
-    try opt.timestamp.remove_ts_record(rec);
+    //try opt.timestamp.remove_ts_record(rec);
 
     print("opt data: ({}) {x}\n", .{ opt.get_data().len, opt.get_data() });
 
-    //   var records = try opt.timestamp.get_records(allocator) orelse {
-    //       try expect(false); // records not found
+    var records = try opt.timestamp.get_records(allocator) orelse {
+        try expect(false); // records not found
+        return;
+    };
+
+    var cur = records.first;
+    while (cur) |record| {
+        if (record.ip) |ipv4| {
+            const ipv4_str = try ipv4.to_string(allocator);
+            print("IP: {s}\n", .{ipv4_str});
+            allocator.free(ipv4_str);
+        }
+        print("TS: {d}\n", .{record.timestamp});
+        cur = record.next_record;
+    }
+
+    records.deinit(allocator);
+
+    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
+    defer ipv4_layer.deinit();
+
+    try ipv4_layer.add_option(&opt);
+
+    //   var option = ipv4_layer.get_first_op() orelse {
+    //       try expect(false);
     //       return;
     //   };
     //
-    //   var cur = records.first;
-    //   while (cur) |record| {
-    //       if (record.ip) |ipv4| {
-    //           const ipv4_str = try ipv4.to_string(allocator);
-    //           print("IP: {s}\n", .{ipv4_str});
-    //           allocator.free(ipv4_str);
-    //       }
-    //       print("TS: {d}\n", .{record.timestamp});
-    //       cur = record.next_record;
-    //   }
-    //
-    //   records.deinit(allocator);
+    //   try expect(option.get_opt_type() == IPv4.IPOptionType.Timestamp);
 
-    // var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
-    // defer ipv4_layer.deinit();
-
-    // try ipv4_layer.add_option(&opt);
-
-    // var cur = ipv4_layer.get_first_op() orelse {
-    //     try expect(false);
-    //     return;
-    // };
-
-    // try expect(cur.get_opt_type() == IPv4.IPOptionType.Timestamp);
+    var option = try ipv4_layer.get_ip_opts(allocator);
+    while (option) |cur_opt| {
+        print("{any} {x}\n", .{ cur_opt.get_opt_type(), cur_opt.get_data() });
+        const next = cur_opt.get_next();
+        if (cur_opt.get_opt_type() == .Timestamp) {
+            var ts_records = try cur_opt.timestamp.get_records(allocator) orelse {
+                try expect(false);
+                return;
+            };
+            defer ts_records.deinit(allocator);
+            var ts_record = ts_records.first;
+            while (ts_record) |record| {
+                if (record.ip) |ip_addr| {
+                    const ip_str = try ip_addr.to_string(allocator);
+                    print("ip: {s}\n", .{ip_str});
+                    allocator.free(ip_str);
+                }
+                print("ts: {d}\n", .{record.timestamp});
+                ts_record = record.next_record;
+            }
+        }
+        allocator.destroy(cur_opt);
+        option = next;
+    }
 }
