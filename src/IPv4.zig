@@ -17,7 +17,8 @@ const panic = std.debug.panic;
 const LayerError = ProtocolEnums.LayerError;
 const IPProtocol = ProtocolEnums.IPProtocol;
 
-pub const IPv4Option = @import("IPv4_Options.zig").IPv4Option;
+pub const IPv4Options = @import("IPv4_Options.zig");
+pub const IPv4Option = IPv4Options.IPv4Option;
 
 pub const MaxHeaderLength = 60; //IPv4MinHeader Length
 pub const MinHeaderLength = 20;

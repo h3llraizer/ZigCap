@@ -232,3 +232,74 @@ test "build ra opt" {
 
     try ra_opt.router_alert.set_ra_val(0x4321);
 }
+
+test "build timestamp opt" {
+    print("TESTING TIMESTAMP OPTION.\n\n\n", .{});
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.detectLeaks();
+
+    const allocator = debug_allocator.allocator();
+
+    const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
+    var tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+
+    defer tmp_owner.deinit();
+
+    var opt = IPv4.IPv4Option.init(IPv4.IPOptionType.Timestamp, tlv_owner, 4, null, null);
+    defer opt.deinit();
+
+    try opt.timestamp.set_mode_flag(IPv4.IPv4Options.TimestampMode.append_addrs);
+    try opt.timestamp.set_overflow(0);
+
+    print("opt data: ({}) {x}\n", .{ opt.get_data().len, opt.get_data() });
+
+    var rec = IPv4.IPv4Options.TimestampRecord{
+        .timestamp = 999999,
+        .ip = try IPv4.IPv4Address.init_from_string("172.72.3.1"),
+    };
+
+    try opt.timestamp.add_ts_record(rec);
+
+    rec = .{
+        .timestamp = 111111,
+        .ip = try IPv4.IPv4Address.init_from_string("10.1.1.1"),
+    };
+
+    try opt.timestamp.add_ts_record(rec);
+
+    print("opt data: ({}) {x}\n", .{ opt.get_data().len, opt.get_data() });
+
+    try opt.timestamp.remove_ts_record(rec);
+
+    print("opt data: ({}) {x}\n", .{ opt.get_data().len, opt.get_data() });
+
+    //   var records = try opt.timestamp.get_records(allocator) orelse {
+    //       try expect(false); // records not found
+    //       return;
+    //   };
+    //
+    //   var cur = records.first;
+    //   while (cur) |record| {
+    //       if (record.ip) |ipv4| {
+    //           const ipv4_str = try ipv4.to_string(allocator);
+    //           print("IP: {s}\n", .{ipv4_str});
+    //           allocator.free(ipv4_str);
+    //       }
+    //       print("TS: {d}\n", .{record.timestamp});
+    //       cur = record.next_record;
+    //   }
+    //
+    //   records.deinit(allocator);
+
+    // var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
+    // defer ipv4_layer.deinit();
+
+    // try ipv4_layer.add_option(&opt);
+
+    // var cur = ipv4_layer.get_first_op() orelse {
+    //     try expect(false);
+    //     return;
+    // };
+
+    // try expect(cur.get_opt_type() == IPv4.IPOptionType.Timestamp);
+}
