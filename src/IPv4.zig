@@ -281,7 +281,7 @@ pub const IPv4Layer = struct {
                 const length: usize = @intCast(ops_buf[1]);
                 return IPv4Option.init(
                     option,
-                    TLVOwner{ .layer = LayerIface{ .ipv4Layer = self.* } },
+                    TLVOwner{ .layer = &self.owner },
                     length,
                     null,
                     null,
@@ -313,7 +313,7 @@ pub const IPv4Layer = struct {
 
                     opt.* = IPv4Option.init(
                         option,
-                        TLVOwner{ .layer = LayerIface{ .ipv4Layer = self.* } },
+                        TLVOwner{ .layer = &self.owner },
                         length,
                         null,
                         null,

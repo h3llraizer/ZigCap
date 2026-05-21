@@ -86,12 +86,12 @@ pub const LayerOwner = union(enum) {
 };
 
 pub const TLVOwner = union(enum) {
-    layer: LayerIface,
+    layer: *LayerOwner,
     owned_buffer: Buffer,
 
     pub fn get_data(self: *TLVOwner) []u8 {
         return switch (self.*) {
-            .layer => |*layer| layer.get_data(),
+            .layer => |layer| layer.get_data(),
             .owned_buffer => |buffer| buffer.buffer.items,
         };
     }
@@ -99,8 +99,8 @@ pub const TLVOwner = union(enum) {
     pub fn extend_buffer(self: *TLVOwner, offset: usize, extend_len: usize) ![]u8 {
         var buf: []u8 = undefined;
         switch (self.*) {
-            .layer => |*layer| {
-                buf = try layer.get_owner().extend_payload(offset, extend_len); // TODO: extend at offset instead
+            .layer => |layer| {
+                buf = try layer.extend_payload(offset, extend_len); // TODO: extend at offset instead
             },
             .owned_buffer => |*buffer| {
                 buf = try buffer.extend(offset, extend_len);
@@ -114,8 +114,8 @@ pub const TLVOwner = union(enum) {
 
     pub fn shorten_buffer(self: *TLVOwner, offset: usize, shorten_len: usize) !void {
         switch (self.*) {
-            .layer => |*layer| {
-                try layer.get_owner().shorten_payload(offset, shorten_len);
+            .layer => |layer| {
+                try layer.shorten_payload(offset, shorten_len);
             },
             .owned_buffer => |*buffer| {
                 try buffer.shorten(offset, shorten_len);

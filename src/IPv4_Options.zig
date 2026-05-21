@@ -189,15 +189,29 @@ fn get_ips_count(data: []const u8) usize {
 
 fn add_ip_to_buf(data: []u8, owner: *TLVOwner, ip: IPv4.IPv4Address, opt_type: IPv4.IPOptionType) !void {
     if (data.len == 0) {
-        var buf = try owner.extend_buffer(0, 3);
-        buf[0] = @intFromEnum(opt_type);
-        buf[1] = 3; // min length for RecordRoute Opt - 1byte type, 1 byte length, 1byte ptr
-        buf[2] = 4; // default ptr byte set to index after ptr byte
+        if (opt_type == .Timestamp) {
+            var buf = try owner.extend_buffer(0, 4);
+            buf[0] = @intFromEnum(opt_type);
+            buf[1] = 4;
+            buf[2] = 0;
+            buf[3] = 5;
+        } else {
+            var buf = try owner.extend_buffer(0, 3);
+            buf[0] = @intFromEnum(opt_type);
+            buf[1] = 3; // min length for RR/LSR/SSR Opt - 1byte type, 1 byte length, 1byte ptr
+            buf[2] = 4; // default ptr byte set to index after ptr byte
+        }
     }
 
-    const buf = try owner.extend_buffer(owner.get_data().len, @sizeOf(IPv4.IPv4Address));
+    const buf = try owner.extend_buffer(
+        owner.get_data().len, // not good - when layer owned this extends at the last option or worse packet end
+        @sizeOf(IPv4.IPv4Address),
+    );
     @memmove(buf, &ip.array); // copy the ip
 
+    // This is the cause of the dscp length increase
+    // dscp is at offset 1 in the ipv4 header
+    // so each time this is called, it's increasing by 4
     owner.get_data()[1] += @sizeOf(IPv4.IPv4Address); // increase the length
 }
 
@@ -575,17 +589,17 @@ pub const Timestamp = struct {
     prev_op: ?*IPv4Option = null,
     next_op: ?*IPv4Option = null,
 
-    fn get_offset(self: *Timestamp) usize {
+    pub fn get_offset(self: *Timestamp) usize {
         var offset: usize = 0;
 
         if (self.owner.is_layer_owned()) {
             offset = IPv4.MinHeaderLength;
-        }
 
-        var cur = self.prev_op;
-        while (cur) |prev_op| {
-            offset += prev_op.get_length();
-            cur = prev_op.get_prev();
+            var cur = self.prev_op;
+            while (cur) |prev_op| {
+                offset += prev_op.get_length();
+                cur = prev_op.get_prev();
+            }
         }
 
         return offset;
@@ -774,7 +788,6 @@ pub const Timestamp = struct {
         if (self.owner.is_layer_owned()) {
             const hdr = self.get_mutable_hdr();
             const new_len: isize = hdr.get_length() + len;
-            print("setting len to: {}\n", .{new_len});
             hdr.set_length(@intCast(new_len));
             hdr.set_ihl(@intCast(hdr.get_length()));
         }
@@ -799,11 +812,6 @@ pub const Timestamp = struct {
         try self.add_ip(record.ip.?);
         try self.add_timestamp(record.timestamp);
         self.set_hdr_vals(8);
-        // if (self.owner.is_layer_owned()) {
-        //     const hdr = self.get_mutable_hdr();
-        //     hdr.set_length(hdr.get_length() + 8);
-        //     hdr.set_ihl(@intCast(hdr.get_length()));
-        // }
     }
 
     pub fn deinit(self: *Timestamp) void {

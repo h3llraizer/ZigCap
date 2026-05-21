@@ -296,43 +296,47 @@ test "build timestamp opt" {
 
     try ipv4_layer.add_option(&opt);
 
-    //   var option = ipv4_layer.get_first_op() orelse {
-    //       try expect(false);
-    //       return;
-    //   };
-    //
-    //   try expect(option.get_opt_type() == IPv4.IPOptionType.Timestamp);
+    var option = ipv4_layer.get_first_op() orelse {
+        try expect(false);
+        return;
+    };
 
-    var option = try ipv4_layer.get_ip_opts(allocator);
-    while (option) |cur_opt| {
-        print("{any} {x} is layer owned: {any}\n", .{
-            cur_opt.get_opt_type(),
-            cur_opt.get_data(),
-            cur_opt.timestamp.owner.is_layer_owned(),
-        });
-        const next = cur_opt.get_next();
-        if (cur_opt.get_opt_type() == .Timestamp) {
-            var ts_records = try cur_opt.timestamp.get_records(allocator) orelse {
-                try expect(false);
-                return;
-            };
-            defer ts_records.deinit(allocator);
-            var ts_record = ts_records.first;
-            while (ts_record) |record| {
-                if (record.ip) |ip_addr| {
-                    const ip_str = try ip_addr.to_string(allocator);
-                    print("ip: {s}\n", .{ip_str});
-                    allocator.free(ip_str);
-                }
-                print("ts: {d}\n", .{record.timestamp});
-                ts_record = record.next_record;
-            }
-        }
-        allocator.destroy(cur_opt);
-        option = next;
-    }
+    try expect(option.get_opt_type() == IPv4.IPOptionType.Timestamp);
 
-    print("IPv4 Header: IHL: {}/{} TL: {}\n", .{ ipv4_layer.get_immutable_header().get_ihl(), ipv4_layer.get_immutable_header().get_ihl() * 4, ipv4_layer.get_immutable_header().get_length() });
+    //   var option = try ipv4_layer.get_ip_opts(allocator);
+    //   while (option) |cur_opt| {
+    //       print("{any} {x} is layer owned: {any}\n", .{
+    //           cur_opt.get_opt_type(),
+    //           cur_opt.get_data(),
+    //           cur_opt.timestamp.owner.is_layer_owned(),
+    //       });
+    //       const next = cur_opt.get_next();
+    //       if (cur_opt.get_opt_type() == .Timestamp) {
+    //           var ts_records = try cur_opt.timestamp.get_records(allocator) orelse {
+    //               try expect(false);
+    //               return;
+    //           };
+    //           defer ts_records.deinit(allocator);
+    //           var ts_record = ts_records.first;
+    //           while (ts_record) |record| {
+    //               if (record.ip) |ip_addr| {
+    //                   const ip_str = try ip_addr.to_string(allocator);
+    //                   print("ip: {s}\n", .{ip_str});
+    //                   allocator.free(ip_str);
+    //               }
+    //               print("ts: {d}\n", .{record.timestamp});
+    //               ts_record = record.next_record;
+    //           }
+    //       }
+    //       allocator.destroy(cur_opt);
+    //       option = next;
+    //   }
+
+    print("IPv4 Header: IHL: {}/{} TL: {}\n", .{
+        ipv4_layer.get_immutable_header().get_ihl(),
+        ipv4_layer.get_immutable_header().get_ihl() * 4,
+        ipv4_layer.get_immutable_header().get_length(),
+    });
 
     var ipv4_opt = ipv4_layer.get_first_op() orelse {
         try expect(false);
@@ -345,13 +349,209 @@ test "build timestamp opt" {
 
     try ipv4_opt.timestamp.add_ts_record(rec);
 
-    print("IPv4 Header: IHL: {}/{} TL: {}\n", .{ ipv4_layer.get_immutable_header().get_ihl(), ipv4_layer.get_immutable_header().get_ihl() * 4, ipv4_layer.get_immutable_header().get_length() });
+    print("IPv4 Header: IHL: {}/{} TL: {}\n", .{
+        ipv4_layer.get_immutable_header().get_ihl(),
+        ipv4_layer.get_immutable_header().get_ihl() * 4,
+        ipv4_layer.get_immutable_header().get_length(),
+    });
 
-    //try ipv4_opt.timestamp.remove_ts_record(rec);
+    try ipv4_opt.timestamp.remove_ts_record(rec);
 
-    print("IPv4 Header: IHL: {}/{} TL: {}\n", .{ ipv4_layer.get_immutable_header().get_ihl(), ipv4_layer.get_immutable_header().get_ihl() * 4, ipv4_layer.get_immutable_header().get_length() });
+    print("IPv4 Header: IHL: {}/{} TL: {}\n", .{
+        ipv4_layer.get_immutable_header().get_ihl(),
+        ipv4_layer.get_immutable_header().get_ihl() * 4,
+        ipv4_layer.get_immutable_header().get_length(),
+    });
 
     print("opt is layer owned: {any}\n", .{opt.timestamp.owner.is_layer_owned()});
 
     print("ipv4 data: ({}) {x}\n", .{ ipv4_layer.get_data().len, ipv4_layer.get_data() });
+
+    const hdr_str = try ipv4_layer.get_immutable_header().to_string(allocator);
+    print("hdr_str: {s}\n", .{hdr_str});
+    allocator.free(hdr_str);
+}
+
+test "build timestamp opt in packet" {
+    print("TESTING TIMESTAMP OPTION IN PACKET.\n\n\n", .{});
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.detectLeaks();
+
+    const allocator = debug_allocator.allocator();
+
+    const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
+    var tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+
+    defer tmp_owner.deinit();
+
+    var opt = IPv4.IPv4Option.init(IPv4.IPOptionType.Timestamp, tlv_owner, 4, null, null);
+    defer opt.deinit();
+
+    print("opt offset owner buffer: {}\n", .{opt.timestamp.get_offset()});
+
+    try opt.timestamp.set_mode_flag(IPv4.IPv4Options.TimestampMode.append_addrs);
+    try opt.timestamp.set_overflow(0);
+
+    print("opt data: ({}) {x}\n", .{ opt.get_data().len, opt.get_data() });
+
+    var rec = IPv4.IPv4Options.TimestampRecord{
+        .timestamp = 999999,
+        .ip = try IPv4.IPv4Address.init_from_string("172.72.3.1"),
+    };
+
+    try opt.timestamp.add_ts_record(rec);
+
+    rec = .{
+        .timestamp = 111111,
+        .ip = try IPv4.IPv4Address.init_from_string("10.1.1.1"),
+    };
+
+    try opt.timestamp.add_ts_record(rec);
+
+    print("opt data: ({}) {x}\n", .{ opt.get_data().len, opt.get_data() });
+
+    //try opt.timestamp.remove_ts_record(rec);
+
+    print("opt data: ({}) {x}\n", .{ opt.get_data().len, opt.get_data() });
+
+    var records = try opt.timestamp.get_records(allocator) orelse {
+        try expect(false); // records not found
+        return;
+    };
+
+    var cur = records.first;
+    while (cur) |record| {
+        if (record.ip) |ipv4| {
+            const ipv4_str = try ipv4.to_string(allocator);
+            print("IP: {s}\n", .{ipv4_str});
+            allocator.free(ipv4_str);
+        }
+        print("TS: {d}\n", .{record.timestamp});
+        cur = record.next_record;
+    }
+
+    records.deinit(allocator);
+
+    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
+    defer ipv4_layer.deinit();
+
+    const hstr = try ipv4_layer.get_immutable_header().to_string(allocator);
+    print("hstr: {s}\n", .{hstr});
+    allocator.free(hstr);
+
+    try ipv4_layer.add_option(&opt);
+
+    print("dcsp AFTER add_option: {}\n", .{ipv4_layer.get_immutable_header().dscp_ecn});
+
+    const h_str = try ipv4_layer.get_immutable_header().to_string(allocator);
+    print("h_str: {s}\n", .{h_str});
+    allocator.free(h_str);
+
+    var option = ipv4_layer.get_first_op() orelse {
+        try expect(false);
+        return;
+    };
+
+    print("option offset layer owned: {}\n", .{option.timestamp.get_offset()});
+
+    try expect(option.get_opt_type() == IPv4.IPOptionType.Timestamp);
+
+    //   var option = try ipv4_layer.get_ip_opts(allocator);
+    //   while (option) |cur_opt| {
+    //       print("{any} {x} is layer owned: {any}\n", .{
+    //           cur_opt.get_opt_type(),
+    //           cur_opt.get_data(),
+    //           cur_opt.timestamp.owner.is_layer_owned(),
+    //       });
+    //       const next = cur_opt.get_next();
+    //       if (cur_opt.get_opt_type() == .Timestamp) {
+    //           var ts_records = try cur_opt.timestamp.get_records(allocator) orelse {
+    //               try expect(false);
+    //               return;
+    //           };
+    //           defer ts_records.deinit(allocator);
+    //           var ts_record = ts_records.first;
+    //           while (ts_record) |record| {
+    //               if (record.ip) |ip_addr| {
+    //                   const ip_str = try ip_addr.to_string(allocator);
+    //                   print("ip: {s}\n", .{ip_str});
+    //                   allocator.free(ip_str);
+    //               }
+    //               print("ts: {d}\n", .{record.timestamp});
+    //               ts_record = record.next_record;
+    //           }
+    //       }
+    //       allocator.destroy(cur_opt);
+    //       option = next;
+    //   }
+
+    print("IPv4 Header: IHL: {}/{} TL: {}\n", .{
+        ipv4_layer.get_immutable_header().get_ihl(),
+        ipv4_layer.get_immutable_header().get_ihl() * 4,
+        ipv4_layer.get_immutable_header().get_length(),
+    });
+
+    var ipv4_opt = ipv4_layer.get_first_op() orelse {
+        try expect(false);
+        return;
+    };
+
+    print("dcsp AFTER GET FIRST OPT: {}\n", .{ipv4_layer.get_immutable_header().dscp_ecn});
+
+    try expect(ipv4_opt.get_opt_type() == IPv4.IPOptionType.Timestamp);
+
+    rec = .{ .ip = try IPv4.IPv4Address.init_from_string("192.168.1.254"), .timestamp = 333333 };
+
+    try ipv4_opt.timestamp.add_ts_record(rec);
+
+    print("dcsp AFTER ADD TS Record: {}\n", .{ipv4_layer.get_immutable_header().dscp_ecn});
+
+    print("ipv4 opt data: {x}\n", .{ipv4_opt.get_data()});
+
+    print("IPv4 Header: IHL: {}/{} TL: {}\n", .{
+        ipv4_layer.get_immutable_header().get_ihl(),
+        ipv4_layer.get_immutable_header().get_ihl() * 4,
+        ipv4_layer.get_immutable_header().get_length(),
+    });
+
+    try ipv4_opt.timestamp.remove_ts_record(rec);
+
+    print("dcsp AFTER REMOVE TS RECORD: {}\n", .{ipv4_layer.get_immutable_header().dscp_ecn});
+
+    print("IPv4 Header: IHL: {}/{} TL: {}\n", .{
+        ipv4_layer.get_immutable_header().get_ihl(),
+        ipv4_layer.get_immutable_header().get_ihl() * 4,
+        ipv4_layer.get_immutable_header().get_length(),
+    });
+
+    print("opt is layer owned: {any}\n", .{opt.timestamp.owner.is_layer_owned()});
+
+    print("ipv4 data: ({}) {x}\n", .{ ipv4_layer.get_data().len, ipv4_layer.get_data() });
+
+    const hdr_str = try ipv4_layer.get_immutable_header().to_string(allocator);
+    print("hdr_str: {s}\n", .{hdr_str});
+    allocator.free(hdr_str);
+
+    var packet = try Packet.create(allocator, allocator);
+    defer packet.deinit();
+
+    var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, ipv4_layer.owner);
+
+    _ = try packet.add_layer(&ipv4_layer_iface);
+
+    const pstr = try packet.to_string(allocator);
+    print("{s}\n", .{pstr});
+    allocator.free(pstr);
+
+    if (packet.get_layer_of_type(IPv4.IPv4Layer)) |ip_layer| {
+        var first_opt = ip_layer.get_first_op() orelse {
+            try expect(false); // first op not found in packet ipv4 layer
+            return;
+        };
+        print("opt offset packet layer owned: {}\n", .{first_opt.timestamp.get_offset()});
+        try first_opt.timestamp.add_ts_record(rec);
+        const hdr = try ip_layer.get_immutable_header().to_string(allocator);
+        print("{s}\n", .{hdr});
+        allocator.free(hdr);
+    }
 }
