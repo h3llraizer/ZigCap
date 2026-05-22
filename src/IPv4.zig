@@ -9,6 +9,10 @@ const LayerOwner = @import("Layer.zig").LayerOwner;
 const TLVOwner = @import("Layer.zig").TLVOwner;
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
+pub const IPv4_Options = @import("IPv4_Options.zig");
+pub const IPv4Options = IPv4_Options.IPv4Options;
+pub const IPv4Option = IPv4_Options.IPv4Option;
+pub const IPOptionType = IPv4_Options.IPOptionType;
 
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
@@ -16,9 +20,6 @@ const panic = std.debug.panic;
 
 const LayerError = ProtocolEnums.LayerError;
 const IPProtocol = ProtocolEnums.IPProtocol;
-
-pub const IPv4Options = @import("IPv4_Options.zig");
-pub const IPv4Option = IPv4Options.IPv4Option;
 
 pub const MaxHeaderLength = 60; //IPv4MinHeader Length
 pub const MinHeaderLength = 20;
@@ -292,7 +293,7 @@ pub const IPv4Layer = struct {
         return null;
     }
 
-    pub fn get_options(self: *IPv4Layer, allocator: Allocator) !?*IPv4Option {
+    pub fn get_options(self: *IPv4Layer, allocator: Allocator) !?IPv4Options {
         const ops_buf = self.get_opt_buf();
 
         if (ops_buf.len == 0) {
@@ -300,6 +301,8 @@ pub const IPv4Layer = struct {
         }
 
         const options_list = std.enums.values(IPOptionType)[1..];
+
+        var options: IPv4Options = .{};
 
         var cur: ?*IPv4Option = null;
 
@@ -319,13 +322,16 @@ pub const IPv4Layer = struct {
                         null,
                     );
 
+                    if (options.first == null) {
+                        options.first = opt;
+                    }
+
                     if (cur) |cur_opt| {
                         cur_opt.set_next_opt(opt);
                         opt.set_prev_opt(cur_opt);
-                        cur = opt;
-                    } else {
-                        cur = opt;
                     }
+
+                    cur = opt;
 
                     offset += length;
                     continue;
@@ -335,7 +341,9 @@ pub const IPv4Layer = struct {
             offset += 1;
         }
 
-        return cur;
+        options.last = cur;
+
+        return options;
     }
 
     fn check_pad(self: *IPv4Layer) ?usize {
@@ -354,7 +362,7 @@ pub const IPv4Layer = struct {
 
         while (offset < ops_buf.len - 1) {
             if (op_type_found == false) {
-                for (options_list) |option| { // TODO: make this comptime
+                for (options_list) |option| {
                     if (@intFromEnum(option) == ops_buf[offset]) {
                         op_type_found = true;
                         offset += 1;
@@ -407,11 +415,11 @@ pub const IPv4Layer = struct {
 
         const current_header_len: u8 = current_ihl * 4;
 
-        var pad_bytes: usize = 0;
+        //  var pad_bytes: usize = 0;
 
-        if (self.check_pad()) |pad| {
-            pad_bytes = pad;
-        }
+        //  if (self.check_pad()) |pad| {
+        //      pad_bytes = pad;
+        //  }
 
         var new_header_len: usize = current_header_len + @as(usize, @intCast(new_option_bytes_len));
 
@@ -572,118 +580,6 @@ pub const IPv4Layer = struct {
 
     pub fn deinit(self: *IPv4Layer) void {
         self.owner.deinit();
-    }
-};
-
-// TODO: implement helpers for all of these and unit test them
-// Security (130) - length 11 bytes (type + len + 9 data)
-// Example data: all zeros (unclassified)
-//&[_]u8{130, 11, 0,0,0,0,0,0,0,0,0}
-
-// LooseSourceRoute (131) - example: route through 192.0.2.1 and 192.0.2.2
-// length = 3 + (n * 4) where n=2 → 11 bytes
-//&[_]u8{131, 11, 4, 192,0,2,1, 192,0,2,2}
-// (3rd byte = pointer to next addr, starts at 4)
-
-// Timestamp (68) - length 4+ bytes, example: overflow=0, flags=1 (timestamp only)
-//&[_]u8{68, 4, 0, 1}
-
-// ExtendedSecurity (133) - length 6 (example minimal data)
-//&[_]u8{133, 6, 0,0,0,0}
-
-// CommercialSecurity (134) - length 6 (example minimal data)
-//&[_]u8{134, 6, 0,0,0,0}
-
-// RecordRoute (7) - example: pointer=4, space for 1 IP (4 bytes)
-//&[_]u8{7, 8, 4, 0,0,0,0}
-
-// StreamID (136) - length 4 (type + len + 2-byte stream ID)
-//&[_]u8{136, 4, 0x12, 0x34}
-
-// StrictSourceRoute (137) - same format as LSRR, example: 192.0.2.1
-//&[_]u8{137, 8, 4, 192,0,2,1}
-
-// ExperimentalMeasurement (10) - length 4 (example data 0x01 0x02)
-//&[_]u8{10, 4, 0x01, 0x02}
-
-// MTUProbe (11) - length 4 (example 2-byte probe value)
-//&[_]u8{11, 4, 0x00, 0x40}
-
-// MTUReply (12) - length 4 (example 2-byte MTU value 1500)
-//&[_]u8{12, 4, 0x05, 0xDC}
-
-// ExperimentalFlowControl (205) - length 4 (example data)
-//&[_]u8{205, 4, 0xAA, 0xBB}
-
-// ExperimentalAccessControl (142) - length 6 (example)
-//&[_]u8{142, 6, 0x01,0x02,0x03,0x04}
-
-// ExtendedInternet (145) - length 4 (example)
-//&[_]u8{145, 4, 0x00, 0x01}
-
-// RouterAlert (148) - length 4 (value usually 0x0000)
-//&[_]u8{148, 4, 0x00, 0x00}
-
-// SelectiveDirectedBroadcast (149) - length 8 (example: mask + 1 IP)
-//&[_]u8{149, 8, 0xFF,0xFF,0xFF,0x00, 192,0,2,255}
-
-// DynamicPacketState (151) - length 4 (example)
-//&[_]u8{151, 4, 0x00, 0x10}
-
-// UpstreamMulticast (152) - length 4 (example)
-//&[_]u8{152, 4, 0x00, 0x01}
-
-// QuickStart (25) - length 8 (example: rate=0x0100, ttl diff=1)
-//&[_]u8{25, 8, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00}
-
-// RFC3692Exp1 (30) - length 4 (experimental data)
-//&[_]u8{30, 4, 0xCA, 0xFE}
-
-// RFC3692Exp2 (94) - length 4
-//&[_]u8{94, 4, 0xDE, 0xAD}
-
-// RFC3692Exp3 (158) - length 6
-//&[_]u8{158, 6, 0xBE, 0xEF, 0x12, 0x34}
-
-// RFC3692Exp4 (222) - length 8
-//&[_]u8{222, 8, 0x00,0x11,0x22,0x33,0x44,0x55}
-
-// IPv4 Option Types
-pub const IPOptionType = enum(u8) {
-    EndOfOptions = 0,
-    NoOperation = 1,
-    Security = 130,
-    LooseSourceRoute = 131,
-    Timestamp = 68,
-    ExtendedSecurity = 133,
-    CommercialSecurity = 134,
-    RecordRoute = 7,
-    StreamID = 136,
-    StrictSourceRoute = 137,
-    ExperimentalMeasurement = 10,
-    MTUProbe = 11,
-    MTUReply = 12,
-    ExperimentalFlowControl = 205,
-    ExperimentalAccessControl = 142,
-    ExtendedInternet = 145,
-    RouterAlert = 148,
-    SelectiveDirectedBroadcast = 149,
-    DynamicPacketState = 151,
-    UpstreamMulticast = 152,
-    QuickStart = 25,
-    RFC3692Exp1 = 30,
-    RFC3692Exp2 = 94,
-    RFC3692Exp3 = 158,
-    RFC3692Exp4 = 222,
-    _,
-
-    pub fn requires_ptr_byte(opt: IPOptionType) bool {
-        switch (opt) {
-            .RecordRoute, .LooseSourceRoute, .StrictSourceRoute, .Timestamp => {
-                return true;
-            },
-            else => return false,
-        }
     }
 };
 

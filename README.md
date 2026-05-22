@@ -38,6 +38,3 @@ Contributions are welcome, but note:
 - Open issues or PRs may overlap with ongoing work
 
 Feel free to open an issue or submit a pull request regardless.
-
-## Breaking changes
-

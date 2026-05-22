@@ -10,6 +10,135 @@ const panic = std.debug.panic;
 
 const LayerError = ProtocolEnums.LayerError;
 
+// TODO: implement helpers for all of these and unit test them
+// Security (130) - length 11 bytes (type + len + 9 data)
+// Example data: all zeros (unclassified)
+//&[_]u8{130, 11, 0,0,0,0,0,0,0,0,0}
+
+// LooseSourceRoute (131) - example: route through 192.0.2.1 and 192.0.2.2
+// length = 3 + (n * 4) where n=2 → 11 bytes
+//&[_]u8{131, 11, 4, 192,0,2,1, 192,0,2,2}
+// (3rd byte = pointer to next addr, starts at 4)
+
+// Timestamp (68) - length 4+ bytes, example: overflow=0, flags=1 (timestamp only)
+//&[_]u8{68, 4, 0, 1}
+
+// ExtendedSecurity (133) - length 6 (example minimal data)
+//&[_]u8{133, 6, 0,0,0,0}
+
+// CommercialSecurity (134) - length 6 (example minimal data)
+//&[_]u8{134, 6, 0,0,0,0}
+
+// RecordRoute (7) - example: pointer=4, space for 1 IP (4 bytes)
+//&[_]u8{7, 8, 4, 0,0,0,0}
+
+// StreamID (136) - length 4 (type + len + 2-byte stream ID)
+//&[_]u8{136, 4, 0x12, 0x34}
+
+// StrictSourceRoute (137) - same format as LSRR, example: 192.0.2.1
+//&[_]u8{137, 8, 4, 192,0,2,1}
+
+// ExperimentalMeasurement (10) - length 4 (example data 0x01 0x02)
+//&[_]u8{10, 4, 0x01, 0x02}
+
+// MTUProbe (11) - length 4 (example 2-byte probe value)
+//&[_]u8{11, 4, 0x00, 0x40}
+
+// MTUReply (12) - length 4 (example 2-byte MTU value 1500)
+//&[_]u8{12, 4, 0x05, 0xDC}
+
+// ExperimentalFlowControl (205) - length 4 (example data)
+//&[_]u8{205, 4, 0xAA, 0xBB}
+
+// ExperimentalAccessControl (142) - length 6 (example)
+//&[_]u8{142, 6, 0x01,0x02,0x03,0x04}
+
+// ExtendedInternet (145) - length 4 (example)
+//&[_]u8{145, 4, 0x00, 0x01}
+
+// RouterAlert (148) - length 4 (value usually 0x0000)
+//&[_]u8{148, 4, 0x00, 0x00}
+
+// SelectiveDirectedBroadcast (149) - length 8 (example: mask + 1 IP)
+//&[_]u8{149, 8, 0xFF,0xFF,0xFF,0x00, 192,0,2,255}
+
+// DynamicPacketState (151) - length 4 (example)
+//&[_]u8{151, 4, 0x00, 0x10}
+
+// UpstreamMulticast (152) - length 4 (example)
+//&[_]u8{152, 4, 0x00, 0x01}
+
+// QuickStart (25) - length 8 (example: rate=0x0100, ttl diff=1)
+//&[_]u8{25, 8, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00}
+
+// RFC3692Exp1 (30) - length 4 (experimental data)
+//&[_]u8{30, 4, 0xCA, 0xFE}
+
+// RFC3692Exp2 (94) - length 4
+//&[_]u8{94, 4, 0xDE, 0xAD}
+
+// RFC3692Exp3 (158) - length 6
+//&[_]u8{158, 6, 0xBE, 0xEF, 0x12, 0x34}
+
+// RFC3692Exp4 (222) - length 8
+//&[_]u8{222, 8, 0x00,0x11,0x22,0x33,0x44,0x55}
+
+// IPv4 Option Types
+pub const IPOptionType = enum(u8) {
+    EndOfOptions = 0,
+    NoOperation = 1,
+    Security = 130,
+    LooseSourceRoute = 131,
+    Timestamp = 68,
+    ExtendedSecurity = 133,
+    CommercialSecurity = 134,
+    RecordRoute = 7,
+    StreamID = 136,
+    StrictSourceRoute = 137,
+    ExperimentalMeasurement = 10,
+    MTUProbe = 11,
+    MTUReply = 12,
+    ExperimentalFlowControl = 205,
+    ExperimentalAccessControl = 142,
+    ExtendedInternet = 145,
+    RouterAlert = 148,
+    SelectiveDirectedBroadcast = 149,
+    DynamicPacketState = 151,
+    UpstreamMulticast = 152,
+    QuickStart = 25,
+    RFC3692Exp1 = 30,
+    RFC3692Exp2 = 94,
+    RFC3692Exp3 = 158,
+    RFC3692Exp4 = 222,
+    _,
+
+    pub fn requires_ptr_byte(opt: IPOptionType) bool {
+        switch (opt) {
+            .RecordRoute, .LooseSourceRoute, .StrictSourceRoute, .Timestamp => {
+                return true;
+            },
+            else => return false,
+        }
+    }
+};
+
+pub const IPv4Options = struct {
+    first: ?*IPv4Option = null,
+    last: ?*IPv4Option = null,
+
+    pub fn deinit(self: *IPv4Options, allocator: Allocator) void {
+        var cur = self.first;
+        while (cur) |opt| {
+            const next = opt.get_next();
+            allocator.destroy(opt);
+            cur = next;
+        }
+
+        self.first = null;
+        self.last = null;
+    }
+};
+
 pub const IPv4Option = union(enum) {
     record_route: RecordRoute,
     loose_route: LooseSourceRoute,
@@ -26,13 +155,6 @@ pub const IPv4Option = union(enum) {
     ) IPv4Option {
         switch (opt) {
             .RecordRoute => {
-                //const len = owner.get_data().len;
-                //if (!owner.is_layer_owned()) {
-                //    if (len < 3) {
-                //        try owner.extend_buffer(len, 3 - len);
-                //    }
-                //}
-
                 return IPv4Option{ .record_route = RecordRoute{
                     .owner = owner,
                     .length = length,
@@ -65,13 +187,13 @@ pub const IPv4Option = union(enum) {
                 } };
             },
             .Timestamp => {
-                print("timestamp op being init'd.\n", .{});
+                //print("timestamp op being init'd.\n", .{});
                 if (!owner.is_layer_owned()) {
-                    print("data len: {}\n", .{owner.owned_buffer.buffer.items.len});
+                    //print("data len: {}\n", .{owner.owned_buffer.buffer.items.len});
                 } else {
                     if (owner.layer.is_packet_owned()) {
-                        print("packet owned.\n", .{});
-                        print("data len: {}\n", .{owner.layer.packet_layer.length});
+                        //print("packet owned.\n", .{});
+                        //print("data len: {}\n", .{owner.layer.packet_layer.length});
                     }
                 }
                 return IPv4Option{ .timestamp = Timestamp{
@@ -301,7 +423,7 @@ fn add_timestamp_to_buffer(offset: usize, owner: *TLVOwner, timestamp: u32, opt_
         var buf = try owner.extend_buffer(0, 4);
         buf[0] = @intFromEnum(opt_type);
         buf[1] = 4; // min length for RecordRoute Opt - 1byte type, 1 byte length, 1byte ptr
-        buf[2] = @intFromEnum(TimestampMode.ts_only); // default ptr byte set to index after ptr byte
+        buf[2] = @intFromEnum(Timestamp.Mode.ts_only); // default ptr byte set to index after ptr byte
         buf[3] = 5;
     }
 
@@ -547,7 +669,7 @@ pub const RouterAlert = struct {
         if (self.get_data().len != 4) {
             var buf = try self.owner.extend_buffer(self.get_data().len, 4 - self.get_data().len);
             buf[0] = @intFromEnum(IPv4.IPOptionType.RouterAlert);
-            buf[1] = 4; // min length for RecordRoute Opt - 1byte type, 1 byte length, 1byte ptr
+            buf[1] = 4; // min length - 1byte type, 1 byte length, 2byte value
         }
 
         @memmove(self.get_data_mut()[2..4], &std.mem.toBytes(val)); // copy the ip
@@ -556,15 +678,6 @@ pub const RouterAlert = struct {
     pub fn deinit(self: *RouterAlert) void {
         self.owner.deinit();
     }
-};
-
-pub const TimestampMode = enum(u4) {
-    /// Timestamps only. No Addresses
-    ts_only = 0,
-    /// Timestamps and Addresses are append by each host
-    append_addrs = 1,
-    /// Timestamps and Addresses are appended by specified hosts only
-    specified_addr = 3,
 };
 
 pub const TimestampRecord = struct {
@@ -596,6 +709,15 @@ pub const Timestamp = struct {
     length: usize,
     prev_op: ?*IPv4Option = null,
     next_op: ?*IPv4Option = null,
+
+    pub const Mode = enum(u4) {
+        /// Timestamps only. No Addresses
+        ts_only = 0,
+        /// Timestamps and Addresses are append by each host
+        append_addrs = 1,
+        /// Timestamps and Addresses are appended by specified hosts only
+        specified_addr = 3,
+    };
 
     pub fn get_offset(self: *Timestamp) usize {
         var offset: usize = 0;
@@ -631,7 +753,25 @@ pub const Timestamp = struct {
         return "";
     }
 
-    pub fn set_mode_flag(self: *Timestamp, flag: TimestampMode) !void {
+    pub fn get_ptr(self: *Timestamp) u8 {
+        return self.get_data()[2];
+    }
+
+    /// Throws exception when the ptr value exceeds the length of the option or points to TLV header
+    pub fn set_ptr(self: *Timestamp, ptr: u8) !void {
+        const ptr_u: usize = @intCast(ptr);
+        if (ptr_u > self.get_data().len) {
+            return error.PtrOutOfRange;
+        }
+
+        if (ptr_u < 5) {
+            return error.PtrPointsToTLVHeader;
+        }
+
+        self.get_data()[2] = ptr;
+    }
+
+    pub fn set_mode_flag(self: *Timestamp, flag: Timestamp.Mode) !void {
         if (self.get_data().len < 4) {
             var buf = try self.owner.extend_buffer(
                 self.get_data().len,
@@ -648,7 +788,7 @@ pub const Timestamp = struct {
             (@as(u8, @intFromEnum(flag)) & 0b0000_1111);
     }
 
-    pub fn get_mode_flag(self: *Timestamp) TimestampMode {
+    pub fn get_mode_flag(self: *Timestamp) Timestamp.Mode {
         return @enumFromInt(self.get_data()[3] & 0b0000_1111);
     }
 
@@ -741,33 +881,6 @@ pub const Timestamp = struct {
         return remove_ip_from_list(&self.owner, ip);
     }
 
-    pub fn remove_ts_record(self: *Timestamp, record: TimestampRecord) !void {
-        const data = self.get_data()[4..];
-        if (record.ip == null) {
-            const bytes: [4]u8 = std.mem.toBytes(@byteSwap(record.timestamp));
-            if (std.mem.indexOf(u8, data, &bytes)) |offset| {
-                try self.owner.shorten_buffer(offset, @sizeOf(u32));
-                self.get_data_mut()[1] -= @sizeOf(u32);
-                self.set_hdr_vals(-@sizeOf(u32));
-                return;
-            }
-        }
-
-        const ip_bytes: [4]u8 = record.ip.?.array;
-        const ts_bytes: [4]u8 = std.mem.toBytes(@byteSwap(record.timestamp));
-        var full_rec: [8]u8 = .{0x00} ** 8;
-
-        @memmove(full_rec[0..4], &ip_bytes);
-        @memmove(full_rec[4..8], &ts_bytes);
-
-        if (std.mem.indexOf(u8, data, &full_rec)) |offset| {
-            try self.owner.shorten_buffer(self.get_offset() + 4 + offset, (@sizeOf(u32) + @sizeOf(IPv4.IPv4Address)));
-            self.get_data_mut()[1] -= (@sizeOf(u32) + @sizeOf(IPv4.IPv4Address));
-            self.set_hdr_vals(-(@sizeOf(u32) + @sizeOf(IPv4.IPv4Address)));
-            return;
-        }
-    }
-
     fn get_mutable_hdr(self: *Timestamp) *IPv4.IPv4Header {
         const data = self.owner.get_data();
 
@@ -805,6 +918,33 @@ pub const Timestamp = struct {
         try self.add_ip(record.ip.?);
         try self.add_timestamp(record.timestamp);
         self.set_hdr_vals((@sizeOf(u32) + @sizeOf(IPv4.IPv4Address)));
+    }
+
+    pub fn remove_ts_record(self: *Timestamp, record: TimestampRecord) !void {
+        const data = self.get_data()[4..];
+        if (record.ip == null) {
+            const bytes: [4]u8 = std.mem.toBytes(@byteSwap(record.timestamp));
+            if (std.mem.indexOf(u8, data, &bytes)) |offset| {
+                try self.owner.shorten_buffer(offset, @sizeOf(u32));
+                self.get_data_mut()[1] -= @sizeOf(u32);
+                self.set_hdr_vals(-@sizeOf(u32));
+                return;
+            }
+        }
+
+        const ip_bytes: [4]u8 = record.ip.?.array;
+        const ts_bytes: [4]u8 = std.mem.toBytes(@byteSwap(record.timestamp));
+        var full_rec: [8]u8 = .{0x00} ** 8;
+
+        @memmove(full_rec[0..4], &ip_bytes);
+        @memmove(full_rec[4..8], &ts_bytes);
+
+        if (std.mem.indexOf(u8, data, &full_rec)) |offset| {
+            try self.owner.shorten_buffer(self.get_offset() + 4 + offset, (@sizeOf(u32) + @sizeOf(IPv4.IPv4Address)));
+            self.get_data_mut()[1] -= (@sizeOf(u32) + @sizeOf(IPv4.IPv4Address));
+            self.set_hdr_vals(-(@sizeOf(u32) + @sizeOf(IPv4.IPv4Address)));
+            return;
+        }
     }
 
     pub fn deinit(self: *Timestamp) void {
