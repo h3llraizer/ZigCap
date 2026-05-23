@@ -263,12 +263,6 @@ pub const IPv4Layer = struct {
         }
     }
 
-    /// calls get_payload and returns the length.
-    /// owned_buffer IPv4 layer will always return 0
-    pub fn get_payload_len(self: *IPv4Layer) usize {
-        return self.get_payload().len;
-    }
-
     fn get_opt_buf(self: *IPv4Layer) []u8 {
         const header_len = self.get_immutable_header().get_ihl() * 4;
         return self.get_data()[MinHeaderLength..header_len];
@@ -308,10 +302,13 @@ pub const IPv4Layer = struct {
 
         var offset: usize = 0;
 
-        while (offset < ops_buf.len - 1) {
+        var matched = false;
+
+        while (offset < ops_buf.len) { // was ops_buf.len - 1
+            matched = false;
             for (options_list) |option| {
-                if (@intFromEnum(option) == ops_buf[0]) {
-                    const length: usize = @intCast(ops_buf[1]);
+                if (@intFromEnum(option) == ops_buf[offset]) {
+                    const length: usize = @intCast(ops_buf[offset + 1]);
                     const opt = try allocator.create(IPv4Option);
 
                     opt.* = IPv4Option.init(
@@ -333,12 +330,15 @@ pub const IPv4Layer = struct {
 
                     cur = opt;
 
+                    matched = true;
                     offset += length;
-                    continue;
+                    break;
                 }
             }
 
-            offset += 1;
+            if (!matched) {
+                offset += 1;
+            }
         }
 
         options.last = cur;
@@ -405,11 +405,11 @@ pub const IPv4Layer = struct {
     pub fn add_option(self: *IPv4Layer, option: *IPv4Option) !void {
         const new_option_bytes = option.get_data();
 
-        //   print("new_option_bytes: {x}\n", .{new_option_bytes});
+        print("new_option_bytes: {x}\n", .{new_option_bytes});
 
         const new_option_bytes_len: usize = new_option_bytes.len;
 
-        //     print("new_option_bytes_len: {}\n", .{new_option_bytes_len});
+        print("new_option_bytes_len: {}\n", .{new_option_bytes_len});
 
         const current_ihl: u8 = self.get_immutable_header().get_ihl();
 

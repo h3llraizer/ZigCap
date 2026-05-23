@@ -1,6 +1,4 @@
 const std = @import("std");
-const ProtocolEnums = @import("ProtocolEnums.zig");
-const Packet = @import("Packet.zig");
 const TLVOwner = @import("Layer.zig").TLVOwner;
 const IPv4 = @import("IPv4.zig");
 
@@ -8,19 +6,17 @@ const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 const panic = std.debug.panic;
 
-const LayerError = ProtocolEnums.LayerError;
-
 // TODO: implement helpers for all of these and unit test them
 // Security (130) - length 11 bytes (type + len + 9 data)
 // Example data: all zeros (unclassified)
 //&[_]u8{130, 11, 0,0,0,0,0,0,0,0,0}
 
-// LooseSourceRoute (131) - example: route through 192.0.2.1 and 192.0.2.2
+// ✅LooseSourceRoute (131) - example: route through 192.0.2.1 and 192.0.2.2
 // length = 3 + (n * 4) where n=2 → 11 bytes
 //&[_]u8{131, 11, 4, 192,0,2,1, 192,0,2,2}
 // (3rd byte = pointer to next addr, starts at 4)
 
-// Timestamp (68) - length 4+ bytes, example: overflow=0, flags=1 (timestamp only)
+// ✅Timestamp (68) - length 4+ bytes, example: overflow=0, flags=1 (timestamp only)
 //&[_]u8{68, 4, 0, 1}
 
 // ExtendedSecurity (133) - length 6 (example minimal data)
@@ -29,13 +25,13 @@ const LayerError = ProtocolEnums.LayerError;
 // CommercialSecurity (134) - length 6 (example minimal data)
 //&[_]u8{134, 6, 0,0,0,0}
 
-// RecordRoute (7) - example: pointer=4, space for 1 IP (4 bytes)
+// ✅RecordRoute (7) - example: pointer=4, space for 1 IP (4 bytes)
 //&[_]u8{7, 8, 4, 0,0,0,0}
 
 // StreamID (136) - length 4 (type + len + 2-byte stream ID)
 //&[_]u8{136, 4, 0x12, 0x34}
 
-// StrictSourceRoute (137) - same format as LSRR, example: 192.0.2.1
+// ✅StrictSourceRoute (137) - same format as LSRR, example: 192.0.2.1
 //&[_]u8{137, 8, 4, 192,0,2,1}
 
 // ExperimentalMeasurement (10) - length 4 (example data 0x01 0x02)
@@ -56,7 +52,7 @@ const LayerError = ProtocolEnums.LayerError;
 // ExtendedInternet (145) - length 4 (example)
 //&[_]u8{145, 4, 0x00, 0x01}
 
-// RouterAlert (148) - length 4 (value usually 0x0000)
+// ✅RouterAlert (148) - length 4 (value usually 0x0000)
 //&[_]u8{148, 4, 0x00, 0x00}
 
 // SelectiveDirectedBroadcast (149) - length 8 (example: mask + 1 IP)
@@ -83,7 +79,7 @@ const LayerError = ProtocolEnums.LayerError;
 // RFC3692Exp4 (222) - length 8
 //&[_]u8{222, 8, 0x00,0x11,0x22,0x33,0x44,0x55}
 
-// IPv4 Option Types
+/// IPv4 Option Types
 pub const IPOptionType = enum(u8) {
     EndOfOptions = 0,
     NoOperation = 1,
@@ -122,6 +118,7 @@ pub const IPOptionType = enum(u8) {
     }
 };
 
+/// LinkedList container for retrieving IPv4Options list from IPv4Layer
 pub const IPv4Options = struct {
     first: ?*IPv4Option = null,
     last: ?*IPv4Option = null,
@@ -139,12 +136,14 @@ pub const IPv4Options = struct {
     }
 };
 
+/// Tagged Union of supported IPv4 Options
 pub const IPv4Option = union(enum) {
     record_route: RecordRoute,
     loose_route: LooseSourceRoute,
     strict_route: StrictSourceRoute,
     router_alert: RouterAlert,
     timestamp: Timestamp,
+    generic: GenericOption,
 
     pub fn init(
         opt: IPv4.IPOptionType,
@@ -187,15 +186,6 @@ pub const IPv4Option = union(enum) {
                 } };
             },
             .Timestamp => {
-                //print("timestamp op being init'd.\n", .{});
-                if (!owner.is_layer_owned()) {
-                    //print("data len: {}\n", .{owner.owned_buffer.buffer.items.len});
-                } else {
-                    if (owner.layer.is_packet_owned()) {
-                        //print("packet owned.\n", .{});
-                        //print("data len: {}\n", .{owner.layer.packet_layer.length});
-                    }
-                }
                 return IPv4Option{ .timestamp = Timestamp{
                     .owner = owner,
                     .length = length,
@@ -203,7 +193,14 @@ pub const IPv4Option = union(enum) {
                     .next_op = next,
                 } };
             },
-            else => panic("opt not handled.\n", .{}),
+            else => {
+                return IPv4Option{ .generic = GenericOption{
+                    .owner = owner,
+                    .length = length,
+                    .prev_op = prev,
+                    .next_op = next,
+                } };
+            },
         }
     }
 
@@ -249,6 +246,32 @@ pub const IPv4Option = union(enum) {
         return @enumFromInt(opt_type_v);
     }
 
+    pub fn get_tlv_length(self: *IPv4Option) usize {
+        return switch (self.*) {
+            .record_route => {
+                return RecordRoute.TLVHeaderLength;
+            },
+
+            .loose_route => {
+                return LooseSourceRoute.TLVHeaderLength;
+            },
+
+            .strict_route => {
+                return StrictSourceRoute.TLVHeaderLength;
+            },
+
+            .router_alert => {
+                return RouterAlert.TLVHeaderLength;
+            },
+
+            .timestamp => {
+                return Timestamp.TLVHeaderLength;
+            },
+            .generic => {
+                return GenericOption.TLVHeaderLength;
+            },
+        };
+    }
     pub fn deinit(self: *IPv4Option) void {
         return switch (self.*) {
             inline else => |*opt| opt.deinit(),
@@ -423,7 +446,7 @@ fn add_timestamp_to_buffer(offset: usize, owner: *TLVOwner, timestamp: u32, opt_
         var buf = try owner.extend_buffer(0, 4);
         buf[0] = @intFromEnum(opt_type);
         buf[1] = 4; // min length for RecordRoute Opt - 1byte type, 1 byte length, 1byte ptr
-        buf[2] = @intFromEnum(Timestamp.Mode.ts_only); // default ptr byte set to index after ptr byte
+        buf[2] = @intFromEnum(Timestamp.Mode.TIMESTAMP_ONLY); // default ptr byte set to index after ptr byte
         buf[3] = 5;
     }
 
@@ -439,17 +462,46 @@ pub const RecordRoute = struct {
     prev_op: ?*IPv4Option = null,
     next_op: ?*IPv4Option = null,
 
+    pub const TLVHeaderLength = 3;
+
+    pub fn init(owner: TLVOwner) !RecordRoute {
+        switch (owner) {
+            .owned_buffer => {
+                var self = RecordRoute{ .owner = owner, .length = RecordRoute.TLVHeaderLength };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < RecordRoute.TLVHeaderLength) {
+                    const rr_data = try self.owner.owned_buffer.extend(buffer_len, RecordRoute.TLVHeaderLength);
+
+                    @memset(rr_data, 0);
+
+                    rr_data[0] = @intFromEnum(IPOptionType.RecordRoute);
+                    rr_data[1] = RecordRoute.TLVHeaderLength;
+                    rr_data[2] = 4;
+                } else {
+                    if (self.owner.owned_buffer.buffer.items[0] != @intFromEnum(IPOptionType.RecordRoute)) {
+                        return error.TypeByteInvalid;
+                    }
+                }
+
+                return self;
+            },
+            else => {
+                return error.UseTUInstead;
+            },
+        }
+    }
+
     fn get_offset(self: *RecordRoute) usize {
         var offset: usize = 0;
 
         if (self.owner.is_layer_owned()) {
             offset = IPv4.MinHeaderLength;
-        }
 
-        var cur = self.prev_op;
-        while (cur) |prev_op| {
-            offset += prev_op.get_length();
-            cur = prev_op.get_prev();
+            var cur = self.prev_op;
+            while (cur) |prev_op| {
+                offset += prev_op.get_length();
+                cur = prev_op.get_prev();
+            }
         }
 
         return offset;
@@ -458,7 +510,10 @@ pub const RecordRoute = struct {
     pub fn get_data(self: *RecordRoute) []const u8 {
         const data = self.owner.get_data();
 
-        return data[self.get_offset()..];
+        const offset: usize = self.get_offset();
+        const length: usize = @intCast(data[offset + 1]);
+
+        return data[offset .. offset + length];
     }
 
     fn get_data_mut(self: *RecordRoute) []u8 {
@@ -471,6 +526,24 @@ pub const RecordRoute = struct {
         }
 
         return "";
+    }
+
+    pub fn get_ptr(self: *RecordRoute) u8 {
+        return self.get_data()[2];
+    }
+
+    /// Throws exception when the ptr value exceeds the length of the option or points to TLV header
+    pub fn set_ptr(self: *RecordRoute, ptr: u8) !void {
+        const ptr_u: usize = @intCast(ptr); // ptr byte val as usize
+        if (ptr_u > self.get_data().len) {
+            return error.PtrOutOfRange;
+        }
+
+        if (ptr_u < 4) {
+            return error.PtrPointsToTLVHeader;
+        }
+
+        self.get_data()[2] = ptr;
     }
 
     pub fn get_ip_list(self: *RecordRoute, allocator: Allocator) !?[]IPv4.IPv4Address {
@@ -503,17 +576,46 @@ pub const LooseSourceRoute = struct {
     prev_op: ?*IPv4Option = null,
     next_op: ?*IPv4Option = null,
 
+    pub const TLVHeaderLength = 3;
+
+    pub fn init(owner: TLVOwner) !LooseSourceRoute {
+        switch (owner) {
+            .owned_buffer => {
+                var self = LooseSourceRoute{ .owner = owner, .length = LooseSourceRoute.TLVHeaderLength };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < LooseSourceRoute.TLVHeaderLength) {
+                    const lsr_data = try self.owner.owned_buffer.extend(buffer_len, LooseSourceRoute.TLVHeaderLength);
+
+                    @memset(lsr_data, 0);
+
+                    lsr_data[0] = @intFromEnum(IPOptionType.LooseSourceRoute);
+                    lsr_data[1] = LooseSourceRoute.TLVHeaderLength;
+                    lsr_data[2] = 4;
+                } else {
+                    if (self.owner.owned_buffer.buffer.items[0] != @intFromEnum(IPOptionType.LooseSourceRoute)) {
+                        return error.TypeByteInvalid;
+                    }
+                }
+
+                return self;
+            },
+            else => {
+                return error.UseTUInstead;
+            },
+        }
+    }
+
     fn get_offset(self: *LooseSourceRoute) usize {
         var offset: usize = 0;
 
         if (self.owner.is_layer_owned()) {
             offset = IPv4.MinHeaderLength;
-        }
 
-        var cur = self.prev_op;
-        while (cur) |prev_op| {
-            offset += prev_op.get_length();
-            cur = prev_op.get_prev();
+            var cur = self.prev_op;
+            while (cur) |prev_op| {
+                offset += prev_op.get_length();
+                cur = prev_op.get_prev();
+            }
         }
 
         return offset;
@@ -522,7 +624,10 @@ pub const LooseSourceRoute = struct {
     pub fn get_data(self: *LooseSourceRoute) []const u8 {
         const data = self.owner.get_data();
 
-        return data[self.get_offset()..];
+        const offset: usize = self.get_offset();
+        const length: usize = @intCast(data[offset + 1]);
+
+        return data[offset .. offset + length];
     }
 
     fn get_data_mut(self: *LooseSourceRoute) []u8 {
@@ -535,6 +640,24 @@ pub const LooseSourceRoute = struct {
         }
 
         return "";
+    }
+
+    pub fn get_ptr(self: *LooseSourceRoute) u8 {
+        return self.get_data()[2];
+    }
+
+    /// Throws exception when the ptr value exceeds the length of the option or points to TLV header
+    pub fn set_ptr(self: *LooseSourceRoute, ptr: u8) !void {
+        const ptr_u: usize = @intCast(ptr); // ptr byte val as usize
+        if (ptr_u > self.get_data().len) {
+            return error.PtrOutOfRange;
+        }
+
+        if (ptr_u < 4) {
+            return error.PtrPointsToTLVHeader;
+        }
+
+        self.get_data()[2] = ptr;
     }
 
     pub fn get_ip_list(self: *LooseSourceRoute, allocator: Allocator) !?[]IPv4.IPv4Address {
@@ -567,17 +690,46 @@ pub const StrictSourceRoute = struct {
     prev_op: ?*IPv4Option = null,
     next_op: ?*IPv4Option = null,
 
+    pub const TLVHeaderLength = 3;
+
+    pub fn init(owner: TLVOwner) !StrictSourceRoute {
+        switch (owner) {
+            .owned_buffer => {
+                var self = StrictSourceRoute{ .owner = owner, .length = StrictSourceRoute.TLVHeaderLength };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < StrictSourceRoute.TLVHeaderLength) {
+                    const ssr_data = try self.owner.owned_buffer.extend(buffer_len, StrictSourceRoute.TLVHeaderLength);
+
+                    @memset(ssr_data, 0);
+
+                    ssr_data[0] = @intFromEnum(IPOptionType.StrictSourceRoute);
+                    ssr_data[1] = StrictSourceRoute.TLVHeaderLength;
+                    ssr_data[2] = 4;
+                } else {
+                    if (self.owner.owned_buffer.buffer.items[0] != @intFromEnum(IPOptionType.StrictSourceRoute)) {
+                        return error.TypeByteInvalid;
+                    }
+                }
+
+                return self;
+            },
+            else => {
+                return error.UseTUInstead;
+            },
+        }
+    }
+
     fn get_offset(self: *StrictSourceRoute) usize {
         var offset: usize = 0;
 
         if (self.owner.is_layer_owned()) {
             offset = IPv4.MinHeaderLength;
-        }
 
-        var cur = self.prev_op;
-        while (cur) |prev_op| {
-            offset += prev_op.get_length();
-            cur = prev_op.get_prev();
+            var cur = self.prev_op;
+            while (cur) |prev_op| {
+                offset += prev_op.get_length();
+                cur = prev_op.get_prev();
+            }
         }
 
         return offset;
@@ -586,7 +738,10 @@ pub const StrictSourceRoute = struct {
     pub fn get_data(self: *StrictSourceRoute) []const u8 {
         const data = self.owner.get_data();
 
-        return data[self.get_offset()..];
+        const offset: usize = self.get_offset();
+        const length: usize = @intCast(data[offset + 1]);
+
+        return data[offset .. offset + length];
     }
 
     fn get_data_mut(self: *StrictSourceRoute) []u8 {
@@ -599,6 +754,24 @@ pub const StrictSourceRoute = struct {
         }
 
         return "";
+    }
+
+    pub fn get_ptr(self: *StrictSourceRoute) u8 {
+        return self.get_data()[2];
+    }
+
+    /// Throws exception when the ptr value exceeds the length of the option or points to TLV header
+    pub fn set_ptr(self: *StrictSourceRoute, ptr: u8) !void {
+        const ptr_u: usize = @intCast(ptr); // ptr byte val as usize
+        if (ptr_u > self.get_data().len) {
+            return error.PtrOutOfRange;
+        }
+
+        if (ptr_u < 4) {
+            return error.PtrPointsToTLVHeader;
+        }
+
+        self.get_data()[2] = ptr;
     }
 
     pub fn get_ip_list(self: *StrictSourceRoute, allocator: Allocator) !?[]IPv4.IPv4Address {
@@ -631,17 +804,47 @@ pub const RouterAlert = struct {
     prev_op: ?*IPv4Option = null,
     next_op: ?*IPv4Option = null,
 
+    pub const TLVHeaderLength = 4;
+
+    pub fn init(owner: TLVOwner) !RouterAlert {
+        switch (owner) {
+            .owned_buffer => {
+                var self = RouterAlert{ .owner = owner, .length = RouterAlert.TLVHeaderLength };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < RouterAlert.TLVHeaderLength) {
+                    const ra_data = try self.owner.owned_buffer.extend(buffer_len, RouterAlert.TLVHeaderLength);
+
+                    @memset(ra_data, 0);
+
+                    ra_data[0] = @intFromEnum(IPOptionType.RouterAlert);
+                    ra_data[1] = RouterAlert.TLVHeaderLength;
+                    ra_data[2] = 0;
+                    ra_data[3] = 0;
+                } else {
+                    if (self.owner.owned_buffer.buffer.items[0] != @intFromEnum(IPOptionType.RouterAlert)) {
+                        return error.TypeByteInvalid;
+                    }
+                }
+
+                return self;
+            },
+            else => {
+                return error.UseTUInstead;
+            },
+        }
+    }
+
     fn get_offset(self: *RouterAlert) usize {
         var offset: usize = 0;
 
         if (self.owner.is_layer_owned()) {
             offset = IPv4.MinHeaderLength;
-        }
 
-        var cur = self.prev_op;
-        while (cur) |prev_op| {
-            offset += prev_op.get_length();
-            cur = prev_op.get_prev();
+            var cur = self.prev_op;
+            while (cur) |prev_op| {
+                offset += prev_op.get_length();
+                cur = prev_op.get_prev();
+            }
         }
 
         return offset;
@@ -650,7 +853,10 @@ pub const RouterAlert = struct {
     pub fn get_data(self: *RouterAlert) []const u8 {
         const data = self.owner.get_data();
 
-        return data[self.get_offset()..];
+        const offset: usize = self.get_offset();
+        const length: usize = @intCast(data[offset + 1]);
+
+        return data[offset .. offset + length];
     }
 
     fn get_data_mut(self: *RouterAlert) []u8 {
@@ -712,14 +918,47 @@ pub const Timestamp = struct {
 
     pub const Mode = enum(u4) {
         /// Timestamps only. No Addresses
-        ts_only = 0,
+        TIMESTAMP_ONLY = 0,
         /// Timestamps and Addresses are append by each host
-        append_addrs = 1,
+        APPEND_ADDRESSES = 1,
         /// Timestamps and Addresses are appended by specified hosts only
-        specified_addr = 3,
+        SPECIFIC_ADDRESSES = 3,
     };
 
-    pub fn get_offset(self: *Timestamp) usize {
+    pub const TLVHeaderLength = 4;
+
+    /// extends buffer of TLVOwner if it is not atleast 4 bytes and sets type to Timestamp (44), length to 4, mode to TIMESTAMP_ONLY, ptr to 5
+    pub fn init(owner: TLVOwner) !Timestamp {
+        switch (owner) {
+            .owned_buffer => {
+                var self = Timestamp{ .owner = owner, .length = Timestamp.TLVHeaderLength };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < Timestamp.TLVHeaderLength) {
+                    const ts_data = try self.owner.owned_buffer.extend(buffer_len, Timestamp.TLVHeaderLength);
+
+                    @memset(ts_data, 0);
+
+                    ts_data[0] = @intFromEnum(IPOptionType.Timestamp);
+                    ts_data[1] = Timestamp.TLVHeaderLength;
+                    ts_data[2] = 5;
+                    ts_data[3] = 0;
+                } else {
+                    if (self.owner.owned_buffer.buffer.items[0] != @intFromEnum(IPOptionType.Timestamp)) {
+                        return error.TypeByteInvalid;
+                    }
+                }
+
+                try self.set_mode_flag(.TIMESTAMP_ONLY);
+
+                return self;
+            },
+            else => {
+                return error.UseTUInstead;
+            },
+        }
+    }
+
+    fn get_offset(self: *Timestamp) usize {
         var offset: usize = 0;
 
         if (self.owner.is_layer_owned()) {
@@ -738,7 +977,10 @@ pub const Timestamp = struct {
     pub fn get_data(self: *Timestamp) []const u8 {
         const data = self.owner.get_data();
 
-        return data[self.get_offset()..];
+        const offset: usize = self.get_offset();
+        const length: usize = @intCast(data[offset + 1]);
+
+        return data[offset .. offset + length];
     }
 
     fn get_data_mut(self: *Timestamp) []u8 {
@@ -759,7 +1001,7 @@ pub const Timestamp = struct {
 
     /// Throws exception when the ptr value exceeds the length of the option or points to TLV header
     pub fn set_ptr(self: *Timestamp, ptr: u8) !void {
-        const ptr_u: usize = @intCast(ptr);
+        const ptr_u: usize = @intCast(ptr); // ptr byte val as usize
         if (ptr_u > self.get_data().len) {
             return error.PtrOutOfRange;
         }
@@ -829,12 +1071,12 @@ pub const Timestamp = struct {
 
         var offset: usize = 4; // 1byte type, 1byte length, 1byte flag/of, 1byte ptr
 
-        const offset_inc: usize = if (self.get_mode_flag() == .ts_only) @sizeOf(u32) else (@sizeOf(u32) + @sizeOf(IPv4.IPv4Address));
+        const offset_inc: usize = if (self.get_mode_flag() == .TIMESTAMP_ONLY) @sizeOf(u32) else (@sizeOf(u32) + @sizeOf(IPv4.IPv4Address));
 
         while (offset + offset_inc <= data.len) {
             const record = try allocator.create(TimestampRecord);
 
-            if (self.get_mode_flag() == .ts_only) {
+            if (self.get_mode_flag() == .TIMESTAMP_ONLY) {
                 const timestamp: u32 = std.mem.bytesToValue(u32, self.get_data()[offset .. offset + offset_inc]);
 
                 record.* = .{ .timestamp = @byteSwap(timestamp) };
@@ -902,7 +1144,7 @@ pub const Timestamp = struct {
     }
 
     pub fn add_ts_record(self: *Timestamp, record: TimestampRecord) !void {
-        if (self.get_mode_flag() == .ts_only) {
+        if (self.get_mode_flag() == .TIMESTAMP_ONLY) {
             if (record.ip != null) {
                 return error.InvalidTimestampOnlyRecord; // TS Only does not contain IP addresses
             }
@@ -948,6 +1190,97 @@ pub const Timestamp = struct {
     }
 
     pub fn deinit(self: *Timestamp) void {
+        self.owner.deinit();
+    }
+};
+
+pub const GenericOption = struct {
+    owner: TLVOwner,
+    length: usize,
+    prev_op: ?*IPv4Option = null,
+    next_op: ?*IPv4Option = null,
+
+    pub const TLVHeaderLength = 2;
+
+    pub fn init(owner: TLVOwner, opt_type: IPOptionType) !GenericOption {
+        switch (opt_type) {
+            .RecordRoute, .StrictSourceRoute, .LooseSourceRoute, .Timestamp, .RouterAlert => {
+                return error.UseCorrectType;
+            },
+            else => {},
+        }
+
+        switch (owner) {
+            .owned_buffer => {
+                var self = GenericOption{ .owner = owner, .length = GenericOption.TLVHeaderLength };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < GenericOption.TLVHeaderLength) {
+                    const go_data = try self.owner.owned_buffer.extend(buffer_len, GenericOption.TLVHeaderLength);
+
+                    @memset(go_data, 0);
+
+                    go_data[0] = @intFromEnum(opt_type);
+                    go_data[1] = GenericOption.TLVHeaderLength;
+                }
+
+                return self;
+            },
+            else => {
+                return error.UseTUInstead;
+            },
+        }
+    }
+
+    fn get_offset(self: *GenericOption) usize {
+        var offset: usize = 0;
+
+        if (self.owner.is_layer_owned()) {
+            offset = IPv4.MinHeaderLength;
+
+            var cur = self.prev_op;
+            while (cur) |prev_op| {
+                offset += prev_op.get_length();
+                cur = prev_op.get_prev();
+            }
+        }
+
+        return offset;
+    }
+
+    pub fn get_data(self: *GenericOption) []const u8 {
+        //     const data = self.owner.get_data();
+
+        //     const offset: usize = self.get_offset();
+        //     const length: usize = @intCast(data[offset + 1]);
+
+        return self.get_data_mut();
+    }
+
+    fn get_data_mut(self: *GenericOption) []u8 {
+        const data = self.owner.get_data();
+
+        const offset: usize = self.get_offset();
+        const length: usize = @intCast(data[offset + 1]);
+
+        return data[offset .. offset + length];
+    }
+
+    pub fn set_data(self: *GenericOption, data: []const u8) !void {
+        const buf = try self.owner.extend_buffer(self.get_data().len, data.len);
+
+        @memmove(buf, data); // copy the ip
+    }
+
+    pub fn set_type(self: *GenericOption, opt_type: IPOptionType) !void {
+        switch (opt_type) {
+            .RecordRoute, .StrictSourceRoute, .LooseSourceRoute, .Timestamp, .RouterAlert => {
+                return error.UseCorrectType;
+            },
+        }
+        self.get_data_mut()[0] = @intFromEnum(opt_type);
+    }
+
+    pub fn deinit(self: *GenericOption) void {
         self.owner.deinit();
     }
 };

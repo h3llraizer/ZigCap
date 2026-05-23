@@ -16,6 +16,7 @@ const Eth = zigcap.Eth;
 const IPProtocol = zigcap.ProtocolEnums.IPProtocol;
 
 test "build rr opt" {
+    print("\nTESTING RR OPTION.\n", .{});
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.detectLeaks();
 
@@ -25,27 +26,27 @@ test "build rr opt" {
 
     const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
 
-    var opt = IPv4.IPv4Option.init(IPv4.IPOptionType.RecordRoute, tlv_owner, 3, null, null);
-    defer opt.deinit();
+    var rr = try IPv4.IPv4_Options.RecordRoute.init(tlv_owner);
+    defer rr.deinit();
 
-    try opt.record_route.add_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
-    try opt.record_route.add_ip(try IPv4.IPv4Address.init_from_string("10.1.1.1"));
-    try opt.record_route.add_ip(try IPv4.IPv4Address.init_from_string("172.78.9.3"));
+    try rr.add_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
+    try rr.add_ip(try IPv4.IPv4Address.init_from_string("10.1.1.1"));
+    try rr.add_ip(try IPv4.IPv4Address.init_from_string("172.78.9.3"));
 
-    const ips = try opt.record_route.get_ip_list(allocator) orelse {
+    const ips = try rr.get_ip_list(allocator) orelse {
         try expect(false); // no ips found
         return;
     };
 
     defer allocator.free(ips);
 
-    try expect(opt.record_route.get_ip_count() == 3);
+    try expect(rr.get_ip_count() == 3);
 
-    try expect(opt.record_route.get_ip_count() == ips.len);
+    try expect(rr.get_ip_count() == ips.len);
 
-    try opt.record_route.remove_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
+    try rr.remove_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
 
-    const ip_list = try opt.record_route.get_ip_list(allocator) orelse {
+    const ip_list = try rr.get_ip_list(allocator) orelse {
         try expect(false); // ip list not found
         return;
     };
@@ -56,6 +57,8 @@ test "build rr opt" {
         const str = try ip.to_string(allocator);
         allocator.free(str);
     }
+
+    var opt = IPv4.IPv4Option{ .record_route = rr };
 
     var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
     defer ipv4_layer.deinit();
@@ -70,23 +73,27 @@ test "build rr opt" {
     defer options.deinit(allocator);
 
     var cur = options.first;
-
     var count: usize = 0;
     while (cur) |option| {
         count += 1;
-        const prev = option.get_prev();
+        const next = option.get_next();
         try expect(option.get_opt_type() == IPv4.IPOptionType.RecordRoute);
-        cur = prev;
+        cur = next;
     }
-
-    try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
 
     try expect(count == 1);
 
     try expect(ipv4_layer.get_data().len == 32);
+
+    try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
+
+    const iphdr_str = try ipv4_layer.get_immutable_header().to_string(allocator);
+    print("{s}\n", .{iphdr_str});
+    allocator.free(iphdr_str);
 }
 
 test "build lsr opt" {
+    print("\nTESTING LSR OPTION.\n", .{});
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.detectLeaks();
 
@@ -96,27 +103,27 @@ test "build lsr opt" {
 
     const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
 
-    var opt = IPv4.IPv4Option.init(IPv4.IPOptionType.LooseSourceRoute, tlv_owner, 3, null, null);
-    defer opt.deinit();
+    var lsr = try IPv4.IPv4_Options.LooseSourceRoute.init(tlv_owner);
+    defer lsr.deinit();
 
-    try opt.loose_route.add_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
-    try opt.loose_route.add_ip(try IPv4.IPv4Address.init_from_string("10.1.1.1"));
-    try opt.loose_route.add_ip(try IPv4.IPv4Address.init_from_string("172.78.9.3"));
+    try lsr.add_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
+    try lsr.add_ip(try IPv4.IPv4Address.init_from_string("10.1.1.1"));
+    try lsr.add_ip(try IPv4.IPv4Address.init_from_string("172.78.9.3"));
 
-    const ips = try opt.loose_route.get_ip_list(allocator) orelse {
+    const ips = try lsr.get_ip_list(allocator) orelse {
         try expect(false); // no ips found
         return;
     };
 
     defer allocator.free(ips);
 
-    try expect(opt.loose_route.get_ip_count() == 3);
+    try expect(lsr.get_ip_count() == 3);
 
-    try expect(opt.loose_route.get_ip_count() == ips.len);
+    try expect(lsr.get_ip_count() == ips.len);
 
-    try opt.loose_route.remove_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
+    try lsr.remove_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
 
-    const ip_list = try opt.loose_route.get_ip_list(allocator) orelse {
+    const ip_list = try lsr.get_ip_list(allocator) orelse {
         try expect(false); // ip list not found
         return;
     };
@@ -128,13 +135,15 @@ test "build lsr opt" {
         allocator.free(str);
     }
 
+    var opt = IPv4.IPv4Option{ .loose_route = lsr };
+
     var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
     defer ipv4_layer.deinit();
 
     try ipv4_layer.add_option(&opt);
 
     var options = try ipv4_layer.get_options(allocator) orelse {
-        try expect(false); // failed to get options
+        try expect(false);
         return;
     };
 
@@ -154,9 +163,14 @@ test "build lsr opt" {
     try expect(ipv4_layer.get_data().len == 32);
 
     try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
+
+    const iphdr_str = try ipv4_layer.get_immutable_header().to_string(allocator);
+    print("{s}\n", .{iphdr_str});
+    allocator.free(iphdr_str);
 }
 
 test "build ssr opt" {
+    print("\nTESTING SSR OPTION.\n", .{});
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.detectLeaks();
 
@@ -166,27 +180,27 @@ test "build ssr opt" {
 
     const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
 
-    var opt = IPv4.IPv4Option.init(IPv4.IPOptionType.StrictSourceRoute, tlv_owner, 3, null, null);
-    defer opt.deinit();
+    var ssr = try IPv4.IPv4_Options.StrictSourceRoute.init(tlv_owner);
+    defer ssr.deinit();
 
-    try opt.strict_route.add_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
-    try opt.strict_route.add_ip(try IPv4.IPv4Address.init_from_string("10.1.1.1"));
-    try opt.strict_route.add_ip(try IPv4.IPv4Address.init_from_string("172.78.9.3"));
+    try ssr.add_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
+    try ssr.add_ip(try IPv4.IPv4Address.init_from_string("10.1.1.1"));
+    try ssr.add_ip(try IPv4.IPv4Address.init_from_string("172.78.9.3"));
 
-    const ips = try opt.strict_route.get_ip_list(allocator) orelse {
+    const ips = try ssr.get_ip_list(allocator) orelse {
         try expect(false); // no ips found
         return;
     };
 
     defer allocator.free(ips);
 
-    try expect(opt.strict_route.get_ip_count() == 3);
+    try expect(ssr.get_ip_count() == 3);
 
-    try expect(opt.strict_route.get_ip_count() == ips.len);
+    try expect(ssr.get_ip_count() == ips.len);
 
-    try opt.strict_route.remove_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
+    try ssr.remove_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
 
-    const ip_list = try opt.strict_route.get_ip_list(allocator) orelse {
+    const ip_list = try ssr.get_ip_list(allocator) orelse {
         try expect(false); // ip list not found
         return;
     };
@@ -197,6 +211,8 @@ test "build ssr opt" {
         const str = try ip.to_string(allocator);
         allocator.free(str);
     }
+
+    var opt = IPv4.IPv4Option{ .strict_route = ssr };
 
     var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
     defer ipv4_layer.deinit();
@@ -224,6 +240,10 @@ test "build ssr opt" {
     try expect(ipv4_layer.get_data().len == 32);
 
     try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
+
+    const iphdr_str = try ipv4_layer.get_immutable_header().to_string(allocator);
+    print("{s}\n", .{iphdr_str});
+    allocator.free(iphdr_str);
 }
 
 test "build ra opt" {
@@ -237,10 +257,12 @@ test "build ra opt" {
 
     defer tmp_owner.deinit();
 
-    var opt = IPv4.IPv4Option.init(IPv4.IPOptionType.RouterAlert, tlv_owner, 4, null, null);
-    defer opt.deinit();
+    var ra = try IPv4.IPv4_Options.RouterAlert.init(tlv_owner);
+    defer ra.deinit();
 
-    try opt.router_alert.set_ra_val(0x0000);
+    try ra.set_ra_val(0x0000);
+
+    var opt = IPv4.IPv4Option{ .router_alert = ra };
 
     var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
     defer ipv4_layer.deinit();
@@ -275,29 +297,27 @@ test "build timestamp opt" {
 
     defer tmp_owner.deinit();
 
-    var opt = IPv4.IPv4Option.init(IPv4.IPOptionType.Timestamp, tlv_owner, 4, null, null);
-    defer opt.deinit();
+    var ts_opt = try IPv4.IPv4_Options.Timestamp.init(tlv_owner);
+    defer ts_opt.deinit();
 
-    try opt.timestamp.set_mode_flag(IPv4.IPv4_Options.Timestamp.Mode.append_addrs);
-    try opt.timestamp.set_overflow(0);
+    try ts_opt.set_mode_flag(IPv4.IPv4_Options.Timestamp.Mode.APPEND_ADDRESSES);
+    try ts_opt.set_overflow(0);
 
     var rec = IPv4.IPv4_Options.TimestampRecord{
         .timestamp = 999999,
         .ip = try IPv4.IPv4Address.init_from_string("172.72.3.1"),
     };
 
-    try opt.timestamp.add_ts_record(rec);
+    try ts_opt.add_ts_record(rec);
 
     rec = .{
         .timestamp = 111111,
         .ip = try IPv4.IPv4Address.init_from_string("10.1.1.1"),
     };
 
-    try opt.timestamp.add_ts_record(rec);
+    try ts_opt.add_ts_record(rec);
 
-    //try opt.timestamp.remove_ts_record(rec);
-
-    var records = try opt.timestamp.get_records(allocator) orelse {
+    var records = try ts_opt.get_records(allocator) orelse {
         try expect(false); // records not found
         return;
     };
@@ -315,8 +335,12 @@ test "build timestamp opt" {
 
     records.deinit(allocator);
 
+    print("ts_data: ({}) {x}\n", .{ ts_opt.get_data().len, ts_opt.get_data() });
+
     var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
     defer ipv4_layer.deinit();
+
+    var opt = IPv4.IPv4Option{ .timestamp = ts_opt };
 
     try ipv4_layer.add_option(&opt);
 
@@ -333,7 +357,7 @@ test "build timestamp opt" {
         cur_opt = option.get_next();
     }
 
-    //try expect(cur_opt.?.get_opt_type() == IPv4.IPOptionType.Timestamp);
+    print("ipv4_layer data: ({}) {x}\n", .{ ipv4_layer.get_data().len, ipv4_layer.get_data() });
 
     try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
 
@@ -371,6 +395,8 @@ test "build timestamp opt" {
         return;
     };
 
+    print("first IPV4 layer option: {x}\n", .{ipv4_opt.get_data()});
+
     try expect(ipv4_opt.get_opt_type() == IPv4.IPOptionType.Timestamp);
 
     rec = .{ .ip = try IPv4.IPv4Address.init_from_string("192.168.1.254"), .timestamp = 333333 };
@@ -394,27 +420,27 @@ test "build timestamp opt in packet" {
 
     defer tmp_owner.deinit();
 
-    var opt = IPv4.IPv4Option.init(IPv4.IPOptionType.Timestamp, tlv_owner, 4, null, null);
-    defer opt.deinit();
+    var ts_opt = try IPv4.IPv4_Options.Timestamp.init(tlv_owner);
+    defer ts_opt.deinit();
 
-    try opt.timestamp.set_mode_flag(IPv4.IPv4_Options.Timestamp.Mode.append_addrs);
-    try opt.timestamp.set_overflow(0);
+    try ts_opt.set_mode_flag(IPv4.IPv4_Options.Timestamp.Mode.APPEND_ADDRESSES);
+    try ts_opt.set_overflow(0);
 
     var rec = IPv4.IPv4_Options.TimestampRecord{
         .timestamp = 999999,
         .ip = try IPv4.IPv4Address.init_from_string("172.72.3.1"),
     };
 
-    try opt.timestamp.add_ts_record(rec);
+    try ts_opt.add_ts_record(rec);
 
     rec = .{
         .timestamp = 111111,
         .ip = try IPv4.IPv4Address.init_from_string("10.1.1.1"),
     };
 
-    try opt.timestamp.add_ts_record(rec);
+    try ts_opt.add_ts_record(rec);
 
-    var records = try opt.timestamp.get_records(allocator) orelse {
+    var records = try ts_opt.get_records(allocator) orelse {
         try expect(false); // records not found
         return;
     };
@@ -431,6 +457,8 @@ test "build timestamp opt in packet" {
     }
 
     records.deinit(allocator);
+
+    var opt = IPv4.IPv4Option{ .timestamp = ts_opt };
 
     var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
     defer ipv4_layer.deinit();
@@ -525,27 +553,29 @@ test "build multiple options" {
     const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
     const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
 
-    var opt = IPv4.IPv4Option.init(IPv4.IPOptionType.Timestamp, tlv_owner, 4, null, null);
-    defer opt.deinit();
+    var ts_opt = try IPv4.IPv4_Options.Timestamp.init(tlv_owner);
+    defer ts_opt.deinit();
 
-    try opt.timestamp.set_mode_flag(IPv4.IPv4_Options.Timestamp.Mode.append_addrs);
-    try opt.timestamp.set_overflow(0);
+    try ts_opt.set_mode_flag(IPv4.IPv4_Options.Timestamp.Mode.APPEND_ADDRESSES);
+    try ts_opt.set_overflow(0);
 
     var rec = IPv4.IPv4_Options.TimestampRecord{
         .timestamp = 999999,
         .ip = try IPv4.IPv4Address.init_from_string("172.72.3.1"),
     };
 
-    try opt.timestamp.add_ts_record(rec);
+    try ts_opt.add_ts_record(rec);
 
     rec = .{
         .timestamp = 111111,
         .ip = try IPv4.IPv4Address.init_from_string("10.1.1.1"),
     };
 
-    try opt.timestamp.add_ts_record(rec);
+    try ts_opt.add_ts_record(rec);
 
-    var records = try opt.timestamp.get_records(allocator) orelse {
+    print("timestamp ts_opt length: {}\n", .{ts_opt.get_data().len});
+
+    var records = try ts_opt.get_records(allocator) orelse {
         try expect(false); // records not found
         return;
     };
@@ -566,12 +596,16 @@ test "build multiple options" {
     var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
     defer ipv4_layer.deinit();
 
+    var opt = IPv4.IPv4Option{ .timestamp = ts_opt };
+
     try ipv4_layer.add_option(&opt);
 
-    var opt1 = IPv4.IPv4Option.init(IPv4.IPOptionType.RouterAlert, tlv_owner, 4, null, null);
-    defer opt1.deinit();
+    var ra = try IPv4.IPv4_Options.RouterAlert.init(tlv_owner);
+    defer ra.deinit();
 
-    try opt1.router_alert.set_ra_val(0x0000);
+    try ra.set_ra_val(0x0000);
+
+    var opt1 = IPv4.IPv4Option{ .router_alert = ra };
 
     try ipv4_layer.add_option(&opt1);
 
@@ -584,11 +618,11 @@ test "build multiple options" {
 
     try expect(ipv4_opt.get_opt_type() == IPv4.IPOptionType.Timestamp);
 
-    rec = .{ .ip = try IPv4.IPv4Address.init_from_string("192.168.1.254"), .timestamp = 333333 };
-
-    try ipv4_opt.timestamp.add_ts_record(rec);
-
-    try ipv4_opt.timestamp.remove_ts_record(rec);
+    //   rec = .{ .ip = try IPv4.IPv4Address.init_from_string("192.168.1.254"), .timestamp = 333333 };
+    //
+    //   try ipv4_opt.timestamp.add_ts_record(rec);
+    //
+    //   try ipv4_opt.timestamp.remove_ts_record(rec);
 
     try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
 
@@ -599,33 +633,148 @@ test "build multiple options" {
 
     defer options.deinit(allocator);
 
+    var count: usize = 1;
     var option = options.first;
     while (option) |cur_opt| {
-        print("{any} {x} is layer owned: {any}\n", .{
+        print("{}. type: {any}\ndata: ({}) {x}\ntlv_length:{}\nlength {}\n\n", .{
+            count,
             cur_opt.get_opt_type(),
+            cur_opt.get_data().len,
             cur_opt.get_data(),
-            cur_opt.timestamp.owner.is_layer_owned(),
+            cur_opt.get_tlv_length(),
+            cur_opt.get_data()[1],
         });
 
         const next = cur_opt.get_next();
-
-        //    if (cur_opt.get_opt_type() == .Timestamp) {
-        //        var ts_records = try cur_opt.timestamp.get_records(allocator) orelse {
-        //            try expect(false);
-        //            return;
-        //        };
-        //        defer ts_records.deinit(allocator);
-        //        var ts_record = ts_records.first;
-        //        while (ts_record) |record| {
-        //            if (record.ip) |ip_addr| {
-        //                const ip_str = try ip_addr.to_string(allocator);
-        //                print("ip: {s}\n", .{ip_str});
-        //                allocator.free(ip_str);
-        //            }
-        //            print("ts: {d}\n", .{record.timestamp});
-        //            ts_record = record.next_record;
-        //        }
-        //    }
+        count += 1;
         option = next;
     }
+}
+
+test "build timestamp option" {
+    print("\nTESTING BUILD MULTIPLE OPTIONS\n", .{});
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.detectLeaks();
+
+    const allocator = debug_allocator.allocator();
+
+    const buf = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", 4);
+    @memset(buf, 0);
+
+    buf[0] = @intFromEnum(IPv4.IPv4_Options.IPOptionType.Timestamp);
+    buf[1] = IPv4.IPv4_Options.Timestamp.TLVHeaderLength;
+    buf[2] = 5;
+    buf[3] = 0;
+
+    const tlv_owner = TLVOwner{ .owned_buffer = try .init(buf, allocator) };
+
+    var ts_opt = try IPv4.IPv4_Options.Timestamp.init(tlv_owner);
+
+    defer ts_opt.deinit();
+
+    try ts_opt.set_mode_flag(IPv4.IPv4_Options.Timestamp.Mode.APPEND_ADDRESSES);
+    try ts_opt.set_overflow(0);
+
+    try expect(ts_opt.get_mode_flag() == IPv4.IPv4_Options.Timestamp.Mode.APPEND_ADDRESSES);
+    try expect(ts_opt.get_overflow() == 0);
+
+    const ip0 = try IPv4.IPv4Address.init_from_string("172.72.3.1");
+
+    const rec = IPv4.IPv4_Options.TimestampRecord{
+        .timestamp = 999999,
+        .ip = ip0,
+    };
+
+    try ts_opt.add_ts_record(rec);
+
+    // check the first IP added matches the bytes of the IP we initialised
+    const ip_bytes = ts_opt.get_data()[IPv4.IPv4_Options.Timestamp.TLVHeaderLength .. IPv4.IPv4_Options.Timestamp.TLVHeaderLength + @sizeOf(IPv4.IPv4Address)];
+
+    try expect(std.mem.eql(u8, ip_bytes, &ip0.array));
+
+    // check the first timestamp added matches the bytes of the timestamp we initialised
+    const timestamp_bytes = ts_opt.get_data()[IPv4.IPv4_Options.Timestamp.TLVHeaderLength + @sizeOf(IPv4.IPv4Address) .. IPv4.IPv4_Options.Timestamp.TLVHeaderLength + @sizeOf(IPv4.IPv4Address) + @sizeOf(u32)];
+
+    try expect(std.mem.readInt(u32, timestamp_bytes[0..], .big) == rec.timestamp);
+
+    var records = try ts_opt.get_records(allocator) orelse {
+        try expect(false); // failed to get records
+        return;
+    };
+
+    var cur = records.first;
+    while (cur) |record| {
+        if (record.ip) |ipv4| {
+            const ipv4_str = try ipv4.to_string(allocator);
+            allocator.free(ipv4_str);
+        }
+        cur = record.next_record;
+    }
+
+    records.deinit(allocator);
+
+    const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+
+    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
+    defer ipv4_layer.deinit();
+
+    var opt = IPv4.IPv4Option{ .timestamp = ts_opt };
+
+    try ipv4_layer.add_option(&opt);
+
+    try expect(ipv4_layer.get_data().len ==
+        IPv4.MinHeaderLength +
+            IPv4.IPv4_Options.Timestamp.TLVHeaderLength +
+            @sizeOf(IPv4.IPv4Address) +
+            @sizeOf(u32));
+}
+
+test "build router alert option" {
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.detectLeaks();
+
+    const allocator = debug_allocator.allocator();
+
+    const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
+    var ra_opt = try IPv4.IPv4_Options.RouterAlert.init(tlv_owner);
+
+    defer ra_opt.deinit();
+
+    try expect(ra_opt.get_data().len == 4);
+
+    const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+
+    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
+    defer ipv4_layer.deinit();
+
+    var opt = IPv4.IPv4Option{ .router_alert = ra_opt };
+
+    try ipv4_layer.add_option(&opt);
+
+    try expect(ipv4_layer.get_data().len ==
+        IPv4.MinHeaderLength +
+            IPv4.IPv4_Options.RouterAlert.TLVHeaderLength);
+}
+
+test "build generic option" {
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.detectLeaks();
+
+    const allocator = debug_allocator.allocator();
+
+    const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
+    var go_opt = try IPv4.IPv4_Options.GenericOption.init(tlv_owner, IPv4.IPOptionType.MTUProbe);
+
+    defer go_opt.deinit();
+
+    try expect(go_opt.get_data().len == 2);
+
+    const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+
+    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
+    defer ipv4_layer.deinit();
+
+    var opt = IPv4.IPv4Option{ .generic = go_opt };
+
+    try ipv4_layer.add_option(&opt);
 }
