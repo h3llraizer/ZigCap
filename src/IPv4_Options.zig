@@ -156,7 +156,6 @@ pub const IPv4Option = union(enum) {
             .RecordRoute => {
                 return IPv4Option{ .record_route = RecordRoute{
                     .owner = owner,
-                    .length = length,
                     .prev_op = prev,
                     .next_op = next,
                 } };
@@ -164,7 +163,6 @@ pub const IPv4Option = union(enum) {
             .LooseSourceRoute => {
                 return IPv4Option{ .loose_route = LooseSourceRoute{
                     .owner = owner,
-                    .length = length,
                     .prev_op = prev,
                     .next_op = next,
                 } };
@@ -172,7 +170,6 @@ pub const IPv4Option = union(enum) {
             .StrictSourceRoute => {
                 return IPv4Option{ .strict_route = StrictSourceRoute{
                     .owner = owner,
-                    .length = length,
                     .prev_op = prev,
                     .next_op = next,
                 } };
@@ -180,7 +177,6 @@ pub const IPv4Option = union(enum) {
             .RouterAlert => {
                 return IPv4Option{ .router_alert = RouterAlert{
                     .owner = owner,
-                    .length = length,
                     .prev_op = prev,
                     .next_op = next,
                 } };
@@ -188,7 +184,6 @@ pub const IPv4Option = union(enum) {
             .Timestamp => {
                 return IPv4Option{ .timestamp = Timestamp{
                     .owner = owner,
-                    .length = length,
                     .prev_op = prev,
                     .next_op = next,
                 } };
@@ -212,7 +207,7 @@ pub const IPv4Option = union(enum) {
 
     pub fn get_length(self: *IPv4Option) usize {
         return switch (self.*) {
-            inline else => |*opt| opt.length,
+            inline else => |*opt| @intCast(opt.get_data()[1]),
         };
     }
 
@@ -342,67 +337,75 @@ fn get_ips_count(data: []const u8) usize {
 }
 
 fn add_ip_to_buffer(offset: usize, owner: *TLVOwner, ip: IPv4.IPv4Address, opt_type: IPv4.IPOptionType) !void {
-    if (owner.get_data()[offset..].len == 0) {
-        if (opt_type == .Timestamp) {
-            var buf = try owner.extend_buffer(offset, 4);
-            buf[0] = @intFromEnum(opt_type);
-            buf[1] = 4;
-            buf[2] = 0;
-            buf[3] = 5;
-        } else {
-            var buf = try owner.extend_buffer(0, 3);
-            buf[0] = @intFromEnum(opt_type);
-            buf[1] = 3; // min length for RR/LSR/SSR Opt - 1byte type, 1 byte length, 1byte ptr
-            buf[2] = 4; // default ptr byte set to index after ptr byte
-        }
-    }
+    _ = opt_type;
+
+    const cur_length: usize = @intCast(owner.get_data()[offset + 1]);
+
+    std.debug.assert(cur_length <= owner.get_data()[offset..].len);
 
     const buf = try owner.extend_buffer(
-        owner.get_data().len, // not good - when layer owned this extends at the last option or worse packet end
+        offset + cur_length,
         @sizeOf(IPv4.IPv4Address),
     );
+
     @memmove(buf, &ip.array); // copy the ip
 
-    // This is the cause of the dscp length increase
-    // dscp is at offset 1 in the ipv4 header
-    // so each time this is called, it's increasing by 4
     owner.get_data()[offset + 1] += @sizeOf(IPv4.IPv4Address); // increase the length
+    try set_hdr_vals(owner, @sizeOf(IPv4.IPv4Address));
 }
 
-fn remove_ip_from_list(owner: *TLVOwner, ip: IPv4.IPv4Address) !void {
-    var data = owner.get_data();
-    var data_len: usize = data.len;
+fn remove_ip_from_list(offset: usize, owner: *TLVOwner, ip: IPv4.IPv4Address) !void {
+    var data = owner.get_data()[offset..];
+    var data_len: usize = @intCast(data[1]);
 
     if (data.len < 7) {
         return;
     }
 
-    var offset: usize = 3;
+    var relative_offset: usize = 3;
 
     var oct_count: usize = 0;
 
     var count: u8 = 0;
 
-    while (offset < data_len) {
+    while (relative_offset < data_len) {
         if (oct_count == 3) {
             oct_count = 0;
 
-            if (std.mem.eql(u8, data[offset - 3 .. offset + 1], &ip.array)) {
-                try owner.shorten_buffer(offset - 3, @sizeOf(IPv4.IPv4Address));
-                data_len = owner.get_data().len;
-                offset -= 3;
+            //
+            const ip_bytes = data[relative_offset - 3 .. relative_offset + 1];
+
+            if (std.mem.eql(u8, ip_bytes, &ip.array)) {
+                // shorten the owning buffer at the offset by the size of the IPv4 address
+                try owner.shorten_buffer(offset + (relative_offset - 3), @sizeOf(IPv4.IPv4Address));
+
+                // decrease data_len by size of IPv4 Address (4 bytes)
+                data_len -= @sizeOf(IPv4.IPv4Address);
+
+                // decrease offset by size of IPv4 Address (4 bytes)
+                relative_offset -= @sizeOf(IPv4.IPv4Address);
+
+                // reset oct_count to 0
                 oct_count = 0;
-                data = owner.get_data();
+
+                // reset the ptr
+                data = owner.get_data()[relative_offset..];
+
+                // increase count by 1
                 count += 1;
             }
         } else {
+            // increase oct count by 1
             oct_count += 1;
 
-            offset += 1;
+            // increase offset by 1
+            relative_offset += 1;
         }
     }
 
-    owner.get_data()[1] -= count * @sizeOf(IPv4.IPv4Address);
+    owner.get_data()[offset..][1] -= count * @sizeOf(IPv4.IPv4Address); // decrease length byte value in TLV by bytes removed
+
+    try set_hdr_vals(owner, -(@as(isize, @intCast(count * @sizeOf(IPv4.IPv4Address))))); // update the IPv4 header vals
 }
 
 fn get_ip_offset(owner: *TLVOwner, ip: IPv4.IPv4Address, cur_offset: usize) ?usize {
@@ -442,23 +445,54 @@ fn get_ip_offset(owner: *TLVOwner, ip: IPv4.IPv4Address, cur_offset: usize) ?usi
 }
 
 fn add_timestamp_to_buffer(offset: usize, owner: *TLVOwner, timestamp: u32, opt_type: IPv4.IPOptionType) !void {
-    if (owner.get_data()[offset..].len == 0) {
-        var buf = try owner.extend_buffer(0, 4);
-        buf[0] = @intFromEnum(opt_type);
-        buf[1] = 4; // min length for RecordRoute Opt - 1byte type, 1 byte length, 1byte ptr
-        buf[2] = @intFromEnum(Timestamp.Mode.TIMESTAMP_ONLY); // default ptr byte set to index after ptr byte
-        buf[3] = 5;
-    }
-
+    _ = opt_type;
     const buf = try owner.extend_buffer(owner.get_data().len, @sizeOf(u32));
     @memmove(buf, &std.mem.toBytes(@byteSwap(timestamp))); // copy the ip
 
     owner.get_data()[offset + 1] += @sizeOf(u32); // increase the length
+    try set_hdr_vals(owner, @sizeOf(u32));
+}
+
+fn add_pad(owner: *TLVOwner) !void {
+    _ = owner;
+}
+
+fn get_mutable_hdr(owner: *TLVOwner) *IPv4.IPv4Header {
+    const data = owner.get_data();
+
+    if (data.len < IPv4.MinHeaderLength) {
+        panic("IPv4 data len ({}) less than IPv4HeaderSize", .{data.len});
+    }
+
+    const aligned_ptr: [*]align(@alignOf(IPv4.IPv4Header)) u8 = @alignCast(data.ptr);
+    return @ptrCast(aligned_ptr);
+}
+
+fn set_hdr_vals(owner: *TLVOwner, len: isize) !void {
+    if (owner.is_layer_owned()) {
+        var hdr = get_mutable_hdr(owner);
+
+        const current_ihl: u8 = hdr.get_ihl();
+
+        const current_header_len: isize = current_ihl * 4;
+
+        var new_header_len: usize = @intCast(current_header_len + len);
+
+        const pad_required = if (new_header_len % IPv4.HeaderAlignment == 0) 0 else IPv4.HeaderAlignment - (new_header_len % IPv4.HeaderAlignment);
+
+        if (pad_required > 0) {
+            _ = try owner.extend_buffer(owner.get_data().len, pad_required);
+            new_header_len += pad_required;
+            hdr = get_mutable_hdr(owner);
+        }
+
+        hdr.set_length(@intCast(new_header_len));
+        hdr.set_ihl(@intCast(hdr.get_length()));
+    }
 }
 
 pub const RecordRoute = struct {
     owner: TLVOwner,
-    length: usize,
     prev_op: ?*IPv4Option = null,
     next_op: ?*IPv4Option = null,
 
@@ -467,7 +501,7 @@ pub const RecordRoute = struct {
     pub fn init(owner: TLVOwner) !RecordRoute {
         switch (owner) {
             .owned_buffer => {
-                var self = RecordRoute{ .owner = owner, .length = RecordRoute.TLVHeaderLength };
+                var self = RecordRoute{ .owner = owner };
                 const buffer_len = self.owner.owned_buffer.buffer.items.len;
                 if (buffer_len < RecordRoute.TLVHeaderLength) {
                     const rr_data = try self.owner.owned_buffer.extend(buffer_len, RecordRoute.TLVHeaderLength);
@@ -520,12 +554,18 @@ pub const RecordRoute = struct {
         const data = self.owner.get_data();
 
         const absolute_offset: usize = self.get_offset();
+        const length = self.get_data()[absolute_offset + 1];
 
-        if (data.len >= absolute_offset and self.length <= data.len) {
-            return data[absolute_offset .. absolute_offset + self.length];
+        if (data.len >= absolute_offset and length <= data.len) {
+            return data[absolute_offset .. absolute_offset + length];
         }
 
         return "";
+    }
+
+    /// Returns the length of the Option from its TLV-Header
+    pub fn get_length(self: *RecordRoute) u8 {
+        return self.get_data()[1];
     }
 
     pub fn get_ptr(self: *RecordRoute) u8 {
@@ -562,7 +602,7 @@ pub const RecordRoute = struct {
     }
 
     pub fn remove_ip(self: *RecordRoute, ip: IPv4.IPv4Address) !void {
-        return remove_ip_from_list(&self.owner, ip);
+        return remove_ip_from_list(self.get_offset(), &self.owner, ip);
     }
 
     pub fn deinit(self: *RecordRoute) void {
@@ -572,7 +612,6 @@ pub const RecordRoute = struct {
 
 pub const LooseSourceRoute = struct {
     owner: TLVOwner,
-    length: usize,
     prev_op: ?*IPv4Option = null,
     next_op: ?*IPv4Option = null,
 
@@ -581,7 +620,7 @@ pub const LooseSourceRoute = struct {
     pub fn init(owner: TLVOwner) !LooseSourceRoute {
         switch (owner) {
             .owned_buffer => {
-                var self = LooseSourceRoute{ .owner = owner, .length = LooseSourceRoute.TLVHeaderLength };
+                var self = LooseSourceRoute{ .owner = owner };
                 const buffer_len = self.owner.owned_buffer.buffer.items.len;
                 if (buffer_len < LooseSourceRoute.TLVHeaderLength) {
                     const lsr_data = try self.owner.owned_buffer.extend(buffer_len, LooseSourceRoute.TLVHeaderLength);
@@ -634,12 +673,18 @@ pub const LooseSourceRoute = struct {
         const data = self.owner.get_data();
 
         const absolute_offset: usize = self.get_offset();
+        const length = self.get_data()[absolute_offset + 1];
 
-        if (data.len >= absolute_offset and self.length <= data.len) {
-            return data[absolute_offset .. absolute_offset + self.length];
+        if (data.len >= absolute_offset and length <= data.len) {
+            return data[absolute_offset .. absolute_offset + length];
         }
 
         return "";
+    }
+
+    /// Returns the length of the Option from its TLV-Header
+    pub fn get_length(self: *LooseSourceRoute) u8 {
+        return self.get_data()[1];
     }
 
     pub fn get_ptr(self: *LooseSourceRoute) u8 {
@@ -676,7 +721,7 @@ pub const LooseSourceRoute = struct {
     }
 
     pub fn remove_ip(self: *LooseSourceRoute, ip: IPv4.IPv4Address) !void {
-        return remove_ip_from_list(&self.owner, ip);
+        return remove_ip_from_list(self.get_offset(), &self.owner, ip);
     }
 
     pub fn deinit(self: *LooseSourceRoute) void {
@@ -686,7 +731,6 @@ pub const LooseSourceRoute = struct {
 
 pub const StrictSourceRoute = struct {
     owner: TLVOwner,
-    length: usize,
     prev_op: ?*IPv4Option = null,
     next_op: ?*IPv4Option = null,
 
@@ -695,7 +739,7 @@ pub const StrictSourceRoute = struct {
     pub fn init(owner: TLVOwner) !StrictSourceRoute {
         switch (owner) {
             .owned_buffer => {
-                var self = StrictSourceRoute{ .owner = owner, .length = StrictSourceRoute.TLVHeaderLength };
+                var self = StrictSourceRoute{ .owner = owner };
                 const buffer_len = self.owner.owned_buffer.buffer.items.len;
                 if (buffer_len < StrictSourceRoute.TLVHeaderLength) {
                     const ssr_data = try self.owner.owned_buffer.extend(buffer_len, StrictSourceRoute.TLVHeaderLength);
@@ -748,12 +792,18 @@ pub const StrictSourceRoute = struct {
         const data = self.owner.get_data();
 
         const absolute_offset: usize = self.get_offset();
+        const length = self.get_data()[absolute_offset + 1];
 
-        if (data.len >= absolute_offset and self.length <= data.len) {
-            return data[absolute_offset .. absolute_offset + self.length];
+        if (data.len >= absolute_offset and length <= data.len) {
+            return data[absolute_offset .. absolute_offset + length];
         }
 
         return "";
+    }
+
+    /// Returns the length of the Option from its TLV-Header
+    pub fn get_length(self: *StrictSourceRoute) u8 {
+        return self.get_data()[1];
     }
 
     pub fn get_ptr(self: *StrictSourceRoute) u8 {
@@ -786,11 +836,13 @@ pub const StrictSourceRoute = struct {
     }
 
     pub fn add_ip(self: *StrictSourceRoute, ip: IPv4.IPv4Address) !void {
-        return add_ip_to_buffer(self.get_offset(), &self.owner, ip, IPv4.IPOptionType.StrictSourceRoute);
+        try add_ip_to_buffer(self.get_offset(), &self.owner, ip, IPv4.IPOptionType.StrictSourceRoute);
+        //const hdr = get_mutable_hdr();
+
     }
 
     pub fn remove_ip(self: *StrictSourceRoute, ip: IPv4.IPv4Address) !void {
-        return remove_ip_from_list(&self.owner, ip);
+        return remove_ip_from_list(self.get_offset(), &self.owner, ip);
     }
 
     pub fn deinit(self: *StrictSourceRoute) void {
@@ -800,7 +852,6 @@ pub const StrictSourceRoute = struct {
 
 pub const RouterAlert = struct {
     owner: TLVOwner,
-    length: usize,
     prev_op: ?*IPv4Option = null,
     next_op: ?*IPv4Option = null,
 
@@ -809,7 +860,7 @@ pub const RouterAlert = struct {
     pub fn init(owner: TLVOwner) !RouterAlert {
         switch (owner) {
             .owned_buffer => {
-                var self = RouterAlert{ .owner = owner, .length = RouterAlert.TLVHeaderLength };
+                var self = RouterAlert{ .owner = owner };
                 const buffer_len = self.owner.owned_buffer.buffer.items.len;
                 if (buffer_len < RouterAlert.TLVHeaderLength) {
                     const ra_data = try self.owner.owned_buffer.extend(buffer_len, RouterAlert.TLVHeaderLength);
@@ -863,21 +914,21 @@ pub const RouterAlert = struct {
         const data = self.owner.get_data();
 
         const absolute_offset: usize = self.get_offset();
+        const length = self.get_data()[absolute_offset + 1];
 
-        if (data.len >= absolute_offset and self.length <= data.len) {
-            return data[absolute_offset .. absolute_offset + self.length];
+        if (data.len >= absolute_offset and length <= data.len) {
+            return data[absolute_offset .. absolute_offset + length];
         }
 
         return "";
     }
 
-    pub fn set_ra_val(self: *RouterAlert, val: u16) !void {
-        if (self.get_data().len != 4) {
-            var buf = try self.owner.extend_buffer(self.get_data().len, 4 - self.get_data().len);
-            buf[0] = @intFromEnum(IPv4.IPOptionType.RouterAlert);
-            buf[1] = 4; // min length - 1byte type, 1 byte length, 2byte value
-        }
+    /// Returns the length of the Option from its TLV-Header
+    pub fn get_length(self: *RouterAlert) u8 {
+        return self.get_data()[1];
+    }
 
+    pub fn set_ra_val(self: *RouterAlert, val: u16) !void {
         @memmove(self.get_data_mut()[2..4], &std.mem.toBytes(val)); // copy the ip
     }
 
@@ -912,7 +963,6 @@ pub const TimestampRecords = struct {
 
 pub const Timestamp = struct {
     owner: TLVOwner,
-    length: usize,
     prev_op: ?*IPv4Option = null,
     next_op: ?*IPv4Option = null,
 
@@ -931,7 +981,7 @@ pub const Timestamp = struct {
     pub fn init(owner: TLVOwner) !Timestamp {
         switch (owner) {
             .owned_buffer => {
-                var self = Timestamp{ .owner = owner, .length = Timestamp.TLVHeaderLength };
+                var self = Timestamp{ .owner = owner };
                 const buffer_len = self.owner.owned_buffer.buffer.items.len;
                 if (buffer_len < Timestamp.TLVHeaderLength) {
                     const ts_data = try self.owner.owned_buffer.extend(buffer_len, Timestamp.TLVHeaderLength);
@@ -978,6 +1028,7 @@ pub const Timestamp = struct {
         const data = self.owner.get_data();
 
         const offset: usize = self.get_offset();
+
         const length: usize = @intCast(data[offset + 1]);
 
         return data[offset .. offset + length];
@@ -988,11 +1039,18 @@ pub const Timestamp = struct {
 
         const absolute_offset: usize = self.get_offset();
 
-        if (data.len >= absolute_offset and self.length <= data.len) {
-            return data[absolute_offset .. absolute_offset + self.length];
+        const length = self.get_data()[absolute_offset + 1];
+
+        if (data.len >= absolute_offset and length <= data.len) {
+            return data[absolute_offset .. absolute_offset + length];
         }
 
-        return "";
+        panic("Timetamp option is invalid.\n", .{});
+    }
+
+    /// Returns the length of the Option from its TLV-Header
+    pub fn get_length(self: *Timestamp) u8 {
+        return self.get_data()[1];
     }
 
     pub fn get_ptr(self: *Timestamp) u8 {
@@ -1014,17 +1072,6 @@ pub const Timestamp = struct {
     }
 
     pub fn set_mode_flag(self: *Timestamp, flag: Timestamp.Mode) !void {
-        if (self.get_data().len < 4) {
-            var buf = try self.owner.extend_buffer(
-                self.get_data().len,
-                4 - self.get_data().len,
-            );
-
-            buf[0] = @intFromEnum(IPv4.IPOptionType.Timestamp);
-            buf[1] = 4;
-            buf[2] = 5;
-        }
-
         self.get_data_mut()[3] =
             (self.get_data_mut()[3] & 0b1111_0000) |
             (@as(u8, @intFromEnum(flag)) & 0b0000_1111);
@@ -1039,17 +1086,6 @@ pub const Timestamp = struct {
     }
 
     pub fn set_overflow(self: *Timestamp, of: u4) !void {
-        if (self.get_data().len < 4) {
-            var buf = try self.owner.extend_buffer(
-                self.get_data().len,
-                4 - self.get_data().len,
-            );
-
-            buf[0] = @intFromEnum(IPv4.IPOptionType.Timestamp);
-            buf[1] = 4;
-            buf[2] = 5;
-        }
-
         self.get_data_mut()[3] =
             (self.get_data_mut()[3] & 0b0000_1111) |
             (@as(u8, of) << 4);
@@ -1057,6 +1093,69 @@ pub const Timestamp = struct {
 
     fn add_timestamp(self: *Timestamp, timestamp: u32) !void {
         try add_timestamp_to_buffer(self.get_offset(), &self.owner, timestamp, IPv4.IPOptionType.Timestamp);
+    }
+
+    fn add_ip(self: *Timestamp, ip: IPv4.IPv4Address) !void {
+        return add_ip_to_buffer(self.get_offset(), &self.owner, ip, IPv4.IPOptionType.Timestamp);
+    }
+
+    fn remove_ip(self: *Timestamp, ip: IPv4.IPv4Address) !void {
+        return remove_ip_from_list(&self.owner, ip);
+    }
+
+    pub fn add_ts_record(self: *Timestamp, record: TimestampRecord) !void {
+        if (self.get_mode_flag() == .TIMESTAMP_ONLY) {
+            if (record.ip != null) {
+                return error.InvalidTimestampOnlyRecord; // TS Only does not contain IP addresses
+            }
+            try self.add_timestamp(record.timestamp);
+            try set_hdr_vals(&self.owner, @sizeOf(u32));
+            //self.get_data_mut()[1] += @sizeOf(u32);
+            return;
+        }
+
+        if (record.ip == null) {
+            return error.IPRequiredForNonTSOnlyRecord; // caller must provide an IP, even if 0.0.0.0 for place holder
+        }
+
+        try self.add_ip(record.ip.?);
+        try self.add_timestamp(record.timestamp);
+        //try set_hdr_vals(&self.owner, (@sizeOf(u32) + @sizeOf(IPv4.IPv4Address)));
+        //self.get_data_mut()[1] += (@sizeOf(u32) + @sizeOf(IPv4.IPv4Address));
+    }
+
+    pub fn remove_ts_record(self: *Timestamp, record: TimestampRecord) !void {
+        const data = self.get_data()[4..];
+        if (record.ip == null) {
+            const bytes: [4]u8 = std.mem.toBytes(@byteSwap(record.timestamp));
+            if (std.mem.indexOf(u8, data, &bytes)) |offset| {
+                try self.owner.shorten_buffer(offset, @sizeOf(u32));
+                //self.get_data_mut()[1] -= @sizeOf(u32);
+
+                const absolute_offset = self.get_offset();
+                self.owner.get_data()[absolute_offset + 1] -= @sizeOf(u32);
+                try set_hdr_vals(&self.owner, -@sizeOf(u32));
+                return;
+            }
+        }
+
+        const ip_bytes: [4]u8 = record.ip.?.array;
+        const ts_bytes: [4]u8 = std.mem.toBytes(@byteSwap(record.timestamp));
+        var full_rec: [8]u8 = .{0x00} ** 8;
+
+        @memmove(full_rec[0..4], &ip_bytes);
+        @memmove(full_rec[4..8], &ts_bytes);
+
+        if (std.mem.indexOf(u8, data, &full_rec)) |offset| {
+            try self.owner.shorten_buffer(self.get_offset() + 4 + offset, (@sizeOf(u32) + @sizeOf(IPv4.IPv4Address)));
+            const absolute_offset = self.get_offset();
+            self.owner.get_data()[absolute_offset + 1] -= (@sizeOf(u32) + @sizeOf(IPv4.IPv4Address));
+
+            //self.get_data_mut()[1] -= (@sizeOf(u32) + @sizeOf(IPv4.IPv4Address));
+
+            try set_hdr_vals(&self.owner, -(@sizeOf(u32) + @sizeOf(IPv4.IPv4Address)));
+            return;
+        }
     }
 
     pub fn get_records(self: *Timestamp, allocator: Allocator) !?TimestampRecords {
@@ -1113,80 +1212,6 @@ pub const Timestamp = struct {
         }
 
         return records;
-    }
-
-    fn add_ip(self: *Timestamp, ip: IPv4.IPv4Address) !void {
-        return add_ip_to_buffer(self.get_offset(), &self.owner, ip, IPv4.IPOptionType.Timestamp);
-    }
-
-    fn remove_ip(self: *Timestamp, ip: IPv4.IPv4Address) !void {
-        return remove_ip_from_list(&self.owner, ip);
-    }
-
-    fn get_mutable_hdr(self: *Timestamp) *IPv4.IPv4Header {
-        const data = self.owner.get_data();
-
-        if (data.len < IPv4.MinHeaderLength) {
-            panic("IPv4 data len ({}) less than IPv4HeaderSize", .{data.len});
-        }
-
-        const aligned_ptr: [*]align(@alignOf(IPv4.IPv4Header)) u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
-    }
-
-    fn set_hdr_vals(self: *Timestamp, len: isize) void {
-        if (self.owner.is_layer_owned()) {
-            const hdr = self.get_mutable_hdr();
-            const new_len: isize = hdr.get_length() + len;
-            hdr.set_length(@intCast(new_len));
-            hdr.set_ihl(@intCast(hdr.get_length()));
-        }
-    }
-
-    pub fn add_ts_record(self: *Timestamp, record: TimestampRecord) !void {
-        if (self.get_mode_flag() == .TIMESTAMP_ONLY) {
-            if (record.ip != null) {
-                return error.InvalidTimestampOnlyRecord; // TS Only does not contain IP addresses
-            }
-            try self.add_timestamp(record.timestamp);
-            self.set_hdr_vals(@sizeOf(u32));
-            return;
-        }
-
-        if (record.ip == null) {
-            return error.IPRequiredForNonTSOnlyRecord; // caller must provide an IP, even if 0.0.0.0 for place holder
-        }
-
-        try self.add_ip(record.ip.?);
-        try self.add_timestamp(record.timestamp);
-        self.set_hdr_vals((@sizeOf(u32) + @sizeOf(IPv4.IPv4Address)));
-    }
-
-    pub fn remove_ts_record(self: *Timestamp, record: TimestampRecord) !void {
-        const data = self.get_data()[4..];
-        if (record.ip == null) {
-            const bytes: [4]u8 = std.mem.toBytes(@byteSwap(record.timestamp));
-            if (std.mem.indexOf(u8, data, &bytes)) |offset| {
-                try self.owner.shorten_buffer(offset, @sizeOf(u32));
-                self.get_data_mut()[1] -= @sizeOf(u32);
-                self.set_hdr_vals(-@sizeOf(u32));
-                return;
-            }
-        }
-
-        const ip_bytes: [4]u8 = record.ip.?.array;
-        const ts_bytes: [4]u8 = std.mem.toBytes(@byteSwap(record.timestamp));
-        var full_rec: [8]u8 = .{0x00} ** 8;
-
-        @memmove(full_rec[0..4], &ip_bytes);
-        @memmove(full_rec[4..8], &ts_bytes);
-
-        if (std.mem.indexOf(u8, data, &full_rec)) |offset| {
-            try self.owner.shorten_buffer(self.get_offset() + 4 + offset, (@sizeOf(u32) + @sizeOf(IPv4.IPv4Address)));
-            self.get_data_mut()[1] -= (@sizeOf(u32) + @sizeOf(IPv4.IPv4Address));
-            self.set_hdr_vals(-(@sizeOf(u32) + @sizeOf(IPv4.IPv4Address)));
-            return;
-        }
     }
 
     pub fn deinit(self: *Timestamp) void {
@@ -1278,6 +1303,11 @@ pub const GenericOption = struct {
             },
         }
         self.get_data_mut()[0] = @intFromEnum(opt_type);
+    }
+
+    /// Returns the length of the Option from its TLV-Header
+    pub fn get_length(self: *GenericOption) u8 {
+        return self.get_data()[1];
     }
 
     pub fn deinit(self: *GenericOption) void {

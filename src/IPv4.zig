@@ -22,8 +22,8 @@ const LayerError = ProtocolEnums.LayerError;
 const IPProtocol = ProtocolEnums.IPProtocol;
 
 pub const MaxHeaderLength = 60; //IPv4MinHeader Length
-pub const MinHeaderLength = 20;
-const HeaderAlignment = 4;
+pub const MinHeaderLength = 20; //IPv4 Max Header Length
+pub const HeaderAlignment = 4;
 
 const default_hdr = IPv4Header{
     .version_ihl = 0x45,
@@ -346,7 +346,7 @@ pub const IPv4Layer = struct {
         return options;
     }
 
-    fn check_pad(self: *IPv4Layer) ?usize {
+    pub fn check_pad(self: *IPv4Layer) ?usize {
         const ops_buf = self.get_opt_buf();
 
         if (ops_buf.len == 0) {
@@ -405,11 +405,7 @@ pub const IPv4Layer = struct {
     pub fn add_option(self: *IPv4Layer, option: *IPv4Option) !void {
         const new_option_bytes = option.get_data();
 
-        print("new_option_bytes: {x}\n", .{new_option_bytes});
-
         const new_option_bytes_len: usize = new_option_bytes.len;
-
-        print("new_option_bytes_len: {}\n", .{new_option_bytes_len});
 
         const current_ihl: u8 = self.get_immutable_header().get_ihl();
 
@@ -519,8 +515,6 @@ pub const IPv4Layer = struct {
         const hdr = self.get_immutable_header();
 
         const ip_protocol = std.enums.fromInt(IPProtocol, hdr.protocol) orelse {
-            print("unknown protocol: {x}\n", .{hdr.protocol});
-            print("src: {any} dst: {any}\n", .{ hdr.get_src_ip(), hdr.get_dst_ip() });
             return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
         };
 
