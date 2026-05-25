@@ -455,8 +455,6 @@ pub const IPv4Layer = struct {
 
         var new_header_len: usize = (current_header_len - padding_len) + @as(usize, @intCast(new_option_bytes_len));
 
-        print("new_header_len: {}\n", .{new_header_len});
-
         var pad_required = if (new_header_len % HeaderAlignment == 0) 0 else HeaderAlignment - (new_header_len % HeaderAlignment);
 
         const new_ihl: u8 = @intCast(new_header_len + pad_required);
@@ -465,17 +463,11 @@ pub const IPv4Layer = struct {
             pad_required = 0;
         }
 
-        print("pad_required: {}\n", .{pad_required});
-
         new_header_len += pad_required;
 
-        print("new_header_len + pad required: {}\n", .{new_header_len});
-
         const offset: usize = @intCast(current_header_len - padding_len);
-        print("offset: {}\n", .{offset});
 
         const extend_len: usize = new_option_bytes_len + pad_required;
-        print("extend_len: {}\n", .{extend_len});
 
         const ops_buf = try self.owner.extend_payload(
             offset,

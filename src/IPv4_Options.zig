@@ -64,7 +64,7 @@ const panic = std.debug.panic;
 // ✅ UpstreamMulticast (152) - length 4 (example)
 //&[_]u8{152, 4, 0x00, 0x01}
 
-// QuickStart (25) - length 8 (example: rate=0x0100, ttl diff=1)
+// ✅  QuickStart (25) - length 8 (example: rate=0x0100, ttl diff=1)
 //&[_]u8{25, 8, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00}
 
 // RFC3692Exp1 (30) - length 4 (experimental data)
@@ -232,7 +232,7 @@ pub const IPv4Option = union(enum) {
                 } };
             },
 
-            .CommericalSecurity => {
+            .CommercialSecurity => {
                 return IPv4Option{ .commercial_security = CommercialSecurity{
                     .owner = owner,
                     .prev_op = prev,
@@ -361,32 +361,6 @@ pub const IPv4Option = union(enum) {
         return @enumFromInt(opt_type_v);
     }
 
-    pub fn get_tlv_length(self: *IPv4Option) usize {
-        return switch (self.*) {
-            .record_route => {
-                return RecordRoute.TLVHeaderLength;
-            },
-
-            .loose_route => {
-                return LooseSourceRoute.TLVHeaderLength;
-            },
-
-            .strict_route => {
-                return StrictSourceRoute.TLVHeaderLength;
-            },
-
-            .router_alert => {
-                return RouterAlert.TLVHeaderLength;
-            },
-
-            .timestamp => {
-                return Timestamp.TLVHeaderLength;
-            },
-            .generic => {
-                return GenericOption.TLVHeaderLength;
-            },
-        };
-    }
     pub fn deinit(self: *IPv4Option) void {
         return switch (self.*) {
             inline else => |*opt| opt.deinit(),
@@ -456,9 +430,7 @@ fn get_ips_count(data: []const u8) usize {
     return ip_count;
 }
 
-fn add_ip_to_buffer(offset: usize, owner: *TLVOwner, ip: IPv4.IPv4Address, opt_type: IPv4.IPOptionType) !void {
-    _ = opt_type;
-
+fn add_ip_to_buffer(offset: usize, owner: *TLVOwner, ip: IPv4.IPv4Address) !void {
     const cur_length: usize = @intCast(owner.get_data()[offset + 1]);
 
     std.debug.assert(cur_length <= owner.get_data()[offset..].len);
@@ -524,7 +496,6 @@ fn remove_ip_from_list(offset: usize, owner: *TLVOwner, ip: IPv4.IPv4Address) !v
     }
 
     owner.get_data()[offset..][1] -= count * @sizeOf(IPv4.IPv4Address); // decrease length byte value in TLV by bytes removed
-
     try set_hdr_vals(owner, -(@as(isize, @intCast(count * @sizeOf(IPv4.IPv4Address))))); // update the IPv4 header vals
 }
 
@@ -718,7 +689,7 @@ pub const RecordRoute = struct {
     }
 
     pub fn add_ip(self: *RecordRoute, ip: IPv4.IPv4Address) !void {
-        return add_ip_to_buffer(self.get_offset(), &self.owner, ip, IPv4.IPOptionType.RecordRoute);
+        return add_ip_to_buffer(self.get_offset(), &self.owner, ip);
     }
 
     pub fn remove_ip(self: *RecordRoute, ip: IPv4.IPv4Address) !void {
@@ -837,7 +808,7 @@ pub const LooseSourceRoute = struct {
     }
 
     pub fn add_ip(self: *LooseSourceRoute, ip: IPv4.IPv4Address) !void {
-        return add_ip_to_buffer(self.get_offset(), &self.owner, ip, IPv4.IPOptionType.LooseSourceRoute);
+        return add_ip_to_buffer(self.get_offset(), &self.owner, ip);
     }
 
     pub fn remove_ip(self: *LooseSourceRoute, ip: IPv4.IPv4Address) !void {
@@ -956,7 +927,7 @@ pub const StrictSourceRoute = struct {
     }
 
     pub fn add_ip(self: *StrictSourceRoute, ip: IPv4.IPv4Address) !void {
-        try add_ip_to_buffer(self.get_offset(), &self.owner, ip, IPv4.IPOptionType.StrictSourceRoute);
+        try add_ip_to_buffer(self.get_offset(), &self.owner, ip);
         //const hdr = get_mutable_hdr();
 
     }
@@ -2438,7 +2409,7 @@ pub const Timestamp = struct {
     }
 
     fn add_ip(self: *Timestamp, ip: IPv4.IPv4Address) !void {
-        return add_ip_to_buffer(self.get_offset(), &self.owner, ip, IPv4.IPOptionType.Timestamp);
+        return add_ip_to_buffer(self.get_offset(), &self.owner, ip);
     }
 
     fn remove_ip(self: *Timestamp, ip: IPv4.IPv4Address) !void {
