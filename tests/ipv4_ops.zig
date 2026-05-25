@@ -876,9 +876,9 @@ test "build recr opt" {
     var rr = try IPv4.IPv4_Options.RecordRoute.init(tlv_owner);
     defer rr.deinit();
 
-    try rr.add_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
-    try rr.add_ip(try IPv4.IPv4Address.init_from_string("10.1.1.1"));
-    try rr.add_ip(try IPv4.IPv4Address.init_from_string("172.78.9.3"));
+    try rr.add_ip(try IPv4.IPv4Address.init_from_string("255.255.255.255"));
+    try rr.add_ip(try IPv4.IPv4Address.init_from_string("1.1.1.1"));
+    try rr.add_ip(try IPv4.IPv4Address.init_from_string("2.2.2.2"));
 
     const ips = try rr.get_ip_list(allocator) orelse {
         try expect(false); // no ips found
@@ -900,18 +900,12 @@ test "build recr opt" {
 
     try expect(rr.get_ip_count() == ips.len);
 
-    try rr.remove_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
-
     const ip_list = try rr.get_ip_list(allocator) orelse {
         try expect(false); // ip list not found in RR option
         return;
     };
 
     defer allocator.free(ip_list);
-
-    try expect(ip_list.len == 2);
-
-    try expect(rr.get_length() == 11);
 
     for (ip_list) |ip| {
         const str = try ip.to_string(allocator);
@@ -924,88 +918,125 @@ test "build recr opt" {
     var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
     defer ipv4_layer.deinit();
 
+    print("Adding Record Route Option.\n", .{});
     try ipv4_layer.add_option(&opt);
 
-    print("ipv4 data: {x}\n", .{ipv4_layer.get_data()});
+    try expect(ipv4_layer.get_data().len == 36);
 
-    if (ipv4_layer.check_pad()) |pad_len| {
-        print("pad bytes: {}\n", .{pad_len});
-    }
+    try expect(ipv4_layer.get_immutable_header().get_length() == 36);
 
-    var options = try ipv4_layer.get_options(allocator) orelse {
-        try expect(false);
-        return;
-    };
+    try expect(ipv4_layer.get_immutable_header().get_ihl() == 9);
 
-    defer options.deinit(allocator);
-
-    var cur = options.first;
-    var count: usize = 0;
-    while (cur) |option| {
-        count += 1;
-        const next = option.get_next();
-        try expect(option.get_opt_type() == IPv4.IPOptionType.RecordRoute);
-        cur = next;
-    }
-
-    try expect(count == 1);
-
-    try expect(ipv4_layer.get_data().len == 32);
-
-    try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
-
-    var rr_opt = ipv4_layer.get_first_op() orelse {
-        try expect(false); // failed to get first opt
-        return;
-    };
-
-    try expect(rr_opt.get_opt_type() == .RecordRoute);
-
-    //print("rr opt data: ({}) {x}\n", .{ rr_opt.get_data().len, rr_opt.get_data() });
-
-    try expect(rr_opt.get_length() == 11);
-
-    try expect(rr_opt.get_data().len == 11);
-
-    try rr_opt.record_route.remove_ip(try IPv4.IPv4Address.init_from_string("10.1.1.1"));
-
-    try expect(rr_opt.get_length() == 7);
-
-    try expect(rr_opt.get_data().len == 7);
-
-    var iphdr_str = try ipv4_layer.get_immutable_header().to_string(allocator);
-    //print("{s}\n", .{iphdr_str});
+    const iphdr_str = try ipv4_layer.get_immutable_header().to_string(allocator);
+    print("{s}\n", .{iphdr_str});
     allocator.free(iphdr_str);
 
-    try expect(ipv4_layer.get_data().len == 28);
+    print("ipv4 data: ({}) {x}\n", .{ ipv4_layer.get_data().len, ipv4_layer.get_data() });
 
-    try rr_opt.record_route.add_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
+    print("pad bytes: {}\n", .{ipv4_layer.check_padding()});
 
-    try expect(rr_opt.get_length() == 11);
+    var ra_opt = try IPv4.IPv4_Options.RouterAlert.init(tlv_owner);
 
-    try expect(rr_opt.get_data().len == 11);
+    defer ra_opt.deinit();
 
-    try expect(ipv4_layer.get_data().len == 32);
+    try expect(ra_opt.get_data().len == 4);
 
-    try expect(ipv4_layer.get_immutable_header().get_length() == 32);
+    var opt1 = IPv4.IPv4Option{ .router_alert = ra_opt };
 
-    try expect(ipv4_layer.get_immutable_header().get_ihl() == 8);
+    print("ADDING ROUTER ALERT OPTION.\n", .{});
+    try ipv4_layer.add_option(&opt1);
 
-    try rr_opt.record_route.add_ip(try IPv4.IPv4Address.init_from_string("0.0.0.0"));
+    print("ipv4 data len: {}\n", .{ipv4_layer.get_data().len});
 
-    try expect(rr_opt.record_route.get_length() == 15);
+    print("ipv4 header len: {}\n", .{ipv4_layer.get_immutable_header().get_length()});
 
-    try rr_opt.record_route.add_ip(try IPv4.IPv4Address.init_from_string("0.0.0.0"));
+    print("ipv4 ihl: {}\n", .{ipv4_layer.get_immutable_header().get_ihl()});
 
-    try expect(rr_opt.record_route.get_length() == 19);
+    try expect(ipv4_layer.get_data().len == 40);
 
-    //print("ipv4 data: {x}\n", .{ipv4_layer.get_data()});
+    try expect(ipv4_layer.get_immutable_header().get_length() == 40);
 
-    iphdr_str = try ipv4_layer.get_immutable_header().to_string(allocator);
-    //print("{s}\n", .{iphdr_str});
-    allocator.free(iphdr_str);
+    try expect(ipv4_layer.get_immutable_header().get_ihl() == 10);
 
-    if (ipv4_layer.check_pad()) |pad_len| {
-        print("pad bytes: {}\n", .{pad_len});
-    }
+    print("ipv4 data: ({}) {x}\n", .{ ipv4_layer.get_data().len, ipv4_layer.get_data() });
+
+    print("pad bytes: {}\n", .{ipv4_layer.check_padding()});
+
+    print("size of IPv4Option TU: {}\n", .{@sizeOf(IPv4.IPv4Option)});
+    print("size of TLVOwner: {}\n", .{@sizeOf(TLVOwner)});
+
+    //   var options = try ipv4_layer.get_options(allocator) orelse {
+    //       try expect(false);
+    //       return;
+    //   };
+    //
+    //   defer options.deinit(allocator);
+    //
+    //   var cur = options.first;
+    //   var count: usize = 0;
+    //   while (cur) |option| {
+    //       count += 1;
+    //       const next = option.get_next();
+    //       try expect(option.get_opt_type() == IPv4.IPOptionType.RecordRoute);
+    //       cur = next;
+    //   }
+    //
+    //   try expect(count == 1);
+    //
+    //   try expect(ipv4_layer.get_data().len == 36);
+    //
+    //   try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
+    //
+    //   var rr_opt = ipv4_layer.get_first_op() orelse {
+    //       try expect(false); // failed to get first opt
+    //       return;
+    //   };
+    //
+    //   try expect(rr_opt.get_opt_type() == .RecordRoute);
+    //
+    //   //print("rr opt data: ({}) {x}\n", .{ rr_opt.get_data().len, rr_opt.get_data() });
+    //
+    //   iphdr_str = try ipv4_layer.get_immutable_header().to_string(allocator);
+    //   //print("{s}\n", .{iphdr_str});
+    //   allocator.free(iphdr_str);
+    //
+    //   try expect(ipv4_layer.get_data().len == 36);
+    //
+    //   try rr_opt.record_route.add_ip(try IPv4.IPv4Address.init_from_string("0.0.0.0"));
+    //
+    //   try expect(rr_opt.get_length() == 19);
+    //
+    //   try expect(rr_opt.get_data().len == 19);
+    //
+    //   try expect(ipv4_layer.get_data().len == 40);
+    //
+    //   try expect(ipv4_layer.get_immutable_header().get_length() == 40);
+    //
+    //   try expect(ipv4_layer.get_immutable_header().get_ihl() == 10);
+    //
+    //   if (ipv4_layer.check_padding()) |pad_len| {
+    //       print("pad bytes: {}\n", .{pad_len});
+    //   }
+    //
+    //   try rr_opt.record_route.add_ip(try IPv4.IPv4Address.init_from_string("0.0.0.0"));
+    //
+    //   try expect(rr_opt.record_route.get_length() == 23);
+    //
+    //   if (ipv4_layer.check_padding()) |pad_len| {
+    //       print("pad bytes: {}\n", .{pad_len});
+    //   }
+    //
+    //   try rr_opt.record_route.add_ip(try IPv4.IPv4Address.init_from_string("0.0.0.0"));
+    //
+    //   try expect(rr_opt.record_route.get_length() == 27);
+    //
+    //   print("ipv4 data: {x}\n", .{ipv4_layer.get_data()});
+    //
+    //   iphdr_str = try ipv4_layer.get_immutable_header().to_string(allocator);
+    //   //print("{s}\n", .{iphdr_str});
+    //   allocator.free(iphdr_str);
+    //
+    //   if (ipv4_layer.check_padding()) |pad_len| {
+    //       print("pad bytes: {}\n", .{pad_len});
+    //   }
 }

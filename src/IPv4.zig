@@ -353,6 +353,8 @@ pub const IPv4Layer = struct {
             return null;
         }
 
+        print("ops buf len: {}\n", .{ops_buf.len});
+
         const options_list = std.enums.values(IPOptionType);
 
         var offset: usize = 0;
@@ -402,39 +404,87 @@ pub const IPv4Layer = struct {
         return null;
     }
 
+    pub fn check_padding(self: *IPv4Layer) usize {
+        const ops_buf = self.get_opt_buf();
+
+        if (ops_buf.len == 0) {
+            return 0;
+        }
+
+        var offset: usize = 0;
+
+        while (offset < ops_buf.len) {
+            const option_type = ops_buf[offset];
+
+            // End of Option List
+            if (option_type == 0) {
+                break;
+            }
+
+            // No Operation
+            if (option_type == 1) {
+                offset += 1;
+                continue;
+            }
+
+            // Need at least type + length
+            if (offset + 1 >= ops_buf.len) {
+                return 0;
+            }
+
+            const option_len = ops_buf[offset + 1];
+
+            if (option_len < 2) {
+                return 0;
+            }
+
+            offset += option_len;
+        }
+
+        return ops_buf.len - offset;
+    }
+
     pub fn add_option(self: *IPv4Layer, option: *IPv4Option) !void {
         const new_option_bytes = option.get_data();
 
         const new_option_bytes_len: usize = new_option_bytes.len;
 
-        const current_ihl: u8 = self.get_immutable_header().get_ihl();
+        const current_header_len: u8 = self.get_immutable_header().get_ihl() * 4;
 
-        const current_header_len: u8 = current_ihl * 4;
+        const padding_len: usize = self.check_padding(); // get number of pad bytes that are currently added
 
-        //  var pad_bytes: usize = 0;
+        var new_header_len: usize = (current_header_len - padding_len) + @as(usize, @intCast(new_option_bytes_len));
 
-        //  if (self.check_pad()) |pad| {
-        //      pad_bytes = pad;
-        //  }
+        print("new_header_len: {}\n", .{new_header_len});
 
-        var new_header_len: usize = current_header_len + @as(usize, @intCast(new_option_bytes_len));
+        var pad_required = if (new_header_len % HeaderAlignment == 0) 0 else HeaderAlignment - (new_header_len % HeaderAlignment);
 
-        //    print("new_header_len: {}\n", .{new_header_len});
+        const new_ihl: u8 = @intCast(new_header_len + pad_required);
 
-        const pad_required = if (new_header_len % HeaderAlignment == 0) 0 else HeaderAlignment - (new_header_len % HeaderAlignment);
+        if (pad_required == padding_len) {
+            pad_required = 0;
+        }
 
-        //    print("pad_required: {}\n", .{pad_required});
+        print("pad_required: {}\n", .{pad_required});
 
         new_header_len += pad_required;
 
+        print("new_header_len + pad required: {}\n", .{new_header_len});
+
+        const offset: usize = @intCast(current_header_len - padding_len);
+        print("offset: {}\n", .{offset});
+
+        const extend_len: usize = new_option_bytes_len + pad_required;
+        print("extend_len: {}\n", .{extend_len});
+
         const ops_buf = try self.owner.extend_payload(
-            @intCast(current_header_len),
-            new_option_bytes_len + pad_required,
+            offset,
+            extend_len,
         );
 
         @memmove(ops_buf[0..new_option_bytes_len], new_option_bytes);
 
-        self.get_mutable_header().set_ihl(@intCast(new_header_len));
+        self.get_mutable_header().set_ihl(@intCast(new_ihl));
         self.get_mutable_header().set_length(@intCast(self.get_data().len));
     }
 

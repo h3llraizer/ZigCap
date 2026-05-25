@@ -7,7 +7,7 @@ const Allocator = std.mem.Allocator;
 const panic = std.debug.panic;
 
 // TODO: implement helpers for all of these and unit test them
-// Security (130) - length 11 bytes (type + len + 9 data)
+// ✅ Security (130) - length 11 bytes (type + len + 9 data)
 // Example data: all zeros (unclassified)
 //&[_]u8{130, 11, 0,0,0,0,0,0,0,0,0}
 
@@ -19,49 +19,49 @@ const panic = std.debug.panic;
 // ✅Timestamp (68) - length 4+ bytes, example: overflow=0, flags=1 (timestamp only)
 //&[_]u8{68, 4, 0, 1}
 
-// ExtendedSecurity (133) - length 6 (example minimal data)
+// ✅ ExtendedSecurity (133) - length 6 (example minimal data)
 //&[_]u8{133, 6, 0,0,0,0}
 
-// CommercialSecurity (134) - length 6 (example minimal data)
+// ✅ CommercialSecurity (134) - length 6 (example minimal data)
 //&[_]u8{134, 6, 0,0,0,0}
 
 // ✅RecordRoute (7) - example: pointer=4, space for 1 IP (4 bytes)
 //&[_]u8{7, 8, 4, 0,0,0,0}
 
-// StreamID (136) - length 4 (type + len + 2-byte stream ID)
+// ✅ StreamID (136) - length 4 (type + len + 2-byte stream ID)
 //&[_]u8{136, 4, 0x12, 0x34}
 
 // ✅StrictSourceRoute (137) - same format as LSRR, example: 192.0.2.1
 //&[_]u8{137, 8, 4, 192,0,2,1}
 
-// ExperimentalMeasurement (10) - length 4 (example data 0x01 0x02)
+// ✅ ExperimentalMeasurement (10) - length 4 (example data 0x01 0x02)
 //&[_]u8{10, 4, 0x01, 0x02}
 
-// MTUProbe (11) - length 4 (example 2-byte probe value)
+// ✅ MTUProbe (11) - length 4 (example 2-byte probe value)
 //&[_]u8{11, 4, 0x00, 0x40}
 
-// MTUReply (12) - length 4 (example 2-byte MTU value 1500)
+// ✅ MTUReply (12) - length 4 (example 2-byte MTU value 1500)
 //&[_]u8{12, 4, 0x05, 0xDC}
 
-// ExperimentalFlowControl (205) - length 4 (example data)
+// ✅ ExperimentalFlowControl (205) - length 4 (example data)
 //&[_]u8{205, 4, 0xAA, 0xBB}
 
-// ExperimentalAccessControl (142) - length 6 (example)
+// ✅ ExperimentalAccessControl (142) - length 6 (example)
 //&[_]u8{142, 6, 0x01,0x02,0x03,0x04}
 
-// ExtendedInternet (145) - length 4 (example)
+// ✅ ExtendedInternet (145) - length 4 (example)
 //&[_]u8{145, 4, 0x00, 0x01}
 
 // ✅RouterAlert (148) - length 4 (value usually 0x0000)
 //&[_]u8{148, 4, 0x00, 0x00}
 
-// SelectiveDirectedBroadcast (149) - length 8 (example: mask + 1 IP)
+// ✅ SelectiveDirectedBroadcast (149) - length 8 (example: mask + 1 IP)
 //&[_]u8{149, 8, 0xFF,0xFF,0xFF,0x00, 192,0,2,255}
 
-// DynamicPacketState (151) - length 4 (example)
+// ✅ DynamicPacketState (151) - length 4 (example)
 //&[_]u8{151, 4, 0x00, 0x10}
 
-// UpstreamMulticast (152) - length 4 (example)
+// ✅ UpstreamMulticast (152) - length 4 (example)
 //&[_]u8{152, 4, 0x00, 0x01}
 
 // QuickStart (25) - length 8 (example: rate=0x0100, ttl diff=1)
@@ -137,12 +137,27 @@ pub const IPv4Options = struct {
 };
 
 /// Tagged Union of supported IPv4 Options
+/// RFC* options will be parsed under GenericOption
 pub const IPv4Option = union(enum) {
     record_route: RecordRoute,
     loose_route: LooseSourceRoute,
     strict_route: StrictSourceRoute,
     router_alert: RouterAlert,
     timestamp: Timestamp,
+    mtu_probe: MTUProbe,
+    mtu_reply: MTUReply,
+    security: Security,
+    extended_security: ExtendedSecurity,
+    commercial_security: CommercialSecurity,
+    stream_id: StreamID,
+    experimental_measurement: ExperimentalMeasurement,
+    experimental_flow_control: ExperimentalFlowControl,
+    experimental_access_control: ExperimentalAccessControl,
+    extended_internet: ExtendedInternet,
+    selective_directed_broadcast: SelectiveDirectedBroadcast,
+    dynamic_packet_state: DynamicPacketState,
+    upstream_multicast: UpstreamMulticast,
+    quick_start: QuickStart,
     generic: GenericOption,
 
     pub fn init(
@@ -183,6 +198,111 @@ pub const IPv4Option = union(enum) {
             },
             .Timestamp => {
                 return IPv4Option{ .timestamp = Timestamp{
+                    .owner = owner,
+                    .prev_op = prev,
+                    .next_op = next,
+                } };
+            },
+            .MTUProbe => {
+                return IPv4Option{ .mtu_probe = MTUProbe{
+                    .owner = owner,
+                    .prev_op = prev,
+                    .next_op = next,
+                } };
+            },
+            .MTUReply => {
+                return IPv4Option{ .mtu_reply = MTUReply{
+                    .owner = owner,
+                    .prev_op = prev,
+                    .next_op = next,
+                } };
+            },
+            .Security => {
+                return IPv4Option{ .security = Security{
+                    .owner = owner,
+                    .prev_op = prev,
+                    .next_op = next,
+                } };
+            },
+            .ExtendedSecurity => {
+                return IPv4Option{ .extended_security = ExtendedSecurity{
+                    .owner = owner,
+                    .prev_op = prev,
+                    .next_op = next,
+                } };
+            },
+
+            .CommericalSecurity => {
+                return IPv4Option{ .commercial_security = CommercialSecurity{
+                    .owner = owner,
+                    .prev_op = prev,
+                    .next_op = next,
+                } };
+            },
+
+            .StreamID => {
+                return IPv4Option{ .stream_id = StreamID{
+                    .owner = owner,
+                    .prev_op = prev,
+                    .next_op = next,
+                } };
+            },
+
+            .ExperimentalMeasurement => {
+                return IPv4Option{ .experimental_measurement = ExperimentalMeasurement{
+                    .owner = owner,
+                    .prev_op = prev,
+                    .next_op = next,
+                } };
+            },
+
+            .ExperimentalFlowControl => {
+                return IPv4Option{ .experimental_flow_control = ExperimentalFlowControl{
+                    .owner = owner,
+                    .prev_op = prev,
+                    .next_op = next,
+                } };
+            },
+            .ExperimentalAccessControl => {
+                return IPv4Option{ .experimental_access_control = ExperimentalAccessControl{
+                    .owner = owner,
+                    .prev_op = prev,
+                    .next_op = next,
+                } };
+            },
+
+            .ExtendedInternet => {
+                return IPv4Option{ .extended_internet = ExtendedInternet{
+                    .owner = owner,
+                    .prev_op = prev,
+                    .next_op = next,
+                } };
+            },
+
+            .SelectiveDirectedBroadcast => {
+                return IPv4Option{ .selective_directed_broadcast = SelectiveDirectedBroadcast{
+                    .owner = owner,
+                    .prev_op = prev,
+                    .next_op = next,
+                } };
+            },
+
+            .DynamicPacketState => {
+                return IPv4Option{ .dynamic_packet_state = DynamicPacketState{
+                    .owner = owner,
+                    .prev_op = prev,
+                    .next_op = next,
+                } };
+            },
+            .UpstreamMulticast => {
+                return IPv4Option{ .upstream_multicast = UpstreamMulticast{
+                    .owner = owner,
+                    .prev_op = prev,
+                    .next_op = next,
+                } };
+            },
+            .QuickStart => {
+                return IPv4Option{ .quick_start = QuickStart{
                     .owner = owner,
                     .prev_op = prev,
                     .next_op = next,
@@ -937,6 +1057,1228 @@ pub const RouterAlert = struct {
     }
 };
 
+pub const StreamID = struct {
+    owner: TLVOwner,
+    prev_op: ?*IPv4Option = null,
+    next_op: ?*IPv4Option = null,
+
+    pub const TLVHeaderLength = 4;
+
+    pub fn init(owner: TLVOwner) !StreamID {
+        switch (owner) {
+            .owned_buffer => {
+                var self = StreamID{ .owner = owner };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < StreamID.TLVHeaderLength) {
+                    const ra_data = try self.owner.owned_buffer.extend(buffer_len, StreamID.TLVHeaderLength);
+
+                    @memset(ra_data, 0);
+
+                    ra_data[0] = @intFromEnum(IPOptionType.StreamID);
+                    ra_data[1] = StreamID.TLVHeaderLength;
+                } else {
+                    if (self.owner.owned_buffer.buffer.items[0] != @intFromEnum(IPOptionType.StreamID)) {
+                        return error.TypeByteInvalid;
+                    }
+                }
+
+                return self;
+            },
+            else => {
+                return error.UseTUInstead;
+            },
+        }
+    }
+
+    fn get_offset(self: *StreamID) usize {
+        var offset: usize = 0;
+
+        if (self.owner.is_layer_owned()) {
+            offset = IPv4.MinHeaderLength;
+
+            var cur = self.prev_op;
+            while (cur) |prev_op| {
+                offset += prev_op.get_length();
+                cur = prev_op.get_prev();
+            }
+        }
+
+        return offset;
+    }
+
+    pub fn get_data(self: *StreamID) []const u8 {
+        const data = self.owner.get_data();
+
+        const offset: usize = self.get_offset();
+        const length: usize = @intCast(data[offset + 1]);
+
+        return data[offset .. offset + length];
+    }
+
+    fn get_data_mut(self: *StreamID) []u8 {
+        const data = self.owner.get_data();
+
+        const absolute_offset: usize = self.get_offset();
+        const length = self.get_data()[absolute_offset + 1];
+
+        if (data.len >= absolute_offset and length <= data.len) {
+            return data[absolute_offset .. absolute_offset + length];
+        }
+
+        return "";
+    }
+
+    /// Returns the length of the Option from its TLV-Header
+    pub fn get_length(self: *StreamID) u8 {
+        return self.get_data()[1];
+    }
+
+    pub fn set_stream_id(self: *StreamID, val: u16) !void {
+        @memmove(self.get_data_mut()[2..4], &std.mem.toBytes(val)); // copy the ip
+    }
+
+    pub fn deinit(self: *StreamID) void {
+        self.owner.deinit();
+    }
+};
+
+pub const DynamicPacketState = struct {
+    owner: TLVOwner,
+    prev_op: ?*IPv4Option = null,
+    next_op: ?*IPv4Option = null,
+
+    pub const TLVHeaderLength = 4;
+
+    pub fn init(owner: TLVOwner) !DynamicPacketState {
+        switch (owner) {
+            .owned_buffer => {
+                var self = DynamicPacketState{ .owner = owner };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < DynamicPacketState.TLVHeaderLength) {
+                    const ra_data = try self.owner.owned_buffer.extend(buffer_len, DynamicPacketState.TLVHeaderLength);
+
+                    @memset(ra_data, 0);
+
+                    ra_data[0] = @intFromEnum(IPOptionType.DynamicPacketState);
+                    ra_data[1] = DynamicPacketState.TLVHeaderLength;
+                } else {
+                    if (self.owner.owned_buffer.buffer.items[0] != @intFromEnum(IPOptionType.DynamicPacketState)) {
+                        return error.TypeByteInvalid;
+                    }
+                }
+
+                return self;
+            },
+            else => {
+                return error.UseTUInstead;
+            },
+        }
+    }
+
+    fn get_offset(self: *DynamicPacketState) usize {
+        var offset: usize = 0;
+
+        if (self.owner.is_layer_owned()) {
+            offset = IPv4.MinHeaderLength;
+
+            var cur = self.prev_op;
+            while (cur) |prev_op| {
+                offset += prev_op.get_length();
+                cur = prev_op.get_prev();
+            }
+        }
+
+        return offset;
+    }
+
+    pub fn get_data(self: *DynamicPacketState) []const u8 {
+        const data = self.owner.get_data();
+
+        const offset: usize = self.get_offset();
+        const length: usize = @intCast(data[offset + 1]);
+
+        return data[offset .. offset + length];
+    }
+
+    fn get_data_mut(self: *DynamicPacketState) []u8 {
+        const data = self.owner.get_data();
+
+        const absolute_offset: usize = self.get_offset();
+        const length = self.get_data()[absolute_offset + 1];
+
+        if (data.len >= absolute_offset and length <= data.len) {
+            return data[absolute_offset .. absolute_offset + length];
+        }
+
+        return "";
+    }
+
+    /// Returns the length of the Option from its TLV-Header
+    pub fn get_length(self: *DynamicPacketState) u8 {
+        return self.get_data()[1];
+    }
+
+    pub fn set_data(self: *DynamicPacketState, val: u16) !void {
+        @memmove(self.get_data_mut()[2..4], &std.mem.toBytes(val)); // copy the ip
+    }
+
+    pub fn deinit(self: *DynamicPacketState) void {
+        self.owner.deinit();
+    }
+};
+
+pub const UpstreamMulticast = struct {
+    owner: TLVOwner,
+    prev_op: ?*IPv4Option = null,
+    next_op: ?*IPv4Option = null,
+
+    pub const TLVHeaderLength = 4;
+
+    pub fn init(owner: TLVOwner) !UpstreamMulticast {
+        switch (owner) {
+            .owned_buffer => {
+                var self = UpstreamMulticast{ .owner = owner };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < UpstreamMulticast.TLVHeaderLength) {
+                    const ra_data = try self.owner.owned_buffer.extend(buffer_len, UpstreamMulticast.TLVHeaderLength);
+
+                    @memset(ra_data, 0);
+
+                    ra_data[0] = @intFromEnum(IPOptionType.UpstreamMulticast);
+                    ra_data[1] = UpstreamMulticast.TLVHeaderLength;
+                } else {
+                    if (self.owner.owned_buffer.buffer.items[0] != @intFromEnum(IPOptionType.UpstreamMulticast)) {
+                        return error.TypeByteInvalid;
+                    }
+                }
+
+                return self;
+            },
+            else => {
+                return error.UseTUInstead;
+            },
+        }
+    }
+
+    fn get_offset(self: *UpstreamMulticast) usize {
+        var offset: usize = 0;
+
+        if (self.owner.is_layer_owned()) {
+            offset = IPv4.MinHeaderLength;
+
+            var cur = self.prev_op;
+            while (cur) |prev_op| {
+                offset += prev_op.get_length();
+                cur = prev_op.get_prev();
+            }
+        }
+
+        return offset;
+    }
+
+    pub fn get_data(self: *UpstreamMulticast) []const u8 {
+        const data = self.owner.get_data();
+
+        const offset: usize = self.get_offset();
+        const length: usize = @intCast(data[offset + 1]);
+
+        return data[offset .. offset + length];
+    }
+
+    fn get_data_mut(self: *UpstreamMulticast) []u8 {
+        const data = self.owner.get_data();
+
+        const absolute_offset: usize = self.get_offset();
+        const length = self.get_data()[absolute_offset + 1];
+
+        if (data.len >= absolute_offset and length <= data.len) {
+            return data[absolute_offset .. absolute_offset + length];
+        }
+
+        return "";
+    }
+
+    /// Returns the length of the Option from its TLV-Header
+    pub fn get_length(self: *UpstreamMulticast) u8 {
+        return self.get_data()[1];
+    }
+
+    pub fn set_data(self: *UpstreamMulticast, val: u16) !void {
+        @memmove(self.get_data_mut()[2..4], &std.mem.toBytes(val)); // copy the ip
+    }
+
+    pub fn deinit(self: *UpstreamMulticast) void {
+        self.owner.deinit();
+    }
+};
+
+pub const QuickStart = struct {
+    owner: TLVOwner,
+    prev_op: ?*IPv4Option = null,
+    next_op: ?*IPv4Option = null,
+
+    pub const TLVHeaderLength = 8;
+
+    pub fn init(owner: TLVOwner) !QuickStart {
+        switch (owner) {
+            .owned_buffer => {
+                var self = QuickStart{ .owner = owner };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < QuickStart.TLVHeaderLength) {
+                    const ra_data = try self.owner.owned_buffer.extend(buffer_len, QuickStart.TLVHeaderLength);
+
+                    @memset(ra_data, 0);
+
+                    ra_data[0] = @intFromEnum(IPOptionType.QuickStart);
+                    ra_data[1] = QuickStart.TLVHeaderLength;
+                } else {
+                    if (self.owner.owned_buffer.buffer.items[0] != @intFromEnum(IPOptionType.QuickStart)) {
+                        return error.TypeByteInvalid;
+                    }
+                }
+
+                return self;
+            },
+            else => {
+                return error.UseTUInstead;
+            },
+        }
+    }
+
+    fn get_offset(self: *QuickStart) usize {
+        var offset: usize = 0;
+
+        if (self.owner.is_layer_owned()) {
+            offset = IPv4.MinHeaderLength;
+
+            var cur = self.prev_op;
+            while (cur) |prev_op| {
+                offset += prev_op.get_length();
+                cur = prev_op.get_prev();
+            }
+        }
+
+        return offset;
+    }
+
+    pub fn get_data(self: *QuickStart) []const u8 {
+        const data = self.owner.get_data();
+
+        const offset: usize = self.get_offset();
+        const length: usize = @intCast(data[offset + 1]);
+
+        return data[offset .. offset + length];
+    }
+
+    fn get_data_mut(self: *QuickStart) []u8 {
+        const data = self.owner.get_data();
+
+        const absolute_offset: usize = self.get_offset();
+        const length = self.get_data()[absolute_offset + 1];
+
+        if (data.len >= absolute_offset and length <= data.len) {
+            return data[absolute_offset .. absolute_offset + length];
+        }
+
+        return "";
+    }
+
+    /// Returns the length of the Option from its TLV-Header
+    pub fn get_length(self: *QuickStart) u8 {
+        return self.get_data()[1];
+    }
+
+    pub fn set_requested_rate(self: *QuickStart, val: u16) !void {
+        @memmove(self.get_data_mut()[2..4], &std.mem.toBytes(val)); // copy the ip
+    }
+
+    pub fn set_ttl(self: *QuickStart, val: u16) !void {
+        @memmove(self.get_data_mut()[4..6], &std.mem.toBytes(val)); // copy the ip
+    }
+
+    pub fn deinit(self: *QuickStart) void {
+        self.owner.deinit();
+    }
+};
+
+pub const ExperimentalMeasurement = struct {
+    owner: TLVOwner,
+    prev_op: ?*IPv4Option = null,
+    next_op: ?*IPv4Option = null,
+
+    pub const TLVHeaderLength = 4;
+
+    pub fn init(owner: TLVOwner) !ExperimentalMeasurement {
+        switch (owner) {
+            .owned_buffer => {
+                var self = ExperimentalMeasurement{ .owner = owner };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < ExperimentalMeasurement.TLVHeaderLength) {
+                    const ra_data = try self.owner.owned_buffer.extend(buffer_len, ExperimentalMeasurement.TLVHeaderLength);
+
+                    @memset(ra_data, 0);
+
+                    ra_data[0] = @intFromEnum(IPOptionType.ExperimentalMeasurement);
+                    ra_data[1] = ExperimentalMeasurement.TLVHeaderLength;
+                    ra_data[2] = 0;
+                    ra_data[3] = 0;
+                } else {
+                    if (self.owner.owned_buffer.buffer.items[0] != @intFromEnum(IPOptionType.ExperimentalMeasurement)) {
+                        return error.TypeByteInvalid;
+                    }
+                }
+
+                return self;
+            },
+            else => {
+                return error.UseTUInstead;
+            },
+        }
+    }
+
+    fn get_offset(self: *ExperimentalMeasurement) usize {
+        var offset: usize = 0;
+
+        if (self.owner.is_layer_owned()) {
+            offset = IPv4.MinHeaderLength;
+
+            var cur = self.prev_op;
+            while (cur) |prev_op| {
+                offset += prev_op.get_length();
+                cur = prev_op.get_prev();
+            }
+        }
+
+        return offset;
+    }
+
+    pub fn get_data(self: *ExperimentalMeasurement) []const u8 {
+        const data = self.owner.get_data();
+
+        const offset: usize = self.get_offset();
+        const length: usize = @intCast(data[offset + 1]);
+
+        return data[offset .. offset + length];
+    }
+
+    fn get_data_mut(self: *ExperimentalMeasurement) []u8 {
+        const data = self.owner.get_data();
+
+        const absolute_offset: usize = self.get_offset();
+        const length = self.get_data()[absolute_offset + 1];
+
+        if (data.len >= absolute_offset and length <= data.len) {
+            return data[absolute_offset .. absolute_offset + length];
+        }
+
+        return "";
+    }
+
+    /// Returns the length of the Option from its TLV-Header
+    pub fn get_length(self: *ExperimentalMeasurement) u8 {
+        return self.get_data()[1];
+    }
+
+    pub fn set_measurement(self: *ExperimentalMeasurement, val: u16) !void {
+        @memmove(self.get_data_mut()[2..4], &std.mem.toBytes(val)); // copy the ip
+    }
+
+    pub fn deinit(self: *ExperimentalMeasurement) void {
+        self.owner.deinit();
+    }
+};
+
+pub const ExperimentalFlowControl = struct {
+    owner: TLVOwner,
+    prev_op: ?*IPv4Option = null,
+    next_op: ?*IPv4Option = null,
+
+    pub const TLVHeaderLength = 4;
+
+    pub fn init(owner: TLVOwner) !ExperimentalFlowControl {
+        switch (owner) {
+            .owned_buffer => {
+                var self = ExperimentalFlowControl{ .owner = owner };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < ExperimentalFlowControl.TLVHeaderLength) {
+                    const ra_data = try self.owner.owned_buffer.extend(buffer_len, ExperimentalFlowControl.TLVHeaderLength);
+
+                    @memset(ra_data, 0);
+
+                    ra_data[0] = @intFromEnum(IPOptionType.ExperimentalFlowControl);
+                    ra_data[1] = ExperimentalFlowControl.TLVHeaderLength;
+                    ra_data[2] = 0;
+                    ra_data[3] = 0;
+                } else {
+                    if (self.owner.owned_buffer.buffer.items[0] != @intFromEnum(IPOptionType.ExperimentalFlowControl)) {
+                        return error.TypeByteInvalid;
+                    }
+                }
+
+                return self;
+            },
+            else => {
+                return error.UseTUInstead;
+            },
+        }
+    }
+
+    fn get_offset(self: *ExperimentalFlowControl) usize {
+        var offset: usize = 0;
+
+        if (self.owner.is_layer_owned()) {
+            offset = IPv4.MinHeaderLength;
+
+            var cur = self.prev_op;
+            while (cur) |prev_op| {
+                offset += prev_op.get_length();
+                cur = prev_op.get_prev();
+            }
+        }
+
+        return offset;
+    }
+
+    pub fn get_data(self: *ExperimentalFlowControl) []const u8 {
+        const data = self.owner.get_data();
+
+        const offset: usize = self.get_offset();
+        const length: usize = @intCast(data[offset + 1]);
+
+        return data[offset .. offset + length];
+    }
+
+    fn get_data_mut(self: *ExperimentalFlowControl) []u8 {
+        const data = self.owner.get_data();
+
+        const absolute_offset: usize = self.get_offset();
+        const length = self.get_data()[absolute_offset + 1];
+
+        if (data.len >= absolute_offset and length <= data.len) {
+            return data[absolute_offset .. absolute_offset + length];
+        }
+
+        return "";
+    }
+
+    /// Returns the length of the Option from its TLV-Header
+    pub fn get_length(self: *ExperimentalFlowControl) u8 {
+        return self.get_data()[1];
+    }
+
+    pub fn set_data(self: *ExperimentalFlowControl, val: u16) !void {
+        @memmove(self.get_data_mut()[2..4], &std.mem.toBytes(val)); // copy the ip
+    }
+
+    pub fn deinit(self: *ExperimentalFlowControl) void {
+        self.owner.deinit();
+    }
+};
+
+pub const ExperimentalAccessControl = struct {
+    owner: TLVOwner,
+    prev_op: ?*IPv4Option = null,
+    next_op: ?*IPv4Option = null,
+
+    pub const TLVHeaderLength = 6;
+
+    pub fn init(owner: TLVOwner) !ExperimentalAccessControl {
+        switch (owner) {
+            .owned_buffer => {
+                var self = ExperimentalAccessControl{ .owner = owner };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < ExperimentalAccessControl.TLVHeaderLength) {
+                    const ra_data = try self.owner.owned_buffer.extend(buffer_len, ExperimentalAccessControl.TLVHeaderLength);
+
+                    @memset(ra_data, 0);
+
+                    ra_data[0] = @intFromEnum(IPOptionType.ExperimentalAccessControl);
+                    ra_data[1] = ExperimentalAccessControl.TLVHeaderLength;
+                    ra_data[2] = 0;
+                    ra_data[3] = 0;
+                } else {
+                    if (self.owner.owned_buffer.buffer.items[0] != @intFromEnum(IPOptionType.ExperimentalAccessControl)) {
+                        return error.TypeByteInvalid;
+                    }
+                }
+
+                return self;
+            },
+            else => {
+                return error.UseTUInstead;
+            },
+        }
+    }
+
+    fn get_offset(self: *ExperimentalAccessControl) usize {
+        var offset: usize = 0;
+
+        if (self.owner.is_layer_owned()) {
+            offset = IPv4.MinHeaderLength;
+
+            var cur = self.prev_op;
+            while (cur) |prev_op| {
+                offset += prev_op.get_length();
+                cur = prev_op.get_prev();
+            }
+        }
+
+        return offset;
+    }
+
+    pub fn get_data(self: *ExperimentalAccessControl) []const u8 {
+        const data = self.owner.get_data();
+
+        const offset: usize = self.get_offset();
+        const length: usize = @intCast(data[offset + 1]);
+
+        return data[offset .. offset + length];
+    }
+
+    fn get_data_mut(self: *ExperimentalAccessControl) []u8 {
+        const data = self.owner.get_data();
+
+        const absolute_offset: usize = self.get_offset();
+        const length = self.get_data()[absolute_offset + 1];
+
+        if (data.len >= absolute_offset and length <= data.len) {
+            return data[absolute_offset .. absolute_offset + length];
+        }
+
+        return "";
+    }
+
+    /// Returns the length of the Option from its TLV-Header
+    pub fn get_length(self: *ExperimentalAccessControl) u8 {
+        return self.get_data()[1];
+    }
+
+    pub fn set_data(self: *ExperimentalAccessControl, val: u32) !void {
+        @memmove(self.get_data_mut()[2..6], &std.mem.toBytes(val)); // copy the ip
+    }
+
+    pub fn deinit(self: *ExperimentalAccessControl) void {
+        self.owner.deinit();
+    }
+};
+
+pub const ExtendedInternet = struct {
+    owner: TLVOwner,
+    prev_op: ?*IPv4Option = null,
+    next_op: ?*IPv4Option = null,
+
+    pub const TLVHeaderLength = 4;
+
+    pub fn init(owner: TLVOwner) !ExtendedInternet {
+        switch (owner) {
+            .owned_buffer => {
+                var self = ExtendedInternet{ .owner = owner };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < ExtendedInternet.TLVHeaderLength) {
+                    const ra_data = try self.owner.owned_buffer.extend(buffer_len, ExtendedInternet.TLVHeaderLength);
+
+                    @memset(ra_data, 0);
+
+                    ra_data[0] = @intFromEnum(IPOptionType.ExtendedInternet);
+                    ra_data[1] = ExtendedInternet.TLVHeaderLength;
+                    ra_data[2] = 0;
+                    ra_data[3] = 0;
+                } else {
+                    if (self.owner.owned_buffer.buffer.items[0] != @intFromEnum(IPOptionType.ExtendedInternet)) {
+                        return error.TypeByteInvalid;
+                    }
+                }
+
+                return self;
+            },
+            else => {
+                return error.UseTUInstead;
+            },
+        }
+    }
+
+    fn get_offset(self: *ExtendedInternet) usize {
+        var offset: usize = 0;
+
+        if (self.owner.is_layer_owned()) {
+            offset = IPv4.MinHeaderLength;
+
+            var cur = self.prev_op;
+            while (cur) |prev_op| {
+                offset += prev_op.get_length();
+                cur = prev_op.get_prev();
+            }
+        }
+
+        return offset;
+    }
+
+    pub fn get_data(self: *ExtendedInternet) []const u8 {
+        const data = self.owner.get_data();
+
+        const offset: usize = self.get_offset();
+        const length: usize = @intCast(data[offset + 1]);
+
+        return data[offset .. offset + length];
+    }
+
+    fn get_data_mut(self: *ExtendedInternet) []u8 {
+        const data = self.owner.get_data();
+
+        const absolute_offset: usize = self.get_offset();
+        const length = self.get_data()[absolute_offset + 1];
+
+        if (data.len >= absolute_offset and length <= data.len) {
+            return data[absolute_offset .. absolute_offset + length];
+        }
+
+        return "";
+    }
+
+    /// Returns the length of the Option from its TLV-Header
+    pub fn get_length(self: *ExtendedInternet) u8 {
+        return self.get_data()[1];
+    }
+
+    pub fn set_data(self: *ExtendedInternet, val: u16) !void {
+        @memmove(self.get_data_mut()[2..4], &std.mem.toBytes(val)); // copy the ip
+    }
+
+    pub fn deinit(self: *ExtendedInternet) void {
+        self.owner.deinit();
+    }
+};
+
+pub const SelectiveDirectedBroadcast = struct {
+    owner: TLVOwner,
+    prev_op: ?*IPv4Option = null,
+    next_op: ?*IPv4Option = null,
+
+    pub const TLVHeaderLength = 10;
+
+    pub fn init(owner: TLVOwner) !SelectiveDirectedBroadcast {
+        switch (owner) {
+            .owned_buffer => {
+                var self = SelectiveDirectedBroadcast{ .owner = owner };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < SelectiveDirectedBroadcast.TLVHeaderLength) {
+                    const ra_data = try self.owner.owned_buffer.extend(buffer_len, SelectiveDirectedBroadcast.TLVHeaderLength);
+
+                    @memset(ra_data, 0);
+
+                    ra_data[0] = @intFromEnum(IPOptionType.SelectiveDirectedBroadcast);
+                    ra_data[1] = SelectiveDirectedBroadcast.TLVHeaderLength;
+                } else {
+                    if (self.owner.owned_buffer.buffer.items[0] != @intFromEnum(IPOptionType.SelectiveDirectedBroadcast)) {
+                        return error.TypeByteInvalid;
+                    }
+                }
+
+                return self;
+            },
+            else => {
+                return error.UseTUInstead;
+            },
+        }
+    }
+
+    fn get_offset(self: *SelectiveDirectedBroadcast) usize {
+        var offset: usize = 0;
+
+        if (self.owner.is_layer_owned()) {
+            offset = IPv4.MinHeaderLength;
+
+            var cur = self.prev_op;
+            while (cur) |prev_op| {
+                offset += prev_op.get_length();
+                cur = prev_op.get_prev();
+            }
+        }
+
+        return offset;
+    }
+
+    pub fn get_data(self: *SelectiveDirectedBroadcast) []const u8 {
+        const data = self.owner.get_data();
+
+        const offset: usize = self.get_offset();
+        const length: usize = @intCast(data[offset + 1]);
+
+        return data[offset .. offset + length];
+    }
+
+    fn get_data_mut(self: *SelectiveDirectedBroadcast) []u8 {
+        const data = self.owner.get_data();
+
+        const absolute_offset: usize = self.get_offset();
+        const length = self.get_data()[absolute_offset + 1];
+
+        if (data.len >= absolute_offset and length <= data.len) {
+            return data[absolute_offset .. absolute_offset + length];
+        }
+
+        return "";
+    }
+
+    /// Returns the length of the Option from its TLV-Header
+    pub fn get_length(self: *SelectiveDirectedBroadcast) u8 {
+        return self.get_data()[1];
+    }
+
+    pub fn set_ip_mask(self: *SelectiveDirectedBroadcast, ip: IPv4.IPv4Address) !void {
+        @memmove(self.get_data_mut()[2..6], &ip.array); // copy the ip
+    }
+
+    pub fn set_ip(self: *SelectiveDirectedBroadcast, ip: IPv4.IPv4Address) !void {
+        @memmove(self.get_data_mut()[6..10], &ip.array); // copy the ip
+    }
+
+    pub fn deinit(self: *SelectiveDirectedBroadcast) void {
+        self.owner.deinit();
+    }
+};
+
+pub const MTUProbe = struct {
+    owner: TLVOwner,
+    prev_op: ?*IPv4Option = null,
+    next_op: ?*IPv4Option = null,
+
+    pub const TLVHeaderLength = 4;
+
+    pub fn init(owner: TLVOwner) !MTUProbe {
+        switch (owner) {
+            .owned_buffer => {
+                var self = MTUProbe{ .owner = owner };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < MTUProbe.TLVHeaderLength) {
+                    const ra_data = try self.owner.owned_buffer.extend(buffer_len, MTUProbe.TLVHeaderLength);
+
+                    @memset(ra_data, 0);
+
+                    ra_data[0] = @intFromEnum(IPOptionType.MTUProbe);
+                    ra_data[1] = MTUProbe.TLVHeaderLength;
+                    ra_data[2] = 0;
+                    ra_data[3] = 0;
+                } else {
+                    if (self.owner.owned_buffer.buffer.items[0] != @intFromEnum(IPOptionType.MTUProbe)) {
+                        return error.TypeByteInvalid;
+                    }
+                }
+
+                return self;
+            },
+            else => {
+                return error.UseTUInstead;
+            },
+        }
+    }
+
+    fn get_offset(self: *MTUProbe) usize {
+        var offset: usize = 0;
+
+        if (self.owner.is_layer_owned()) {
+            offset = IPv4.MinHeaderLength;
+
+            var cur = self.prev_op;
+            while (cur) |prev_op| {
+                offset += prev_op.get_length();
+                cur = prev_op.get_prev();
+            }
+        }
+
+        return offset;
+    }
+
+    pub fn get_data(self: *MTUProbe) []const u8 {
+        const data = self.owner.get_data();
+
+        const offset: usize = self.get_offset();
+        const length: usize = @intCast(data[offset + 1]);
+
+        return data[offset .. offset + length];
+    }
+
+    fn get_data_mut(self: *MTUProbe) []u8 {
+        const data = self.owner.get_data();
+
+        const absolute_offset: usize = self.get_offset();
+        const length = self.get_data()[absolute_offset + 1];
+
+        if (data.len >= absolute_offset and length <= data.len) {
+            return data[absolute_offset .. absolute_offset + length];
+        }
+
+        return "";
+    }
+
+    /// Returns the length of the Option from its TLV-Header
+    pub fn get_length(self: *MTUProbe) u8 {
+        return self.get_data()[1];
+    }
+
+    pub fn set_mtu_val(self: *MTUProbe, val: u16) !void {
+        @memmove(self.get_data_mut()[2..4], &std.mem.toBytes(val)); // copy the ip
+    }
+
+    pub fn deinit(self: *MTUProbe) void {
+        self.owner.deinit();
+    }
+};
+
+pub const MTUReply = struct {
+    owner: TLVOwner,
+    prev_op: ?*IPv4Option = null,
+    next_op: ?*IPv4Option = null,
+
+    pub const TLVHeaderLength = 4;
+
+    pub fn init(owner: TLVOwner) !MTUReply {
+        switch (owner) {
+            .owned_buffer => {
+                var self = MTUReply{ .owner = owner };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < MTUReply.TLVHeaderLength) {
+                    const ra_data = try self.owner.owned_buffer.extend(buffer_len, MTUReply.TLVHeaderLength);
+
+                    @memset(ra_data, 0);
+
+                    ra_data[0] = @intFromEnum(IPOptionType.MTUReply);
+                    ra_data[1] = MTUReply.TLVHeaderLength;
+                    ra_data[2] = 0;
+                    ra_data[3] = 0;
+                } else {
+                    if (self.owner.owned_buffer.buffer.items[0] != @intFromEnum(IPOptionType.MTUReply)) {
+                        return error.TypeByteInvalid;
+                    }
+                }
+
+                return self;
+            },
+            else => {
+                return error.UseTUInstead;
+            },
+        }
+    }
+
+    fn get_offset(self: *MTUReply) usize {
+        var offset: usize = 0;
+
+        if (self.owner.is_layer_owned()) {
+            offset = IPv4.MinHeaderLength;
+
+            var cur = self.prev_op;
+            while (cur) |prev_op| {
+                offset += prev_op.get_length();
+                cur = prev_op.get_prev();
+            }
+        }
+
+        return offset;
+    }
+
+    pub fn get_data(self: *MTUReply) []const u8 {
+        const data = self.owner.get_data();
+
+        const offset: usize = self.get_offset();
+        const length: usize = @intCast(data[offset + 1]);
+
+        return data[offset .. offset + length];
+    }
+
+    fn get_data_mut(self: *MTUReply) []u8 {
+        const data = self.owner.get_data();
+
+        const absolute_offset: usize = self.get_offset();
+        const length = self.get_data()[absolute_offset + 1];
+
+        if (data.len >= absolute_offset and length <= data.len) {
+            return data[absolute_offset .. absolute_offset + length];
+        }
+
+        return "";
+    }
+
+    /// Returns the length of the Option from its TLV-Header
+    pub fn get_length(self: *MTUReply) u8 {
+        return self.get_data()[1];
+    }
+
+    pub fn set_mtu_val(self: *MTUReply, val: u16) !void {
+        @memmove(self.get_data_mut()[2..4], &std.mem.toBytes(val)); // copy the ip
+    }
+
+    pub fn deinit(self: *MTUReply) void {
+        self.owner.deinit();
+    }
+};
+
+pub const Security = struct {
+    owner: TLVOwner,
+    prev_op: ?*IPv4Option = null,
+    next_op: ?*IPv4Option = null,
+
+    pub const TLVHeaderLength = 11;
+
+    pub fn init(owner: TLVOwner) !Security {
+        switch (owner) {
+            .owned_buffer => {
+                var self = Security{ .owner = owner };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < Security.TLVHeaderLength) {
+                    const ra_data = try self.owner.owned_buffer.extend(buffer_len, Security.TLVHeaderLength);
+
+                    @memset(ra_data, 0);
+
+                    ra_data[0] = @intFromEnum(IPOptionType.Security);
+                    ra_data[1] = Security.TLVHeaderLength;
+                } else {
+                    if (self.owner.owned_buffer.buffer.items[0] != @intFromEnum(IPOptionType.Security)) {
+                        return error.TypeByteInvalid;
+                    }
+
+                    if (self.owner.owned_buffer.buffer.items[1] > self.owner.owned_buffer.buffer.items.len) {
+                        return error.LengthByteInvalid;
+                    }
+                }
+
+                return self;
+            },
+            else => {
+                return error.UseTUInstead;
+            },
+        }
+    }
+
+    fn get_offset(self: *Security) usize {
+        var offset: usize = 0;
+
+        if (self.owner.is_layer_owned()) {
+            offset = IPv4.MinHeaderLength;
+
+            var cur = self.prev_op;
+            while (cur) |prev_op| {
+                offset += prev_op.get_length();
+                cur = prev_op.get_prev();
+            }
+        }
+
+        return offset;
+    }
+
+    pub fn get_data(self: *Security) []const u8 {
+        const data = self.owner.get_data();
+
+        const offset: usize = self.get_offset();
+        const length: usize = @intCast(data[offset + 1]);
+
+        return data[offset .. offset + length];
+    }
+
+    fn get_data_mut(self: *Security) []u8 {
+        const data = self.owner.get_data();
+
+        const absolute_offset: usize = self.get_offset();
+        const length = self.get_data()[absolute_offset + 1];
+
+        if (data.len >= absolute_offset and length <= data.len) {
+            return data[absolute_offset .. absolute_offset + length];
+        }
+
+        return "";
+    }
+
+    /// Returns the length of the Option from its TLV-Header
+    pub fn get_length(self: *Security) u8 {
+        return self.get_data()[1];
+    }
+
+    pub fn set_data(self: *Security, data: []const u8) !void {
+        @memmove(self.get_data_mut()[2..], data); // copy the ip
+    }
+
+    pub fn deinit(self: *Security) void {
+        self.owner.deinit();
+    }
+};
+
+pub const ExtendedSecurity = struct {
+    owner: TLVOwner,
+    prev_op: ?*IPv4Option = null,
+    next_op: ?*IPv4Option = null,
+
+    pub const TLVHeaderLength = 6;
+
+    pub fn init(owner: TLVOwner) !ExtendedSecurity {
+        switch (owner) {
+            .owned_buffer => {
+                var self = ExtendedSecurity{ .owner = owner };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < ExtendedSecurity.TLVHeaderLength) {
+                    const ra_data = try self.owner.owned_buffer.extend(buffer_len, ExtendedSecurity.TLVHeaderLength);
+
+                    @memset(ra_data, 0);
+
+                    ra_data[0] = @intFromEnum(IPOptionType.ExtendedSecurity);
+                    ra_data[1] = ExtendedSecurity.TLVHeaderLength;
+                } else {
+                    if (self.owner.owned_buffer.buffer.items[0] != @intFromEnum(IPOptionType.ExtendedSecurity)) {
+                        return error.TypeByteInvalid;
+                    }
+
+                    if (self.owner.owned_buffer.buffer.items[1] > self.owner.owned_buffer.buffer.items.len) {
+                        return error.LengthByteInvalid;
+                    }
+                }
+
+                return self;
+            },
+            else => {
+                return error.UseTUInstead;
+            },
+        }
+    }
+
+    fn get_offset(self: *ExtendedSecurity) usize {
+        var offset: usize = 0;
+
+        if (self.owner.is_layer_owned()) {
+            offset = IPv4.MinHeaderLength;
+
+            var cur = self.prev_op;
+            while (cur) |prev_op| {
+                offset += prev_op.get_length();
+                cur = prev_op.get_prev();
+            }
+        }
+
+        return offset;
+    }
+
+    pub fn get_data(self: *ExtendedSecurity) []const u8 {
+        const data = self.owner.get_data();
+
+        const offset: usize = self.get_offset();
+        const length: usize = @intCast(data[offset + 1]);
+
+        return data[offset .. offset + length];
+    }
+
+    fn get_data_mut(self: *ExtendedSecurity) []u8 {
+        const data = self.owner.get_data();
+
+        const absolute_offset: usize = self.get_offset();
+        const length = self.get_data()[absolute_offset + 1];
+
+        if (data.len >= absolute_offset and length <= data.len) {
+            return data[absolute_offset .. absolute_offset + length];
+        }
+
+        return "";
+    }
+
+    /// Returns the length of the Option from its TLV-Header
+    pub fn get_length(self: *ExtendedSecurity) u8 {
+        return self.get_data()[1];
+    }
+
+    pub fn set_data(self: *ExtendedSecurity, data: []const u8) !void {
+        @memmove(self.get_data_mut()[2..], data); // copy the ip
+    }
+
+    pub fn deinit(self: *ExtendedSecurity) void {
+        self.owner.deinit();
+    }
+};
+
+pub const CommercialSecurity = struct {
+    owner: TLVOwner,
+    prev_op: ?*IPv4Option = null,
+    next_op: ?*IPv4Option = null,
+
+    pub const TLVHeaderLength = 6;
+
+    pub fn init(owner: TLVOwner) !CommercialSecurity {
+        switch (owner) {
+            .owned_buffer => {
+                var self = CommercialSecurity{ .owner = owner };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < CommercialSecurity.TLVHeaderLength) {
+                    const ra_data = try self.owner.owned_buffer.extend(buffer_len, CommercialSecurity.TLVHeaderLength);
+
+                    @memset(ra_data, 0);
+
+                    ra_data[0] = @intFromEnum(IPOptionType.CommercialSecurity);
+                    ra_data[1] = CommercialSecurity.TLVHeaderLength;
+                } else {
+                    if (self.owner.owned_buffer.buffer.items[0] != @intFromEnum(IPOptionType.CommercialSecurity)) {
+                        return error.TypeByteInvalid;
+                    }
+
+                    if (self.owner.owned_buffer.buffer.items[1] > self.owner.owned_buffer.buffer.items.len) {
+                        return error.LengthByteInvalid;
+                    }
+                }
+
+                return self;
+            },
+            else => {
+                return error.UseTUInstead;
+            },
+        }
+    }
+
+    fn get_offset(self: *CommercialSecurity) usize {
+        var offset: usize = 0;
+
+        if (self.owner.is_layer_owned()) {
+            offset = IPv4.MinHeaderLength;
+
+            var cur = self.prev_op;
+            while (cur) |prev_op| {
+                offset += prev_op.get_length();
+                cur = prev_op.get_prev();
+            }
+        }
+
+        return offset;
+    }
+
+    pub fn get_data(self: *CommercialSecurity) []const u8 {
+        const data = self.owner.get_data();
+
+        const offset: usize = self.get_offset();
+        const length: usize = @intCast(data[offset + 1]);
+
+        return data[offset .. offset + length];
+    }
+
+    fn get_data_mut(self: *CommercialSecurity) []u8 {
+        const data = self.owner.get_data();
+
+        const absolute_offset: usize = self.get_offset();
+        const length = self.get_data()[absolute_offset + 1];
+
+        if (data.len >= absolute_offset and length <= data.len) {
+            return data[absolute_offset .. absolute_offset + length];
+        }
+
+        return "";
+    }
+
+    /// Returns the length of the Option from its TLV-Header
+    pub fn get_length(self: *CommercialSecurity) u8 {
+        return self.get_data()[1];
+    }
+
+    pub fn set_data(self: *CommercialSecurity, data: []const u8) !void {
+        @memmove(self.get_data_mut()[2..], data); // copy the ip
+    }
+
+    pub fn deinit(self: *CommercialSecurity) void {
+        self.owner.deinit();
+    }
+};
+
 pub const TimestampRecord = struct {
     ip: ?IPv4.IPv4Address = null,
     timestamp: u32,
@@ -1273,11 +2615,6 @@ pub const GenericOption = struct {
     }
 
     pub fn get_data(self: *GenericOption) []const u8 {
-        //     const data = self.owner.get_data();
-
-        //     const offset: usize = self.get_offset();
-        //     const length: usize = @intCast(data[offset + 1]);
-
         return self.get_data_mut();
     }
 
