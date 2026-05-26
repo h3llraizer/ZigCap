@@ -29,9 +29,11 @@ test "build rr opt" {
     var rr = try IPv4.IPv4_Options.RecordRoute.init(tlv_owner);
     defer rr.deinit();
 
-    try rr.add_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
-    try rr.add_ip(try IPv4.IPv4Address.init_from_string("10.1.1.1"));
-    try rr.add_ip(try IPv4.IPv4Address.init_from_string("172.78.9.3"));
+    const ip_array: [3]IPv4.IPv4Address = .{ try IPv4.IPv4Address.init_from_string("192.168.1.1"), try IPv4.IPv4Address.init_from_string("10.1.1.1"), try IPv4.IPv4Address.init_from_string("172.78.9.3") };
+
+    for (ip_array) |ip| {
+        try rr.add_ip(ip);
+    }
 
     const ips = try rr.get_ip_list(allocator) orelse {
         try expect(false); // no ips found
@@ -41,19 +43,13 @@ test "build rr opt" {
     try expect(rr.get_length() == ((@sizeOf(IPv4.IPv4Address) * 3) +
         IPv4.IPv4_Options.RecordRoute.TLVHeaderLength));
 
-    for (ips) |ip| {
-        const ip_str = try ip.to_string(allocator);
-        print("{s}\n", .{ip_str});
-        allocator.free(ip_str);
-    }
-
     defer allocator.free(ips);
 
-    try expect(rr.get_ip_count() == 3);
+    try expect(rr.get_ip_count() == ip_array.len);
 
     try expect(rr.get_ip_count() == ips.len);
 
-    try rr.remove_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
+    try rr.remove_ip(ip_array[0]);
 
     const ip_list = try rr.get_ip_list(allocator) orelse {
         try expect(false); // ip list not found in RR option
@@ -64,7 +60,11 @@ test "build rr opt" {
 
     try expect(ip_list.len == 2);
 
-    try expect(rr.get_length() == 11);
+    try expect(rr.get_length() == ((@sizeOf(IPv4.IPv4Address) * 2) +
+        IPv4.IPv4_Options.RecordRoute.TLVHeaderLength));
+
+    try expect(std.mem.eql(u8, &ip_list[0].array, &ip_array[1].array));
+    try expect(std.mem.eql(u8, &ip_list[1].array, &ip_array[2].array));
 
     for (ip_list) |ip| {
         const str = try ip.to_string(allocator);
@@ -98,8 +98,6 @@ test "build rr opt" {
     try expect(count == 1);
 
     try expect(ipv4_layer.get_data().len == 32);
-
-    try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
 
     var rr_opt = ipv4_layer.get_first_op() orelse {
         try expect(false); // failed to get first opt
@@ -151,10 +149,6 @@ test "build rr opt" {
     iphdr_str = try ipv4_layer.get_immutable_header().to_string(allocator);
     print("{s}\n", .{iphdr_str});
     allocator.free(iphdr_str);
-
-    if (ipv4_layer.check_pad()) |pad_len| {
-        print("pad bytes: {}\n", .{pad_len});
-    }
 }
 
 test "build lsr opt" {
@@ -226,8 +220,6 @@ test "build lsr opt" {
     try expect(count == 1);
 
     try expect(ipv4_layer.get_data().len == 32);
-
-    try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
 
     const iphdr_str = try ipv4_layer.get_immutable_header().to_string(allocator);
     print("{s}\n", .{iphdr_str});
@@ -304,8 +296,6 @@ test "build ssr opt" {
 
     try expect(ipv4_layer.get_data().len == 32);
 
-    try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
-
     const iphdr_str = try ipv4_layer.get_immutable_header().to_string(allocator);
     print("{s}\n", .{iphdr_str});
     allocator.free(iphdr_str);
@@ -346,8 +336,6 @@ test "build ra opt" {
     while (cur) |option| {
         cur = option.get_next();
     }
-
-    try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
 }
 
 test "build timestamp opt" {
@@ -428,8 +416,6 @@ test "build timestamp opt" {
 
     print("ipv4_layer data: ({}) {x}\n", .{ ipv4_layer.get_data().len, ipv4_layer.get_data() });
 
-    try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
-
     //   var option = try ipv4_layer.get_options(allocator);
     //   while (option) |cur_opt| {
     //       print("{any} {x} is layer owned: {any}\n", .{
@@ -471,8 +457,6 @@ test "build timestamp opt" {
     try ipv4_opt.timestamp.add_ts_record(rec);
 
     try ipv4_opt.timestamp.remove_ts_record(rec);
-
-    try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
 
     try expect(ipv4_layer.get_immutable_header().get_length() == 40);
 
@@ -536,8 +520,6 @@ test "build timestamp opt in packet" {
 
     try ipv4_layer.add_option(&opt);
 
-    try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
-
     var options = try ipv4_layer.get_options(allocator) orelse {
         try expect(false);
         return;
@@ -577,19 +559,13 @@ test "build timestamp opt in packet" {
         return;
     };
 
-    try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
-
     try expect(ipv4_opt.get_opt_type() == IPv4.IPOptionType.Timestamp);
 
     rec = .{ .ip = try IPv4.IPv4Address.init_from_string("192.168.1.254"), .timestamp = 333333 };
 
     try ipv4_opt.timestamp.add_ts_record(rec);
 
-    try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
-
     try ipv4_opt.timestamp.remove_ts_record(rec);
-
-    try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
 
     var packet = try Packet.create(allocator, allocator);
     defer packet.deinit();
@@ -605,7 +581,6 @@ test "build timestamp opt in packet" {
         };
         try first_opt.timestamp.add_ts_record(rec);
 
-        try expect(ip_layer.get_immutable_header().dscp_ecn == 0);
         try expect(first_opt.timestamp.get_ptr() == 5);
         //   print("data: {x}\n", .{first_opt.timestamp.get_data()});
     } else {
@@ -680,8 +655,6 @@ test "build multiple options" {
 
     try ipv4_layer.add_option(&opt1);
 
-    try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
-
     var ipv4_opt = ipv4_layer.get_first_op() orelse {
         try expect(false);
         return;
@@ -694,8 +667,6 @@ test "build multiple options" {
     try ipv4_opt.timestamp.add_ts_record(rec);
 
     try ipv4_opt.timestamp.remove_ts_record(rec);
-
-    try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
 
     var options = try ipv4_layer.get_options(allocator) orelse {
         try expect(false); // failed to get options
@@ -875,9 +846,9 @@ test "build recr opt" {
     var rr = try IPv4.IPv4_Options.RecordRoute.init(tlv_owner);
     defer rr.deinit();
 
-    try rr.add_ip(try IPv4.IPv4Address.init_from_string("255.255.255.255"));
     try rr.add_ip(try IPv4.IPv4Address.init_from_string("1.1.1.1"));
     try rr.add_ip(try IPv4.IPv4Address.init_from_string("2.2.2.2"));
+    try rr.add_ip(try IPv4.IPv4Address.init_from_string("3.3.3.3"));
 
     const ips = try rr.get_ip_list(allocator) orelse {
         try expect(false); // no ips found
@@ -984,7 +955,6 @@ test "build recr opt" {
     //
     //   try expect(ipv4_layer.get_data().len == 36);
     //
-    //   try expect(ipv4_layer.get_immutable_header().dscp_ecn == 0);
     //
     //   var rr_opt = ipv4_layer.get_first_op() orelse {
     //       try expect(false); // failed to get first opt

@@ -273,11 +273,9 @@ pub const IPv4Layer = struct {
         const options_list = std.enums.values(IPOptionType)[1..];
         for (options_list) |option| {
             if (@intFromEnum(option) == ops_buf[0]) {
-                const length: usize = @intCast(ops_buf[1]);
                 return IPv4Option.init(
                     option,
                     TLVOwner{ .layer = &self.owner },
-                    length,
                     null,
                     null,
                 );
@@ -314,7 +312,6 @@ pub const IPv4Layer = struct {
                     opt.* = IPv4Option.init(
                         option,
                         TLVOwner{ .layer = &self.owner },
-                        length,
                         null,
                         null,
                     );
@@ -346,65 +343,7 @@ pub const IPv4Layer = struct {
         return options;
     }
 
-    pub fn check_pad(self: *IPv4Layer) ?usize {
-        const ops_buf = self.get_opt_buf();
-
-        if (ops_buf.len == 0) {
-            return null;
-        }
-
-        print("ops buf len: {}\n", .{ops_buf.len});
-
-        const options_list = std.enums.values(IPOptionType);
-
-        var offset: usize = 0;
-        var op_type_found: bool = false;
-        var length_byte_found: bool = false;
-        var last_length: usize = 0;
-
-        while (offset < ops_buf.len - 1) {
-            if (op_type_found == false) {
-                for (options_list) |option| {
-                    if (@intFromEnum(option) == ops_buf[offset]) {
-                        op_type_found = true;
-                        offset += 1;
-
-                        if (IPOptionType.requires_ptr_byte(option)) {
-                            if (offset + 1 <= ops_buf.len) {
-                                offset += 1;
-                            }
-                        }
-
-                        const op_len: usize = @intCast(ops_buf[offset]);
-
-                        if (op_len <= ops_buf.len) {
-                            length_byte_found = true;
-                            last_length = offset;
-
-                            offset += op_len;
-                        }
-                    }
-                }
-            }
-
-            if (op_type_found == true and length_byte_found == true) {
-                op_type_found = false;
-                length_byte_found = false;
-                continue;
-            }
-
-            offset += 1; // op-byte wasn't found. Increment offset by 1
-        }
-
-        if (last_length != 0) {
-            const pad_bytes = ops_buf.len - last_length;
-            return pad_bytes;
-        }
-
-        return null;
-    }
-
-    pub fn check_padding(self: *IPv4Layer) usize {
+    fn check_padding(self: *IPv4Layer) usize {
         const ops_buf = self.get_opt_buf();
 
         if (ops_buf.len == 0) {

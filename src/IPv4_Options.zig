@@ -163,7 +163,6 @@ pub const IPv4Option = union(enum) {
     pub fn init(
         opt: IPv4.IPOptionType,
         owner: TLVOwner,
-        length: usize,
         prev: ?*IPv4Option,
         next: ?*IPv4Option,
     ) IPv4Option {
@@ -311,7 +310,6 @@ pub const IPv4Option = union(enum) {
             else => {
                 return IPv4Option{ .generic = GenericOption{
                     .owner = owner,
-                    .length = length,
                     .prev_op = prev,
                     .next_op = next,
                 } };
@@ -2534,7 +2532,6 @@ pub const Timestamp = struct {
 
 pub const GenericOption = struct {
     owner: TLVOwner,
-    length: usize,
     prev_op: ?*IPv4Option = null,
     next_op: ?*IPv4Option = null,
 
@@ -2550,7 +2547,7 @@ pub const GenericOption = struct {
 
         switch (owner) {
             .owned_buffer => {
-                var self = GenericOption{ .owner = owner, .length = GenericOption.TLVHeaderLength };
+                var self = GenericOption{ .owner = owner };
                 const buffer_len = self.owner.owned_buffer.buffer.items.len;
                 if (buffer_len < GenericOption.TLVHeaderLength) {
                     const go_data = try self.owner.owned_buffer.extend(buffer_len, GenericOption.TLVHeaderLength);
