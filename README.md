@@ -26,7 +26,6 @@ Currently supported functionality:
 - Generic / Application Layer (`src/GenericLayer.zig`)
 
 Note, these protocols are supported but not fully implemented with their extended features:
-- IPv4-header options covered are currently Record Route, Loose Source Route, Strict Source Route, Timestamp, Router Alert
 - a select few TCP-Header/IPv6 options/extensions are parsable but adding/removing them is fragile.
 
 ## Testing
