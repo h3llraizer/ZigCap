@@ -67,6 +67,7 @@ const panic = std.debug.panic;
 // ✅  QuickStart (25) - length 8 (example: rate=0x0100, ttl diff=1)
 //&[_]u8{25, 8, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00}
 
+// Handled by Generic:
 // RFC3692Exp1 (30) - length 4 (experimental data)
 //&[_]u8{30, 4, 0xCA, 0xFE}
 

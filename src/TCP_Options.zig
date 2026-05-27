@@ -1,33 +1,44 @@
+/// Note: TCP option 0x1c is officially assigned to UTO (RFC 5482).
+/// Some legacy SCPS implementations also used this value unofficially.
+/// This enum treats 0x1c as UTO.
 pub const TCPOption = enum(u8) {
-    EOL = 0x00, // End of Options List
-    NOP = 0x01, // No-Operation (padding)
-    MSS = 0x02, // Maximum Segment Size
-    WS = 0x03, // Window Scale
-    SACK_PERM = 0x04, // SACK Permitted
-    SACK = 0x05, // SACK Block (Selective ACK)
-    TS = 0x08, // Timestamp
-    TCP_FASTOPEN = 0x0f, // TCP Fast Open (TFO)
-    EXP_FASTOPEN = 0x1a, // Experimental Fast Open (draft-ietf-tcp-fastopen)
-    MULTIPATH_TCP = 0x1e, // Multipath TCP (MPTCP)
-    AUTH = 0x1f, // TCP Authentication Option (TCP-AO) - replaces MD5
-    MD5 = 0x13, // TCP MD5 Signature (deprecated by TCP-AO)
-    SC_PS = 0x1c, // Sender - Specific Congestion/Pacing Scheme (experimental)
-    VS_DATA = 0x1d, // VS Data (experimental)
-    NUM = 0x1b, // TCP NUM Option (Nonce Update Mechanism, experimental)
-    CLARK = 0x09, // Clark's timestamp echo (obsolete)
-    TSN = 0x0a, // TCP TSN (Transport Sequence Number, experimental)
-    SIG = 0x0b, // TCP Signature (obsolete)
-    //UTO = 0x1c, // TCP User Timeout Option (both UTO and SC-PS share 0x1c)
-
+    /// End of Options List
+    EOL = 0x00,
+    /// No-Operation (padding)
+    NOP = 0x01,
+    /// Maximum Segment Size
+    MSS = 0x02,
+    /// Window Scale
+    WS = 0x03,
+    /// SACK Permitted
+    SACK_PERM = 0x04,
+    /// SACK Block (Selective ACK)
+    SACK = 0x05,
+    /// Timestamp
+    TS = 0x08,
+    /// TCP Fast Open (TFO)
+    TCP_FASTOPEN = 0x0f,
+    /// Experimental Fast Open (draft-ietf-tcp-fastopen)
+    EXP_FASTOPEN = 0x1a,
+    /// Multipath TCP (MPTCP)
+    MULTIPATH_TCP = 0x1e,
+    /// TCP Authentication Option (TCP-AO) - replaces MD5
+    AUTH = 0x1f,
+    /// TCP MD5 Signature (deprecated by TCP-AO)
+    MD5 = 0x13,
+    /// TCP User Timeout Option (both UTO and SC-PS share 0x1c)
+    UTO = 0x1c,
+    /// VS Data (experimental)
+    VS_DATA = 0x1d,
+    /// TCP NUM Option (Nonce Update Mechanism, experimental)
+    NUM = 0x1b,
+    /// Clark's timestamp echo (obsolete)
+    CLARK = 0x09,
+    /// TCP TSN (Transport Sequence Number, experimental)
+    TSN = 0x0a,
+    /// TCP Signature (obsolete)
+    SIG = 0x0b,
     _,
-
-    pub fn length(self: TCPOption) ?u8 {
-        return switch (self) {
-            .EOL, .NOP => null, // Single byte, no length field
-            .MSS, .WS, .SACK_PERM, .TCP_FASTOPEN, .MD5, .AUTH, .SACK, .TS, .MULTIPATH_TCP, .SC_PS, .VS_DATA, .NUM, .CLARK, .TSN, .SIG, .UTO => null, // Length varies, check actual value
-            // For most options, you need to read the length byte at offset+1
-        };
-    }
 
     pub fn has_length_byte(self: TCPOption) bool {
         return self != .EOL and self != .NOP;
@@ -56,14 +67,13 @@ pub const TCPOption = enum(u8) {
             .MULTIPATH_TCP => "Multipath TCP",
             .AUTH => "TCP Authentication",
             .MD5 => "TCP MD5 Signature",
-            .SC_PS => "Sender-Specific Congestion/Pacing",
+            .UTO => "User Timeout",
             .VS_DATA => "VS Data",
             .NUM => "Nonce Update",
             .CLARK => "Clark's Timestamp Echo",
             .TSN => "Transport Sequence Number",
             .SIG => "TCP Signature",
             else => "Unknown",
-            //.UTO => "User Timeout",
         };
     }
 };

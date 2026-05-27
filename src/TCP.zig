@@ -247,7 +247,6 @@ pub const TCPHeader = extern struct {
 
 pub const TCPLayer = struct {
     owner: LayerOwner,
-    const Protocol = tcp_ip_protocol.tcp;
 
     /// Creates layer from ptr to minimum 20 byte length buffer
     pub fn init(owner: LayerOwner) LayerError!TCPLayer {
@@ -292,23 +291,29 @@ pub const TCPLayer = struct {
                         return;
                         //prev_protocol = net_protocol.IPv6;
                     }
-                } else {
-                    print("no prev layer.\n", .{});
-                }
+                } //else {
+                //  print("no prev layer.\n", .{});
+                //}
             },
             else => return,
         }
         return;
     }
 
-    pub fn has_option(self: *TCPLayer, op: TCPOption) bool {
-        var offset: usize = TCPHeaderMinSize; // Start after fixed header
+    pub fn get_opt_buf(self: *TCPLayer) []u8 {
+        const data = self.get_data();
         const header_len = self.get_immutable_header().get_hdr_length();
 
-        const tcp_header = self.get_data();
+        return data[TCPHeaderMinSize..header_len];
+    }
 
-        while (offset < header_len) {
-            const kind_val = tcp_header[offset];
+    pub fn has_option(self: *TCPLayer, op: TCPOption) bool {
+        const ops_buf = self.get_opt_buf();
+
+        var offset: usize = 0; // Start after fixed header
+
+        while (offset < ops_buf.len) {
+            const kind_val = ops_buf[offset];
 
             const kind: TCPOption = @enumFromInt(kind_val);
 
@@ -316,29 +321,25 @@ pub const TCPLayer = struct {
                 return true;
             }
 
-            //    const name = kind.name();
-
-            //     print("{s}\n", .{name});
-
             switch (kind) {
                 .EOL => {
-                    offset += 1; // must increment
+                    offset += 1;
                 },
                 .NOP => {
                     offset += 1;
                 },
                 .MSS => {
-                    const len = tcp_header[offset + 1];
+                    const len = ops_buf[offset + 1];
                     if (len >= 4) {
-                        const mss: u16 = @as(u16, @intCast(tcp_header[offset + 2])) << 8 | @as(u16, (@intCast(tcp_header[offset + 3])));
+                        const mss: u16 = @as(u16, @intCast(ops_buf[offset + 2])) << 8 | @as(u16, (@intCast(ops_buf[offset + 3])));
                         _ = mss;
                     }
                     offset += len;
                 },
                 .WS => {
-                    const len = tcp_header[offset + 1];
+                    const len = ops_buf[offset + 1];
                     if (len >= 3) {
-                        const shift = tcp_header[offset + 2];
+                        const shift = ops_buf[offset + 2];
                         _ = shift;
                     }
                     offset += len;
@@ -347,17 +348,17 @@ pub const TCPLayer = struct {
                     offset += 2;
                 },
                 .TS => {
-                    const len = tcp_header[offset + 1];
+                    const len = ops_buf[offset + 1];
                     if (len >= 10) {
-                        const tsval = @as(u32, @intCast(tcp_header[offset + 2])) << 24 |
-                            @as(u32, @intCast(tcp_header[offset + 3])) << 16 |
-                            @as(u32, @intCast(tcp_header[offset + 4])) << 8 |
-                            @as(u32, @intCast(tcp_header[offset + 5]));
+                        const tsval: u32 = @as(u32, @intCast(ops_buf[offset + 2])) << 24 |
+                            @as(u32, @intCast(ops_buf[offset + 3])) << 16 |
+                            @as(u32, @intCast(ops_buf[offset + 4])) << 8 |
+                            @as(u32, @intCast(ops_buf[offset + 5]));
 
-                        const tsecr = @as(u32, @intCast(tcp_header[offset + 6])) << 24 |
-                            @as(u32, @intCast(tcp_header[offset + 7])) << 16 |
-                            @as(u32, @intCast(tcp_header[offset + 8])) << 8 |
-                            @as(u32, @intCast(tcp_header[offset + 9]));
+                        const tsecr: u32 = @as(u32, @intCast(ops_buf[offset + 6])) << 24 |
+                            @as(u32, @intCast(ops_buf[offset + 7])) << 16 |
+                            @as(u32, @intCast(ops_buf[offset + 8])) << 8 |
+                            @as(u32, @intCast(ops_buf[offset + 9]));
 
                         _ = tsval;
                         _ = tsecr;
@@ -365,7 +366,7 @@ pub const TCPLayer = struct {
                     offset += len;
                 },
                 else => { // possibly break here to avoid unsafe/innacurate parsing
-                    const len = tcp_header[offset + 1];
+                    const len = ops_buf[offset + 1];
                     offset += len;
                 },
             } // switch end
@@ -375,19 +376,23 @@ pub const TCPLayer = struct {
     }
 
     pub fn parse_tcp_options(self: *TCPLayer) void {
-        var offset: usize = TCPHeaderMinSize; // Start after fixed header
-        const header_len = self.get_immutable_header().get_hdr_length();
+        const ops_buf = self.get_opt_buf();
 
-        const tcp_header = self.get_data();
+        const tcp_opts = std.enums.values(TCPOption);
 
-        while (offset < header_len) {
-            const kind_val = tcp_header[offset];
+        var offset: usize = 0; // Start after fixed header
+
+        while (offset < ops_buf.len) {
+            const kind_val = ops_buf[offset];
+
+            for (tcp_opts) |tcp_opt| {
+                if (@intFromEnum(tcp_opt) == kind_val) {
+                    print("got tcp opt: {any}\n", .{@as(TCPOption, tcp_opt)});
+                    break;
+                }
+            }
 
             const kind: TCPOption = @enumFromInt(kind_val);
-
-            //    const name = kind.name();
-
-            //     print("{s}\n", .{name});
 
             switch (kind) {
                 .EOL => {
@@ -397,17 +402,17 @@ pub const TCPLayer = struct {
                     offset += 1;
                 },
                 .MSS => {
-                    const len = tcp_header[offset + 1];
+                    const len = ops_buf[offset + 1];
                     if (len >= 4) {
-                        const mss: u16 = @as(u16, @intCast(tcp_header[offset + 2])) << 8 | @as(u16, (@intCast(tcp_header[offset + 3])));
+                        const mss: u16 = @as(u16, @intCast(ops_buf[offset + 2])) << 8 | @as(u16, (@intCast(ops_buf[offset + 3])));
                         _ = mss;
                     }
                     offset += len;
                 },
                 .WS => {
-                    const len = tcp_header[offset + 1];
+                    const len = ops_buf[offset + 1];
                     if (len >= 3) {
-                        const shift = tcp_header[offset + 2];
+                        const shift = ops_buf[offset + 2];
                         _ = shift;
                     }
                     offset += len;
@@ -416,17 +421,17 @@ pub const TCPLayer = struct {
                     offset += 2;
                 },
                 .TS => {
-                    const len = tcp_header[offset + 1];
+                    const len = ops_buf[offset + 1];
                     if (len >= 10) {
-                        const tsval = @as(u32, @intCast(tcp_header[offset + 2])) << 24 |
-                            @as(u32, @intCast(tcp_header[offset + 3])) << 16 |
-                            @as(u32, @intCast(tcp_header[offset + 4])) << 8 |
-                            @as(u32, @intCast(tcp_header[offset + 5]));
+                        const tsval = @as(u32, @intCast(ops_buf[offset + 2])) << 24 |
+                            @as(u32, @intCast(ops_buf[offset + 3])) << 16 |
+                            @as(u32, @intCast(ops_buf[offset + 4])) << 8 |
+                            @as(u32, @intCast(ops_buf[offset + 5]));
 
-                        const tsecr = @as(u32, @intCast(tcp_header[offset + 6])) << 24 |
-                            @as(u32, @intCast(tcp_header[offset + 7])) << 16 |
-                            @as(u32, @intCast(tcp_header[offset + 8])) << 8 |
-                            @as(u32, @intCast(tcp_header[offset + 9]));
+                        const tsecr = @as(u32, @intCast(ops_buf[offset + 6])) << 24 |
+                            @as(u32, @intCast(ops_buf[offset + 7])) << 16 |
+                            @as(u32, @intCast(ops_buf[offset + 8])) << 8 |
+                            @as(u32, @intCast(ops_buf[offset + 9]));
 
                         _ = tsval;
                         _ = tsecr;
@@ -434,14 +439,13 @@ pub const TCPLayer = struct {
                     offset += len;
                 },
                 else => { // possibly break here to avoid unsafe/innacurate parsing
-                    const len = tcp_header[offset + 1];
+                    const len = ops_buf[offset + 1];
                     offset += len;
                 },
             } // switch end
         }
     }
 
-    /// at the moment, this will always return a generic application layer because no application layer protocols have been fully implemented
     pub fn get_next_layer_type(self: *TCPLayer, layer: *Packet.Layer) !?LayerIface {
         const data: []const u8 = self.get_data();
 
@@ -502,15 +506,8 @@ pub const TCPLayer = struct {
         const dst_port: u16 = std.mem.bigToNative(u16, hdr.dst_port);
 
         // TODO: add [syn] [syn-ack] [ack] [rst] etc
-        const result = std.fmt.allocPrint(
-            allocator,
-            "TCP Layer: src_port: {} dst_port: {}",
-            .{
-                src_port,
-                dst_port,
-            },
-        ) catch |err| {
-            std.debug.print("TCP allocPrint failed: {s}\n", .{@errorName(err)});
+        const result = std.fmt.allocPrint(allocator, "TCP Layer: src_port: {} dst_port: {}", .{ src_port, dst_port }) catch |err| {
+            print("TCP allocPrint failed: {s}\n", .{@errorName(err)});
             return "";
         };
 
@@ -519,7 +516,7 @@ pub const TCPLayer = struct {
 
     pub fn get_protocol(self: *TCPLayer) tcp_ip_protocol {
         _ = self;
-        return TCPLayer.Protocol;
+        return tcp_ip_protocol.tcp;
     }
 
     pub fn deinit(self: *TCPLayer) void {

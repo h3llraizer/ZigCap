@@ -104,6 +104,12 @@ test "parse tcp layer" {
 
     tcp_layer.tcpLayer.parse_tcp_options();
 
+    const opt_buf = tcp_layer.tcpLayer.get_opt_buf();
+
+    print("opt buf: ({}) {x}\n", .{ opt_buf.len, opt_buf });
+
+    _ = tcp_layer.tcpLayer.has_option(.MSS);
+
     //    tcp_layer.tcpLayer.validate_layer(); // doesn't do anything for independant layer currently
 
     try expect(tcp_layer.tcpLayer.get_immutable_header().get_checksum() == 10193);
@@ -135,4 +141,12 @@ test "build tcp layer independant" {
     tcp_hdr.set_urgent_ptr(5);
 
     //    print("urgent_ptr: {}\n", .{tcp_hdr.get_urgent_ptr()});
+}
+
+test "tcp options" {
+    //   const tcp_options = std.enums.values(TCP.TCPOption);
+    //
+    //   for (tcp_options) |option| {
+    //       print("{any} (0x{x})\n", .{ option, @intFromEnum(option) });
+    //   }
 }
