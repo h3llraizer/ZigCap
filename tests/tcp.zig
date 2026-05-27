@@ -102,11 +102,11 @@ test "parse tcp layer" {
 
     try expect(hdr_length == 32);
 
-    tcp_layer.tcpLayer.parse_tcp_options();
+    //tcp_layer.tcpLayer.parse_tcp_options();
 
-    const opt_buf = tcp_layer.tcpLayer.get_opt_buf();
+    //  const opt_buf = tcp_layer.tcpLayer.get_opt_buf();
 
-    print("opt buf: ({}) {x}\n", .{ opt_buf.len, opt_buf });
+    //  print("opt buf: ({}) {x}\n", .{ opt_buf.len, opt_buf });
 
     _ = tcp_layer.tcpLayer.has_option(.MSS);
 

@@ -300,7 +300,7 @@ pub const TCPLayer = struct {
         return;
     }
 
-    pub fn get_opt_buf(self: *TCPLayer) []u8 {
+    fn get_opt_buf(self: *TCPLayer) []u8 {
         const data = self.get_data();
         const header_len = self.get_immutable_header().get_hdr_length();
 
@@ -360,8 +360,10 @@ pub const TCPLayer = struct {
                             @as(u32, @intCast(ops_buf[offset + 8])) << 8 |
                             @as(u32, @intCast(ops_buf[offset + 9]));
 
-                        _ = tsval;
-                        _ = tsecr;
+                        //   _ = tsval;
+                        //   _ = tsecr;
+
+                        print("tsval: {} tsecr: {}\n", .{ tsval, tsecr });
                     }
                     offset += len;
                 },

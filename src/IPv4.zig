@@ -268,6 +268,7 @@ pub const IPv4Layer = struct {
         return self.get_data()[MinHeaderLength..header_len];
     }
 
+    // might remove this
     pub fn get_first_op(self: *IPv4Layer) ?IPv4Option {
         const ops_buf = self.get_opt_buf();
         const options_list = std.enums.values(IPOptionType)[1..];
@@ -285,6 +286,9 @@ pub const IPv4Layer = struct {
         return null;
     }
 
+    /// Returns LinkedList of IPv4 Options.
+    /// Data is retrieved and made directly to the owning layer.
+    /// Caller must deinit the LinkedList - does not destroy options data
     pub fn get_options(self: *IPv4Layer, allocator: Allocator) !?IPv4Options {
         const ops_buf = self.get_opt_buf();
 
@@ -417,6 +421,62 @@ pub const IPv4Layer = struct {
 
         self.get_mutable_header().set_ihl(@intCast(new_ihl));
         self.get_mutable_header().set_length(@intCast(self.get_data().len));
+    }
+
+    pub fn remove_option(self: *IPv4Layer, option: *IPv4Option, allocator: Allocator) !void {
+        const opt_buf = self.get_opt_buf();
+
+        const opt_data = option.get_data();
+        const opt_len = option.get_length();
+
+        const hdr_len = self.get_immutable_header().get_ihl() * 4;
+
+        const total_length = self.get_immutable_header().get_length();
+
+        _ = total_length;
+
+        const cur_pad_len = self.check_padding();
+
+        const offset = std.mem.indexOf(u8, opt_buf, opt_data) orelse {
+            return;
+        };
+
+        try self.owner.shorten_payload(MinHeaderLength + offset, opt_len);
+
+        var new_header_len = hdr_len - opt_len;
+
+        const pad_required = if ((new_header_len - cur_pad_len) % HeaderAlignment == 0) 0 else HeaderAlignment - ((new_header_len - cur_pad_len) % HeaderAlignment);
+
+        if (pad_required > 0) {
+            _ = try self.owner.extend_payload( // this can be discarded because its 0'd (NOP'd) by default
+                new_header_len - 1, // - 1 added here because without it is causing proceeding layer in packet to be mutated
+                pad_required,
+            );
+
+            new_header_len += pad_required;
+        } else {
+            try self.owner.shorten_payload(
+                new_header_len - 1, // - 1 added here because without it is causing proceeding layer in packet to be mutated
+                cur_pad_len,
+            );
+
+            new_header_len -= cur_pad_len;
+        }
+
+        self.get_mutable_header().set_ihl(@intCast(new_header_len));
+        self.get_mutable_header().set_length(@intCast(self.get_data().len));
+
+        const next = option.get_next();
+        const prev = option.get_prev();
+
+        if (next) |next_opt| {
+            if (prev) |prev_opt| {
+                prev_opt.set_next_opt(next_opt);
+                next_opt.set_prev_opt(prev_opt);
+            }
+        }
+
+        allocator.destroy(option);
     }
 
     pub fn remove_all_options(self: *IPv4Layer) !void {

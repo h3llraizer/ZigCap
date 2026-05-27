@@ -1082,6 +1082,8 @@ test "build rr opt for packet" {
     udp_hdr.set_src_port(1234);
     udp_hdr.set_dst_port(8484);
 
+    print("udp data: {x}\n", .{udp_layer_face.get_data()});
+
     var packet = try Packet.create(allocator, allocator);
     defer packet.deinit();
 
@@ -1101,7 +1103,7 @@ test "build rr opt for packet" {
         return;
     };
 
-    defer options.deinit(allocator);
+    //defer options.deinit(allocator);
 
     var cur = options.first;
     var count: usize = 0;
@@ -1111,6 +1113,8 @@ test "build rr opt for packet" {
         try expect(option.get_opt_type() == IPv4.IPOptionType.RecordRoute);
         cur = next;
     }
+
+    options.deinit(allocator);
 
     try expect(count == 1);
 
@@ -1135,7 +1139,7 @@ test "build rr opt for packet" {
 
     try expect(rr_opt.get_data().len == 7);
 
-    //   try expect(ipv4_layer.get_data().len == 28);
+    try expect(ipv4_layer.get_data().len == 28 + UDP.UDPHeaderSize);
 
     try rr_opt.record_route.add_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
 
@@ -1143,24 +1147,222 @@ test "build rr opt for packet" {
 
     try expect(rr_opt.get_data().len == 11);
 
-    //    try expect(ipv4_layer.get_data().len == 32);
+    try expect(ipv4_layer.get_data().len == 32 + UDP.UDPHeaderSize);
 
-    //   try expect(ipv4_layer.get_immutable_header().get_length() == 32);
+    //print("ipv4 tl: {}\n", .{ipv4_layer.get_immutable_header().get_length()});
 
-    //    try expect(ipv4_layer.get_immutable_header().get_ihl() == 8);
+    //try expect(ipv4_layer.get_immutable_header().get_length() == 40 + UDP.UDPHeaderSize);
 
-    try rr_opt.record_route.add_ip(try IPv4.IPv4Address.init_from_string("0.0.0.0"));
+    try expect(ipv4_layer.get_immutable_header().get_ihl() == 8);
+
+    try rr_opt.record_route.add_ip(try IPv4.IPv4Address.init_from_string("1.1.1.1"));
 
     try expect(rr_opt.record_route.get_length() == 15);
 
-    try rr_opt.record_route.add_ip(try IPv4.IPv4Address.init_from_string("0.0.0.0"));
+    try rr_opt.record_route.add_ip(try IPv4.IPv4Address.init_from_string("2.2.2.2"));
 
     try expect(rr_opt.record_route.get_length() == 19);
 
-    //const ipv4_header: *IPv4.IPv4Header = ipv4_layer.get_mutable_header();
+    print("ipv4 layer: ({}) {x}\n", .{ ipv4_layer.get_data().len, ipv4_layer.get_data() });
 
-    //ipv4_layer.validate_layer();
+    options = try ipv4_layer.get_options(allocator) orelse {
+        try expect(false);
+        return;
+    };
 
-    //print("ipv4 base header: {x}\n", .{ipv4_layer.get_data()[0..IPv4.MinHeaderLength]});
-    //print("ipv4 base header: {x}\n", .{ipv4_layer.get_data()[IPv4.MinHeaderLength..ipv4_header.get_length()]});
+    defer options.deinit(allocator);
+
+    cur = options.first;
+    while (cur) |option| {
+        const next = option.get_next();
+        try expect(option.get_opt_type() == IPv4.IPOptionType.RecordRoute);
+        print("opt_data: len: {} ({}) {x}\n", .{ option.get_length(), option.get_data().len, option.get_data() });
+        if (next == null) break;
+        cur = next;
+    }
+
+    try ipv4_layer.remove_option(cur.?, allocator);
+
+    options.first = null;
+
+    print("ipv4 layer: ({}) {x}\n", .{ ipv4_layer.get_data().len, ipv4_layer.get_data() });
+
+    const ipv4_header = ipv4_layer.get_immutable_header();
+
+    print("ihl: {} tl: {}\n", .{ ipv4_header.get_ihl(), ipv4_header.get_length() });
+
+    const hdr_str = try ipv4_header.to_string(allocator);
+    print("{s}\n", .{hdr_str});
+    allocator.free(hdr_str);
+
+    if (packet.get_layer_of_type(UDP.UDPLayer)) |udp_layer| {
+        const hdr = udp_layer.get_immutable_header();
+        try expect(hdr.get_src_port() == 1234);
+        try expect(hdr.get_dst_port() == 8484);
+    }
+}
+
+test "remove rr opt in layer" {
+    //print("\nTESTING RR OPTION.\n", .{});
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.detectLeaks();
+
+    const allocator = debug_allocator.allocator();
+
+    const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+
+    const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
+
+    var rr = try IPv4.IPv4_Options.RecordRoute.init(tlv_owner);
+    defer rr.deinit();
+
+    const ip_array: [3]IPv4.IPv4Address = .{
+        try IPv4.IPv4Address.init_from_string("192.168.1.1"),
+        try IPv4.IPv4Address.init_from_string("10.1.1.1"),
+        try IPv4.IPv4Address.init_from_string("172.78.9.3"),
+    };
+
+    for (ip_array) |ip| {
+        try rr.add_ip(ip);
+    }
+
+    try expect(rr.get_length() == ((@sizeOf(IPv4.IPv4Address) * 3) +
+        IPv4.IPv4_Options.RecordRoute.TLVHeaderLength));
+
+    var ip_list = try rr.get_ip_list(allocator) orelse {
+        try expect(false); // ip list not found in RR option
+        return;
+    };
+
+    try expect(rr.get_ip_count() == ip_array.len);
+
+    try expect(rr.get_ip_count() == ip_list.len);
+
+    try rr.remove_ip(ip_array[0]);
+
+    allocator.free(ip_list);
+
+    ip_list = try rr.get_ip_list(allocator) orelse {
+        try expect(false); // ip list not found in RR option
+        return;
+    };
+
+    defer allocator.free(ip_list);
+
+    try expect(ip_list.len == 2);
+
+    try expect(rr.get_length() == ((@sizeOf(IPv4.IPv4Address) * 2) +
+        IPv4.IPv4_Options.RecordRoute.TLVHeaderLength));
+
+    try expect(std.mem.eql(u8, &ip_list[0].array, &ip_array[1].array));
+    try expect(std.mem.eql(u8, &ip_list[1].array, &ip_array[2].array));
+
+    var opt = IPv4.IPv4Option{ .record_route = rr };
+
+    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
+    defer ipv4_layer.deinit();
+
+    const ipv4_hdr = ipv4_layer.get_mutable_header();
+    ipv4_hdr.set_src_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
+    ipv4_hdr.set_dst_ip(try IPv4.IPv4Address.init_from_string("192.168.1.254"));
+    ipv4_hdr.set_protocol(IPProtocol.UDP);
+
+    try ipv4_layer.add_option(&opt);
+
+    var options = try ipv4_layer.get_options(allocator) orelse {
+        try expect(false);
+        return;
+    };
+
+    //defer options.deinit(allocator);
+
+    var cur = options.first;
+    var count: usize = 0;
+    while (cur) |option| {
+        count += 1;
+        const next = option.get_next();
+        try expect(option.get_opt_type() == IPv4.IPOptionType.RecordRoute);
+        cur = next;
+    }
+
+    options.deinit(allocator);
+
+    try expect(count == 1);
+
+    //    try expect(ipv4_layer.get_data().len == 32);
+
+    var rr_opt = ipv4_layer.get_first_op() orelse {
+        try expect(false); // failed to get first opt
+        return;
+    };
+
+    try expect(rr_opt.get_opt_type() == .RecordRoute);
+
+    //print("rr opt data: ({}) {x}\n", .{ rr_opt.get_data().len, rr_opt.get_data() });
+
+    try expect(rr_opt.get_length() == 11);
+
+    try expect(rr_opt.get_data().len == 11);
+
+    try rr_opt.record_route.remove_ip(try IPv4.IPv4Address.init_from_string("10.1.1.1"));
+
+    try expect(rr_opt.get_length() == 7);
+
+    try expect(rr_opt.get_data().len == 7);
+
+    //    try expect(ipv4_layer.get_data().len == 28 + UDP.UDPHeaderSize);
+
+    try rr_opt.record_route.add_ip(try IPv4.IPv4Address.init_from_string("192.168.1.1"));
+
+    try expect(rr_opt.get_length() == 11);
+
+    try expect(rr_opt.get_data().len == 11);
+
+    //    try expect(ipv4_layer.get_data().len == 32 + UDP.UDPHeaderSize);
+
+    //print("ipv4 tl: {}\n", .{ipv4_layer.get_immutable_header().get_length()});
+
+    //try expect(ipv4_layer.get_immutable_header().get_length() == 40 + UDP.UDPHeaderSize);
+
+    try expect(ipv4_layer.get_immutable_header().get_ihl() == 8);
+
+    try rr_opt.record_route.add_ip(try IPv4.IPv4Address.init_from_string("1.1.1.1"));
+
+    try expect(rr_opt.record_route.get_length() == 15);
+
+    try rr_opt.record_route.add_ip(try IPv4.IPv4Address.init_from_string("2.2.2.2"));
+
+    try expect(rr_opt.record_route.get_length() == 19);
+
+    print("ipv4 layer: ({}) {x}\n", .{ ipv4_layer.get_data().len, ipv4_layer.get_data() });
+
+    options = try ipv4_layer.get_options(allocator) orelse {
+        try expect(false);
+        return;
+    };
+
+    defer options.deinit(allocator);
+
+    cur = options.first;
+    while (cur) |option| {
+        const next = option.get_next();
+        try expect(option.get_opt_type() == IPv4.IPOptionType.RecordRoute);
+        print("opt_data: len: {} ({}) {x}\n", .{ option.get_length(), option.get_data().len, option.get_data() });
+        if (next == null) break;
+        cur = next;
+    }
+
+    try ipv4_layer.remove_option(cur.?, allocator);
+
+    options.first = null;
+
+    print("ipv4 layer: ({}) {x}\n", .{ ipv4_layer.get_data().len, ipv4_layer.get_data() });
+
+    const ipv4_header = ipv4_layer.get_immutable_header();
+
+    print("ihl: {} tl: {}\n", .{ ipv4_header.get_ihl(), ipv4_header.get_length() });
+
+    const hdr_str = try ipv4_header.to_string(allocator);
+    print("{s}\n", .{hdr_str});
+    allocator.free(hdr_str);
 }
