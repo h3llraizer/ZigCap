@@ -17,6 +17,7 @@ pub const TCPOption = TCPOptions.TCPOption;
 
 pub const TCPHeaderMinSize = 20;
 pub const TCPHeaderMaxSize = 40;
+const HeaderAlignment = 4;
 
 const TCPFlags = packed struct {
     fin: u1,
@@ -300,7 +301,7 @@ pub const TCPLayer = struct {
         return;
     }
 
-    fn get_opt_buf(self: *TCPLayer) []u8 {
+    pub fn get_opt_buf(self: *TCPLayer) []u8 {
         const data = self.get_data();
         const header_len = self.get_immutable_header().get_hdr_length();
 
@@ -435,8 +436,10 @@ pub const TCPLayer = struct {
                             @as(u32, @intCast(ops_buf[offset + 8])) << 8 |
                             @as(u32, @intCast(ops_buf[offset + 9]));
 
-                        _ = tsval;
-                        _ = tsecr;
+                        //   _ = tsval;
+                        //   _ = tsecr;
+
+                        print("tsval: {} tsecr: {}\n", .{ tsval, tsecr });
                     }
                     offset += len;
                 },
@@ -446,6 +449,87 @@ pub const TCPLayer = struct {
                 },
             } // switch end
         }
+    }
+
+    fn check_padding(self: *TCPLayer) usize {
+        const ops_buf = self.get_opt_buf();
+
+        if (ops_buf.len == 0) {
+            return 0;
+        }
+
+        var offset: usize = 0;
+
+        while (offset < ops_buf.len) {
+            const option_type = ops_buf[offset];
+
+            // End of Option List
+            if (option_type == 0) {
+                break;
+            }
+
+            // No Operation
+            if (option_type == 1) {
+                offset += 1;
+                continue;
+            }
+
+            // Need at least type + length
+            if (offset + 1 >= ops_buf.len) {
+                return 0;
+            }
+
+            const option_len = ops_buf[offset + 1];
+
+            if (option_len < 2) {
+                return 0;
+            }
+
+            offset += option_len;
+        }
+
+        return ops_buf.len - offset;
+    }
+
+    pub fn remove_option(self: *TCPLayer, opt: TCPOption) !void {
+        const opt_buf = self.get_opt_buf();
+
+        if (opt_buf.len == 0) {
+            return;
+        }
+
+        var offset: usize = 0;
+
+        var found: bool = false;
+        while (offset < opt_buf.len - 1) {
+            if (opt_buf[offset] == @intFromEnum(opt)) {
+                found = true;
+                break;
+            }
+
+            offset += 1;
+        }
+
+        if (!found) {
+            return;
+        }
+
+        const length = if (opt.has_length_byte()) opt_buf[offset + 1] else 1;
+
+        const original_len = self.get_immutable_header().get_hdr_length();
+
+        try self.owner.shorten_payload(TCPHeaderMinSize + offset, length);
+
+        var new_header_len = original_len - length;
+
+        const pad_required = if (new_header_len % HeaderAlignment == 0) 0 else HeaderAlignment - (new_header_len % HeaderAlignment);
+
+        if (pad_required > 0) {
+            _ = try self.owner.extend_payload(TCPHeaderMinSize + (opt_buf.len - length), pad_required);
+            new_header_len += pad_required;
+        }
+
+        self.get_mutable_header().set_hdr_length(new_header_len);
     }
 
     pub fn get_next_layer_type(self: *TCPLayer, layer: *Packet.Layer) !?LayerIface {

@@ -93,7 +93,7 @@ pub const IPv4Header = extern struct {
     }
 
     /// gets length from the IPv4 header - not gaurenteed to be accurate (malformed packet / incomplete layers etc)
-    /// if insure, call the IPv4Layer's calculate_length method which will set the correct length in the header
+    /// if unsure, call the IPv4Layer's calculate_length method which will set the correct length in the header
     pub fn get_length(self: *const IPv4Header) u16 {
         const total_length = self.total_length;
         return std.mem.nativeToBig(u16, @as(u16, @intCast(total_length)));

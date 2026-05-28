@@ -124,6 +124,8 @@ pub const IPv4Options = struct {
     first: ?*IPv4Option = null,
     last: ?*IPv4Option = null,
 
+    // TODO: Add remove from layer method
+
     pub fn deinit(self: *IPv4Options, allocator: Allocator) void {
         var cur = self.first;
         while (cur) |opt| {

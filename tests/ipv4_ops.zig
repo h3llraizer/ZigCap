@@ -1082,7 +1082,7 @@ test "build rr opt for packet" {
     udp_hdr.set_src_port(1234);
     udp_hdr.set_dst_port(8484);
 
-    print("udp data: {x}\n", .{udp_layer_face.get_data()});
+    //print("udp data: {x}\n", .{udp_layer_face.get_data()});
 
     var packet = try Packet.create(allocator, allocator);
     defer packet.deinit();
@@ -1163,7 +1163,7 @@ test "build rr opt for packet" {
 
     try expect(rr_opt.record_route.get_length() == 19);
 
-    print("ipv4 layer: ({}) {x}\n", .{ ipv4_layer.get_data().len, ipv4_layer.get_data() });
+    //print("ipv4 layer: ({}) {x}\n", .{ ipv4_layer.get_data().len, ipv4_layer.get_data() });
 
     options = try ipv4_layer.get_options(allocator) orelse {
         try expect(false);
@@ -1176,7 +1176,7 @@ test "build rr opt for packet" {
     while (cur) |option| {
         const next = option.get_next();
         try expect(option.get_opt_type() == IPv4.IPOptionType.RecordRoute);
-        print("opt_data: len: {} ({}) {x}\n", .{ option.get_length(), option.get_data().len, option.get_data() });
+        //print("opt_data: len: {} ({}) {x}\n", .{ option.get_length(), option.get_data().len, option.get_data() });
         if (next == null) break;
         cur = next;
     }
@@ -1185,14 +1185,14 @@ test "build rr opt for packet" {
 
     options.first = null;
 
-    print("ipv4 layer: ({}) {x}\n", .{ ipv4_layer.get_data().len, ipv4_layer.get_data() });
+    //print("ipv4 layer: ({}) {x}\n", .{ ipv4_layer.get_data().len, ipv4_layer.get_data() });
 
     const ipv4_header = ipv4_layer.get_immutable_header();
 
-    print("ihl: {} tl: {}\n", .{ ipv4_header.get_ihl(), ipv4_header.get_length() });
+    //print("ihl: {} tl: {}\n", .{ ipv4_header.get_ihl(), ipv4_header.get_length() });
 
     const hdr_str = try ipv4_header.to_string(allocator);
-    print("{s}\n", .{hdr_str});
+    //print("{s}\n", .{hdr_str});
     allocator.free(hdr_str);
 
     if (packet.get_layer_of_type(UDP.UDPLayer)) |udp_layer| {
@@ -1274,8 +1274,6 @@ test "remove rr opt in layer" {
         return;
     };
 
-    //defer options.deinit(allocator);
-
     var cur = options.first;
     var count: usize = 0;
     while (cur) |option| {
@@ -1334,7 +1332,7 @@ test "remove rr opt in layer" {
 
     try expect(rr_opt.record_route.get_length() == 19);
 
-    print("ipv4 layer: ({}) {x}\n", .{ ipv4_layer.get_data().len, ipv4_layer.get_data() });
+    //print("ipv4 layer: ({}) {x}\n", .{ ipv4_layer.get_data().len, ipv4_layer.get_data() });
 
     options = try ipv4_layer.get_options(allocator) orelse {
         try expect(false);
@@ -1347,7 +1345,7 @@ test "remove rr opt in layer" {
     while (cur) |option| {
         const next = option.get_next();
         try expect(option.get_opt_type() == IPv4.IPOptionType.RecordRoute);
-        print("opt_data: len: {} ({}) {x}\n", .{ option.get_length(), option.get_data().len, option.get_data() });
+        //print("opt_data: len: {} ({}) {x}\n", .{ option.get_length(), option.get_data().len, option.get_data() });
         if (next == null) break;
         cur = next;
     }
@@ -1356,13 +1354,13 @@ test "remove rr opt in layer" {
 
     options.first = null;
 
-    print("ipv4 layer: ({}) {x}\n", .{ ipv4_layer.get_data().len, ipv4_layer.get_data() });
+    //print("ipv4 layer: ({}) {x}\n", .{ ipv4_layer.get_data().len, ipv4_layer.get_data() });
 
     const ipv4_header = ipv4_layer.get_immutable_header();
 
-    print("ihl: {} tl: {}\n", .{ ipv4_header.get_ihl(), ipv4_header.get_length() });
+    //print("ihl: {} tl: {}\n", .{ ipv4_header.get_ihl(), ipv4_header.get_length() });
 
     const hdr_str = try ipv4_header.to_string(allocator);
-    print("{s}\n", .{hdr_str});
+    //print("{s}\n", .{hdr_str});
     allocator.free(hdr_str);
 }
