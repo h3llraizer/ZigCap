@@ -540,7 +540,12 @@ pub const TCPLayer = struct {
         if (data) |d| expected_tcp_header_len += d.len;
 
         if (expected_tcp_header_len > TCPHeaderMaxSize) {
-            return error.OptionsTooLarge;
+            const opts_len_pad_rem = expected_tcp_header_len - self.check_padding();
+            if (opts_len_pad_rem > TCPHeaderMaxSize) {
+                return error.OptionsTooLarge;
+            } else {
+                print("potential for pad overwrite.\n", .{});
+            }
         }
 
         var extend_len: usize = @sizeOf(TCPOption);

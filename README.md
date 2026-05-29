@@ -20,16 +20,17 @@ Currently supported functionality:
 - IPv4 (`src/IPv4.zig`)
 - IPv6 (`src/IPv6.zig`)
 - UDP (`src/UDP.zig`)
+- TCP (`src/TCP.zig`)
 - ICMP (`src/ICMP.zig`)
 - DNS (`src/DNS.zig`)
 - DHCP (`src/DHCP.zig`)
 - Generic / Application Layer (`src/GenericLayer.zig`)
 
 Note, these protocols are supported but not fully implemented with their extended features:
-- a select few TCP-Header/IPv6 options/extensions are parsable but adding/removing them is fragile.
+- IPv6 extensions are not fully parsable and adding or removing them is fragile.
 
 ## Testing
-All tests are currently passing (`tests/`).
+All tests are can be found in `tests/`.
 
 ## Contributing
 Contributions are welcome, but note:
