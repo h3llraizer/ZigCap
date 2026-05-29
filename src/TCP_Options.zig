@@ -16,7 +16,7 @@ pub const TCPOption = enum(u8) {
     WS = 0x03,
     /// SACK Permitted
     SACK_PERM = 0x04,
-    /// SACK Block (Selective ACK)
+    /// SACK Block (Selective Acknowledgment)
     SACK = 0x05,
     /// Timestamp
     TS = 0x08,
@@ -54,6 +54,47 @@ pub const TCPOption = enum(u8) {
             .SACK_PERM => 2, // Kind + Length only, no value
             else => 3, // Kind + Length + at least 1 value byte
         };
+    }
+
+    pub fn decode_mss(raw: []const u8) u16 {
+        const mss_bytes: [2]u8 = .{ raw[0], raw[1] };
+        return std.mem.readInt(u16, &mss_bytes, .big);
+    }
+
+    pub fn encode_mss(mss: u16) [2]u8 {
+        return std.mem.toBytes(@byteSwap(mss));
+    }
+
+    pub fn decode_ts(raw: []const u8) [2]u32 {
+        const tsval_bytes: [4]u8 = .{ raw[0], raw[1], raw[2], raw[3] };
+        const tsecr_bytes: [4]u8 = .{ raw[4], raw[5], raw[6], raw[7] };
+
+        const tsval = std.mem.readInt(u32, &tsval_bytes, .big);
+        const tsecr = std.mem.readInt(u32, &tsecr_bytes, .big);
+
+        return .{ tsval, tsecr };
+    }
+
+    pub fn encode_ts(tsval: u32, tsecr: u32) [2][4]u8 {
+        var ts_vals: [2][4]u8 = undefined;
+
+        ts_vals[0] = std.mem.toBytes(@byteSwap(tsval));
+        ts_vals[1] = std.mem.toBytes(@byteSwap(tsecr));
+
+        return ts_vals;
+    }
+
+    pub fn decode_ws(raw: u8) u32 {
+        return @as(u32, 1) << @as(u5, @intCast(raw));
+    }
+
+    /// Must be power of 2. 0 returned when scale value provided is not POW2
+    pub fn encode_ws(scale: u32) u8 {
+        if (scale == 0) return 0;
+
+        if (scale & (scale - 1) != 0) return 0; // if not power of two
+
+        return @intCast(@ctz(scale));
     }
 
     // Alternative naming aliases (can be added as methods or constants)

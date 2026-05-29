@@ -61,11 +61,13 @@ test "parse tcp layer" {
 
     try tcp_layer.tcpLayer.remove_option(.MSS);
 
-    const mss_val = [2]u8{ 0x05, 0xb4 };
+    //const mss_val = [2]u8{ 0x05, 0xb4 };
 
     //_ = mss_val;
 
-    try tcp_layer.tcpLayer.add_option(.MSS, &mss_val);
+    //try tcp_layer.tcpLayer.add_option(.MSS, &mss_val);
+
+    try tcp_layer.tcpLayer.add_option(.MSS, &TCP.TCPOption.encode_mss(1460));
 
     //    try tcp_layer.tcpLayer.add_option(.NOP, null);
 
@@ -76,22 +78,34 @@ test "parse tcp layer" {
     print("opt buf: ({}) {x}\n", .{ tcp_layer.tcpLayer.get_opt_buf().len, tcp_layer.tcpLayer.get_opt_buf() });
 
     if (tcp_layer.tcpLayer.get_opt_data(.WS)) |ws| {
-        print("ws: {x}\n", .{ws});
+        print("ws: {x} {}\n", .{ ws, TCP.TCPOption.decode_ws(ws[0]) });
     } else {
         print("ws data not found.\n", .{});
     }
 
     if (tcp_layer.tcpLayer.get_opt_data(.TS)) |ts| {
         print("ts: {x}\n", .{ts});
+
+        const ts_vals = TCP.TCPOption.decode_ts(ts);
+
+        print("tsval {} tsecr {}\n", .{ ts_vals[0], ts_vals[1] });
     } else {
         print("ts data not found.\n", .{});
     }
 
     if (tcp_layer.tcpLayer.get_opt_data(.MSS)) |mss| {
         print("mss: {x}\n", .{mss});
+        //const mss_bytes: [2]u8 = .{ mss[0], mss[1] };
+        print("mss val: {}\n", .{TCP.TCPOption.decode_mss(mss)});
     } else {
         print("mss data not found.\n", .{});
     }
+
+    const tsvals = TCP.TCPOption.encode_ts(1780007717, 0);
+
+    print("tsval {x} tsecr {x}\n", .{ tsvals[0], tsvals[1] });
+
+    print("encoded ws: {}\n", .{TCP.TCPOption.encode_ws(128)});
 
     //try expect(tcp_layer.tcpLayer.get_immutable_header().get_hdr_length() == 36);
 

@@ -361,10 +361,10 @@ pub const TCPLayer = struct {
                             @as(u32, @intCast(ops_buf[offset + 8])) << 8 |
                             @as(u32, @intCast(ops_buf[offset + 9]));
 
-                        //   _ = tsval;
-                        //   _ = tsecr;
+                        _ = tsval;
+                        _ = tsecr;
 
-                        print("tsval: {} tsecr: {}\n", .{ tsval, tsecr });
+                        //print("tsval: {} tsecr: {}\n", .{ tsval, tsecr });
                     }
                     offset += len;
                 },
@@ -436,10 +436,8 @@ pub const TCPLayer = struct {
                             @as(u32, @intCast(ops_buf[offset + 8])) << 8 |
                             @as(u32, @intCast(ops_buf[offset + 9]));
 
-                        //   _ = tsval;
-                        //   _ = tsecr;
-
-                        print("tsval: {} tsecr: {}\n", .{ tsval, tsecr });
+                        _ = tsval;
+                        _ = tsecr;
                     }
                     offset += len;
                 },
@@ -584,7 +582,7 @@ pub const TCPLayer = struct {
         self.get_mutable_header().set_hdr_length(new_header_len); // set the new length
     }
 
-    /// return data for options which carry data - mutable slice returned for mutation
+    /// return data for options which carry data - mutable slice returned for potential mutation
     pub fn get_opt_data(self: *TCPLayer, opt: TCPOption) ?[]u8 {
         const opt_buf = self.get_opt_buf();
 
