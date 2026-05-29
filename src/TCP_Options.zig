@@ -1,3 +1,7 @@
+const std = @import("std");
+
+const TLVOwner = @import("Layer.zig").TLVOwner;
+
 /// Note: TCP option 0x1c is officially assigned to UTO (RFC 5482).
 /// Some legacy SCPS implementations also used this value unofficially.
 /// This enum treats 0x1c as UTO.
@@ -75,5 +79,25 @@ pub const TCPOption = enum(u8) {
             .SIG => "TCP Signature",
             else => "Unknown",
         };
+    }
+};
+
+const TLVOption = struct {
+    owner: TLVOwner,
+
+    pub fn init(opt: TCPOption, owner: TLVOwner) !TLVOption {
+        switch (opt) {
+            .EOL, .NOP => return error.OptionIsNotTLV,
+            else => {
+                const extend_len = if (opt == TCPOption.SACK_PERM) 2 else 3;
+                const buf = owner.extend_buffer(0, extend_len); // Kind + Length + at least 1 value byte
+                buf[0] = @intFromEnum(opt);
+                buf[1] = 3;
+            },
+        }
+    }
+
+    pub fn deinit(self: *TLVOption) void {
+        self.owner.deinit();
     }
 };

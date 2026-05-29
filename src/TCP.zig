@@ -532,7 +532,96 @@ pub const TCPLayer = struct {
         self.get_mutable_header().set_hdr_length(new_header_len);
     }
 
-    pub fn get_next_layer_type(self: *TCPLayer, layer: *Packet.Layer) !?LayerIface {
+    pub fn add_option(self: *TCPLayer, opt: TCPOption, data: ?[]const u8) !void {
+        const opt_buf = self.get_opt_buf();
+
+        var expected_tcp_header_len = (opt_buf.len + TCPHeaderMinSize + @sizeOf(TCPOption));
+
+        if (opt.has_length_byte()) expected_tcp_header_len += @sizeOf(u8);
+
+        if (data) |d| expected_tcp_header_len += d.len;
+
+        if (expected_tcp_header_len > TCPHeaderMaxSize) {
+            return error.OptionsTooLarge;
+        }
+
+        var extend_len: usize = @sizeOf(TCPOption);
+
+        switch (opt) {
+            .EOL, .NOP, .SACK_PERM => {
+                if (data != null) {
+                    return error.DataSuppliedForNonTLVOption;
+                }
+            },
+            else => {
+                extend_len += @sizeOf(u8);
+            },
+        }
+
+        if (data) |d| {
+            extend_len += d.len;
+        }
+
+        const extend_offset = (TCPHeaderMinSize + opt_buf.len) - self.check_padding();
+
+        const buf = try self.owner.extend_payload(extend_offset, extend_len);
+
+        buf[0] = @intFromEnum(opt); // set the type
+
+        if (extend_len > 1) { // the option is at least 2 bytes (SACK_PERM)
+            buf[1] = @intCast(extend_len); // set the length
+            if (extend_len > 2) { // the option has type length
+                if (data) |d| { // unwrap the data supplied
+                    @memmove(buf[2..], d); // copy into the buf
+                }
+            }
+        }
+
+        const cur_header_len = self.get_immutable_header().get_hdr_length(); // take the current header length
+
+        const new_header_len = cur_header_len + @as(u8, @intCast(buf.len)); // increase by the extend length
+
+        self.get_mutable_header().set_hdr_length(new_header_len); // set the new length
+    }
+
+    /// return data for options which carry data - mutable slice returned for mutation
+    pub fn get_opt_data(self: *TCPLayer, opt: TCPOption) ?[]u8 {
+        const opt_buf = self.get_opt_buf();
+
+        var offset: usize = 0;
+
+        const options = std.enums.values(TCPOption)[1..];
+
+        var offset_increased = false;
+
+        while (offset < opt_buf.len - 1) {
+            offset_increased = true;
+            for (options) |option| {
+                if (opt_buf[offset] == @intFromEnum(option)) {
+                    if (option.has_length_byte()) {
+                        const length = opt_buf[offset + 1];
+
+                        if (option == opt) {
+                            return opt_buf[offset + 1 .. offset + @as(usize, @intCast(length))];
+                        } else {
+                            offset += @intCast(length);
+                            offset_increased = true;
+                        }
+                    }
+                }
+            }
+
+            if (offset_increased) {
+                continue;
+            }
+
+            offset += 1; // a valid option was not found
+        }
+
+        return null;
+    }
+
+    pub fn get_next_layer_type(self: *TCPLayer, layer: *Packet.Layer) LayerError!?LayerIface {
         const data: []const u8 = self.get_data();
 
         if (data.len < TCPHeaderMinSize) {

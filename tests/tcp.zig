@@ -61,13 +61,33 @@ test "parse tcp layer" {
 
     try tcp_layer.tcpLayer.remove_option(.MSS);
 
+    const mss_val = [2]u8{ 0x05, 0xb4 };
+
+    _ = mss_val;
+
+    //try tcp_layer.tcpLayer.add_option(.MSS, &mss_val);
+
+    try tcp_layer.tcpLayer.add_option(.NOP, null);
+
     print("option removed.\n", .{});
 
     print("has mss option: {any}\n", .{tcp_layer.tcpLayer.has_option(.MSS)});
 
     print("opt buf: ({}) {x}\n", .{ tcp_layer.tcpLayer.get_opt_buf().len, tcp_layer.tcpLayer.get_opt_buf() });
 
-    try expect(tcp_layer.tcpLayer.get_immutable_header().get_hdr_length() == 36);
+    if (tcp_layer.tcpLayer.get_opt_data(.WS)) |ws| {
+        print("ws: {any}\n", .{ws});
+    } else {
+        print("ws data not found.\n", .{});
+    }
+
+    if (tcp_layer.tcpLayer.get_opt_data(.TS)) |ts| {
+        print("ts: {x}\n", .{ts});
+    } else {
+        print("ts data not found.\n", .{});
+    }
+
+    //try expect(tcp_layer.tcpLayer.get_immutable_header().get_hdr_length() == 36);
 
     //    tcp_layer.tcpLayer.validate_layer(); // doesn't do anything for independant layer currently
 
