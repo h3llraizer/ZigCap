@@ -20,7 +20,7 @@ test "parse tcp layer" {
     @memmove(tcp_buf[0..], tcp_syn_req[0..]);
 
     const tcp_owner: LayerOwner = LayerOwner{ .owned_buffer = try .init(tcp_buf, allocator) };
-    // deinit'ing here causes stale ptr issue - this buffer gets mutated and attempts to free the original allocation - if an allocation mutation happens and size is increased or decreased, the allocator has the original size. // TODO: Note this in docs
+    // deinit'ing here causes stale ptr issue - this buffer gets mutated and attempts to free the original allocation - if an allocation mutation happens (size is increased or decreased), the allocator still has the original size so attempts to free a stale ptr or doesn't free the correct length. // TODO: Note this in docs
 
     var tcp_layer = try LayerIface.init(TCP.TCPLayer, tcp_owner);
     defer tcp_layer.deinit();
@@ -63,11 +63,11 @@ test "parse tcp layer" {
 
     const mss_val = [2]u8{ 0x05, 0xb4 };
 
-    _ = mss_val;
+    //_ = mss_val;
 
-    //try tcp_layer.tcpLayer.add_option(.MSS, &mss_val);
+    try tcp_layer.tcpLayer.add_option(.MSS, &mss_val);
 
-    try tcp_layer.tcpLayer.add_option(.NOP, null);
+    //    try tcp_layer.tcpLayer.add_option(.NOP, null);
 
     print("option removed.\n", .{});
 
@@ -76,7 +76,7 @@ test "parse tcp layer" {
     print("opt buf: ({}) {x}\n", .{ tcp_layer.tcpLayer.get_opt_buf().len, tcp_layer.tcpLayer.get_opt_buf() });
 
     if (tcp_layer.tcpLayer.get_opt_data(.WS)) |ws| {
-        print("ws: {any}\n", .{ws});
+        print("ws: {x}\n", .{ws});
     } else {
         print("ws data not found.\n", .{});
     }
@@ -85,6 +85,12 @@ test "parse tcp layer" {
         print("ts: {x}\n", .{ts});
     } else {
         print("ts data not found.\n", .{});
+    }
+
+    if (tcp_layer.tcpLayer.get_opt_data(.MSS)) |mss| {
+        print("mss: {x}\n", .{mss});
+    } else {
+        print("mss data not found.\n", .{});
     }
 
     //try expect(tcp_layer.tcpLayer.get_immutable_header().get_hdr_length() == 36);

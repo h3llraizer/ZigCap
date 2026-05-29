@@ -599,12 +599,12 @@ pub const TCPLayer = struct {
             for (options) |option| {
                 if (opt_buf[offset] == @intFromEnum(option)) {
                     if (option.has_length_byte()) {
-                        const length = opt_buf[offset + 1];
+                        const length: usize = @intCast(opt_buf[offset + 1]);
 
                         if (option == opt) {
-                            return opt_buf[offset + 1 .. offset + @as(usize, @intCast(length))];
+                            return opt_buf[offset + 2 .. offset + length];
                         } else {
-                            offset += @intCast(length);
+                            offset += length;
                             offset_increased = true;
                         }
                     }
