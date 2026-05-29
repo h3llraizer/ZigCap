@@ -139,6 +139,9 @@ pub const ExtensionHeader = union(enum) {
     }
 };
 
+/// Used by Hop-by-Hop and Destination.
+/// Hop-by-Hop: Every router along the path process the option
+/// Destination: Only the destination host processes the option
 pub const OptionType = enum(u8) {
     // Padding Options
     PAD1 = 0x00, // Pad1 [RFC8200]
@@ -223,7 +226,6 @@ pub const DestinationOpts = struct {
     ext_length: u8, // Length in 8-octet units, not including first 8 octets
     next_ext: ?*ExtensionHeader = null,
     layer: *IPv6.IPv6Layer,
-    const header_type: NextHeader = NextHeader.DestOpts;
 
     pub fn init(offset: usize, length: usize, layer: *IPv6.IPv6Layer) DestinationOpts {
         return DestinationOpts{ .offset = offset, .length = length, .ext_length = @intCast(length), .layer = layer };
@@ -247,6 +249,6 @@ pub const DestinationOpts = struct {
 
     pub fn get_ext_type(self: DestinationOpts) NextHeader {
         _ = self;
-        return DestinationOpts.header_type;
+        return .DestOptst;
     }
 };

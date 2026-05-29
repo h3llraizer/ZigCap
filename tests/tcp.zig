@@ -30,7 +30,6 @@ test "parse tcp layer" {
     try expect(tcp_hdr.get_src_port() == 12345);
     try expect(tcp_hdr.get_dst_port() == 80);
     //try expect(tcp_hdr.get_seq_num() == 0xe8030000);
-    print("seq num: {x}\n", .{tcp_hdr.get_seq_num()});
     try expect(tcp_hdr.get_ack_num() == 0);
     try expect(tcp_hdr.get_window() == 8192);
     try expect(tcp_hdr.get_checksum() == 11325);
@@ -51,67 +50,44 @@ test "parse tcp layer" {
 
     try expect(hdr_length == 40);
 
-    tcp_layer.tcpLayer.parse_tcp_options();
+    try expect(tcp_layer.tcpLayer.has_option(.MSS));
 
-    //  const opt_buf = tcp_layer.tcpLayer.get_opt_buf();
+    try expect(tcp_layer.tcpLayer.has_option(.WS));
 
-    //  print("opt buf: ({}) {x}\n", .{ opt_buf.len, opt_buf });
-
-    _ = tcp_layer.tcpLayer.has_option(.MSS);
+    try expect(tcp_layer.tcpLayer.has_option(.TS));
 
     try tcp_layer.tcpLayer.remove_option(.MSS);
 
-    //const mss_val = [2]u8{ 0x05, 0xb4 };
-
-    //_ = mss_val;
-
-    //try tcp_layer.tcpLayer.add_option(.MSS, &mss_val);
-
     try tcp_layer.tcpLayer.add_option(.MSS, &TCP.TCPOption.encode_mss(1460));
 
-    //    try tcp_layer.tcpLayer.add_option(.NOP, null);
-
-    print("option removed.\n", .{});
-
-    print("has mss option: {any}\n", .{tcp_layer.tcpLayer.has_option(.MSS)});
-
-    print("opt buf: ({}) {x}\n", .{ tcp_layer.tcpLayer.get_opt_buf().len, tcp_layer.tcpLayer.get_opt_buf() });
-
     if (tcp_layer.tcpLayer.get_opt_data(.WS)) |ws| {
-        print("ws: {x} {}\n", .{ ws, TCP.TCPOption.decode_ws(ws[0]) });
+        try expect(TCP.TCPOption.decode_ws(ws[0]) == 128);
     } else {
-        print("ws data not found.\n", .{});
+        try expect(false); // failed to get ws data
     }
 
     if (tcp_layer.tcpLayer.get_opt_data(.TS)) |ts| {
-        print("ts: {x}\n", .{ts});
-
         const ts_vals = TCP.TCPOption.decode_ts(ts);
 
-        print("tsval {} tsecr {}\n", .{ ts_vals[0], ts_vals[1] });
+        try expect(ts_vals[0] == 1780007717);
+        try expect(ts_vals[1] == 0);
     } else {
-        print("ts data not found.\n", .{});
+        try expect(false); // failed to get ts data
     }
 
     if (tcp_layer.tcpLayer.get_opt_data(.MSS)) |mss| {
-        print("mss: {x}\n", .{mss});
-        //const mss_bytes: [2]u8 = .{ mss[0], mss[1] };
-        print("mss val: {}\n", .{TCP.TCPOption.decode_mss(mss)});
+        try expect(TCP.TCPOption.decode_mss(mss) == 1460);
     } else {
-        print("mss data not found.\n", .{});
+        try expect(false); // failed to get mss data
     }
 
     const tsvals = TCP.TCPOption.encode_ts(1780007717, 0);
 
-    print("tsval {x} tsecr {x}\n", .{ tsvals[0], tsvals[1] });
+    _ = tsvals;
 
-    print("encoded ws: {}\n", .{TCP.TCPOption.encode_ws(128)});
+    try expect(TCP.TCPOption.encode_ws(128) == 7);
 
-    //try expect(tcp_layer.tcpLayer.get_immutable_header().get_hdr_length() == 36);
-
-    //    tcp_layer.tcpLayer.validate_layer(); // doesn't do anything for independant layer currently
-
-    //try expect(tcp_layer.tcpLayer.get_immutable_header().get_checksum() == 10193);
+    try expect(tcp_layer.tcpLayer.get_immutable_header().get_hdr_length() == 40);
 }
 
 test "build tcp layer independant" {
