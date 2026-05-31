@@ -27,7 +27,7 @@ Currently supported functionality:
 - Generic / Application Layer (`src/GenericLayer.zig`)
 
 Note, these protocols are supported but not fully implemented with their extended features:
-- IPv6 extensions are not fully parsable and adding or removing them is fragile.
+- Adding/removing IPv6 requires is currently DIY (fragile).
 
 ## Testing
 All tests are can be found in `tests/`.
