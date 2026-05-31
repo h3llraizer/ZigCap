@@ -163,12 +163,7 @@ pub const IPv4Option = union(enum) {
     quick_start: QuickStart,
     generic: GenericOption,
 
-    pub fn init(
-        opt: IPv4.IPOptionType,
-        owner: TLVOwner,
-        prev: ?*IPv4Option,
-        next: ?*IPv4Option,
-    ) IPv4Option {
+    pub fn init(opt: IPv4.IPOptionType, owner: TLVOwner, prev: ?*IPv4Option, next: ?*IPv4Option) IPv4Option {
         switch (opt) {
             .RecordRoute => {
                 return IPv4Option{ .record_route = RecordRoute{

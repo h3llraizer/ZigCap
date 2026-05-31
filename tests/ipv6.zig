@@ -15,44 +15,46 @@ const LayerIface = zigcap.LayerIface;
 const IPv6 = zigcap.IPv6;
 
 test "parse ipv6 with hop-by-hop ext and ICMPv6 listen report" {
-    const ipv6_hbh_icmpv6: [90]u8 = [_]u8{ 0x33, 0x33, 0x0, 0x0, 0x0, 0x16, 0x14, 0x4f, 0x8a, 0xa4, 0x15, 0x7d, 0x86, 0xdd, 0x60, 0x0, 0x0, 0x0, 0x0, 0x24, 0x0, 0x1, 0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xa6, 0x61, 0x8f, 0x26, 0x87, 0xeb, 0xbe, 0x60, 0xff, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x16, 0x3a, 0x0, 0x5, 0x2, 0x0, 0x0, 0x1, 0x0, 0x8f, 0x0, 0xf4, 0x32, 0x0, 0x0, 0x0, 0x1, 0x4, 0x0, 0x0, 0x0, 0xff, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0, 0x3 };
+    const ipv6_hbh_icmpv6: [48]u8 = [_]u8{ 0x60, 0x0, 0x0, 0x0, 0x0, 0x24, 0x0, 0x1, 0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xa6, 0x61, 0x8f, 0x26, 0x87, 0xeb, 0xbe, 0x60, 0xff, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x16, 0x3a, 0x0, 0x5, 0x2, 0x0, 0x0, 0x1, 0x0 };
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.detectLeaks();
 
     const allocator = debug_allocator.allocator();
 
-    var raw_packet_buffer: std.array_list.Aligned(u8, std.mem.Alignment.@"2") = .empty;
+    const raw_layer_buffer: []align(2) u8 = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", ipv6_hbh_icmpv6.len);
 
-    try raw_packet_buffer.appendSlice(allocator, &ipv6_hbh_icmpv6);
+    @memmove(raw_layer_buffer, &ipv6_hbh_icmpv6);
 
-    var packet = try Packet.create(allocator, allocator);
-    try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.ETHERNET, null);
-    defer packet.deinit();
+    const tmp_owner = LayerOwner{ .owned_buffer = try .init(raw_layer_buffer, allocator) };
 
-    if (packet.get_layer_of_type(IPv6.IPv6Layer)) |ipv6_layer| {
-        var extensions = try ipv6_layer.get_extensions(allocator) orelse {
-            print("no extension headers.\n", .{});
-            return;
-        };
+    var ipv6_layer_iface: LayerIface = try LayerIface.init(IPv6.IPv6Layer, tmp_owner);
+    defer ipv6_layer_iface.deinit();
 
-        defer extensions.deinit(allocator);
+    var extensions = try ipv6_layer_iface.ipv6Layer.get_extensions(allocator) orelse {
+        try expect(false); // failed to get extension headers
+        return;
+    };
 
-        var cur = extensions.first;
-        while (cur) |ext| {
-            //   print("{any}\n", .{ext.get_type()});
-            cur = ext.get_next_extension();
-        }
+    defer extensions.deinit(allocator);
 
-        //  try expect(ipv6_layer.get_ext_header(IPv6.NextHeader.HopByHop) != null);
+    //   print("ipv6 data: {x}\n", .{ipv6_layer_iface.get_data()});
 
-        //  if (ipv6_layer.get_ext_header(IPv6.NextHeader.HopByHop)) |hbh| {
-        //      const hbh_ext: *IPv6.HobByHop = &hbh.hbh;
-        //      try expect(hbh_ext.get_action() == IPv6.OptionType.ROUTER_ALERT);
+    try expect(extensions.ext_header_count == 1);
 
-        //      //          hbh_ext.set_action(IPv6.OptionType.QUICK_START);
+    var cur = extensions.first;
+    while (cur) |ext| {
+        print("{any}\n", .{ext.get_type()});
+        print("data: {x}\n", .{ext.hop_by_hop.get_data()});
+        print("offset: {}\n", .{ext.hop_by_hop.get_offset()});
+        print("ipv6 ext buf: {x}\n", .{ipv6_layer_iface.get_data()[ext.hop_by_hop.get_offset()..]});
+        print("{any}\n", .{ext.hop_by_hop.get_opt_type()});
+        print("opt len: {}\n", .{ext.hop_by_hop.get_opt_len()});
+        print("opt value: {}\n", .{ext.hop_by_hop.get_opt_value()});
 
-        //      //            try expect(hbh_ext.get_action() == IPv6.OptionType.QUICK_START);
-        //  }
+        print("pad option: {any}\n", .{ext.hop_by_hop.get_pad_option()});
+
+        print("pad len: {}\n", .{ext.hop_by_hop.get_pad_len()});
+        cur = ext.get_next();
     }
 }
 
@@ -114,7 +116,7 @@ test "parse ipv6 layer" {
     var cur = extensions.first;
     while (cur) |ext| {
         //print("{any}\n", .{ext.get_type()});
-        cur = ext.get_next_extension();
+        cur = ext.get_next();
     }
 }
 

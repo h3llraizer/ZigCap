@@ -57,6 +57,7 @@ pub const NullLinkType = enum(u8) {
     IPX = 0x23,
 };
 
+// TODO: Rename to LayerParseError
 pub const LayerError = error{
     OutOfMemory,
     BufferTooSmall,
