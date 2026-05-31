@@ -43,4 +43,42 @@ test "hop-by-hop" {
     try expect(hbh.get_pad_option() == .PADN);
 
     try expect(hbh.get_pad_len() == 0);
+
+    const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+
+    var ipv6_layer = try IPv6.IPv6Layer.init(tmp_owner);
+    defer ipv6_layer.deinit();
+
+    var hbh_ext = IPv6.ExtensionHeader{ .hop_by_hop = hbh };
+
+    try ipv6_layer.add_extension(&hbh_ext);
+
+    var extensions = try ipv6_layer.get_extensions(allocator) orelse {
+        try expect(false); // failed to get extension headers
+        return;
+    };
+
+    defer extensions.deinit(allocator);
+
+    //   print("ipv6 data: {x}\n", .{ipv6_layer_iface.get_data()});
+
+    try expect(extensions.ext_header_count == 1);
+
+    print("ipv6 layer: ({}) {x}\n", .{ ipv6_layer.get_data().len, ipv6_layer.get_data() });
+
+    var cur = extensions.first;
+    while (cur) |ext| {
+        print("{any}\n", .{ext.get_type()});
+        print("data: {x}\n", .{ext.hop_by_hop.get_data()});
+        print("offset: {}\n", .{ext.hop_by_hop.get_offset()});
+        print("ipv6 ext buf: {x}\n", .{ipv6_layer.get_data()[ext.hop_by_hop.get_offset()..]});
+        print("{any}\n", .{ext.hop_by_hop.get_opt_type()});
+        print("opt len: {}\n", .{ext.hop_by_hop.get_opt_len()});
+        print("opt value: {}\n", .{ext.hop_by_hop.get_opt_value()});
+
+        print("pad option: {any}\n", .{ext.hop_by_hop.get_pad_option()});
+
+        print("pad len: {}\n", .{ext.hop_by_hop.get_pad_len()});
+        cur = ext.get_next();
+    }
 }

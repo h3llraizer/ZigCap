@@ -43,17 +43,17 @@ test "parse ipv6 with hop-by-hop ext and ICMPv6 listen report" {
 
     var cur = extensions.first;
     while (cur) |ext| {
-        print("{any}\n", .{ext.get_type()});
-        print("data: {x}\n", .{ext.hop_by_hop.get_data()});
-        print("offset: {}\n", .{ext.hop_by_hop.get_offset()});
-        print("ipv6 ext buf: {x}\n", .{ipv6_layer_iface.get_data()[ext.hop_by_hop.get_offset()..]});
-        print("{any}\n", .{ext.hop_by_hop.get_opt_type()});
-        print("opt len: {}\n", .{ext.hop_by_hop.get_opt_len()});
-        print("opt value: {}\n", .{ext.hop_by_hop.get_opt_value()});
-
-        print("pad option: {any}\n", .{ext.hop_by_hop.get_pad_option()});
-
-        print("pad len: {}\n", .{ext.hop_by_hop.get_pad_len()});
+        //       print("{any}\n", .{ext.get_type()});
+        //       print("data: {x}\n", .{ext.hop_by_hop.get_data()});
+        //       print("offset: {}\n", .{ext.hop_by_hop.get_offset()});
+        //       print("ipv6 ext buf: {x}\n", .{ipv6_layer_iface.get_data()[ext.hop_by_hop.get_offset()..]});
+        //       print("{any}\n", .{ext.hop_by_hop.get_opt_type()});
+        //       print("opt len: {}\n", .{ext.hop_by_hop.get_opt_len()});
+        //       print("opt value: {}\n", .{ext.hop_by_hop.get_opt_value()});
+        //
+        //       print("pad option: {any}\n", .{ext.hop_by_hop.get_pad_option()});
+        //
+        //       print("pad len: {}\n", .{ext.hop_by_hop.get_pad_len()});
         cur = ext.get_next();
     }
 }
