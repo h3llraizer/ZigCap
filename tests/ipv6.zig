@@ -30,6 +30,14 @@ test "parse ipv6 with hop-by-hop ext and ICMPv6 listen report" {
     var ipv6_layer_iface: LayerIface = try LayerIface.init(IPv6.IPv6Layer, tmp_owner);
     defer ipv6_layer_iface.deinit();
 
+    const src = try ipv6_layer_iface.ipv6Layer.get_immutable_header().get_src_ip().to_string(allocator);
+    defer allocator.free(src);
+    //print("src: {s}\n", .{src});
+
+    const dst = try ipv6_layer_iface.ipv6Layer.get_immutable_header().get_dst_ip().to_string(allocator);
+    defer allocator.free(dst);
+    //print("dst: {s}\n", .{dst});
+
     var extensions = try ipv6_layer_iface.ipv6Layer.get_extensions(allocator) orelse {
         try expect(false); // failed to get extension headers
         return;
@@ -37,25 +45,34 @@ test "parse ipv6 with hop-by-hop ext and ICMPv6 listen report" {
 
     defer extensions.deinit(allocator);
 
-    //   print("ipv6 data: {x}\n", .{ipv6_layer_iface.get_data()});
+    //print("ipv6 layer: ({}) {x}\n", .{ ipv6_layer_iface.get_data().len, ipv6_layer_iface.get_data() });
 
     try expect(extensions.ext_header_count == 1);
 
+    try expect(ipv6_layer_iface.ipv6Layer.get_immutable_header().get_next_header() == .HopByHop);
+
     var cur = extensions.first;
     while (cur) |ext| {
-        //       print("{any}\n", .{ext.get_type()});
-        //       print("data: {x}\n", .{ext.hop_by_hop.get_data()});
-        //       print("offset: {}\n", .{ext.hop_by_hop.get_offset()});
-        //       print("ipv6 ext buf: {x}\n", .{ipv6_layer_iface.get_data()[ext.hop_by_hop.get_offset()..]});
-        //       print("{any}\n", .{ext.hop_by_hop.get_opt_type()});
-        //       print("opt len: {}\n", .{ext.hop_by_hop.get_opt_len()});
-        //       print("opt value: {}\n", .{ext.hop_by_hop.get_opt_value()});
-        //
-        //       print("pad option: {any}\n", .{ext.hop_by_hop.get_pad_option()});
-        //
-        //       print("pad len: {}\n", .{ext.hop_by_hop.get_pad_len()});
+        //print("{any}\n", .{ext.get_type()});
+        //print("data: {x}\n", .{ext.hop_by_hop.get_data()});
+        //print("offset: {}\n", .{ext.hop_by_hop.get_offset()});
+        //print("ipv6 ext buf: {x}\n", .{ipv6_layer_iface.get_data()[ext.hop_by_hop.get_offset()..]});
+        //print("{any}\n", .{ext.hop_by_hop.get_opt_type()});
+        //print("opt len: {}\n", .{ext.hop_by_hop.get_opt_len()});
+        //print("opt value: {}\n", .{ext.hop_by_hop.get_opt_value()});
+
+        //print("pad option: {any}\n", .{ext.hop_by_hop.get_pad_option()});
+
+        //print("pad len: {}\n", .{ext.hop_by_hop.get_pad_len()});
+        //print("next header: {any}\n", .{ext.next_ext()});
         cur = ext.get_next();
     }
+
+    try ipv6_layer_iface.ipv6Layer.remove_extension(extensions.first.?);
+
+    //print("ipv6 layer: ({}) {x}\n", .{ ipv6_layer_iface.get_data().len, ipv6_layer_iface.get_data() });
+
+    try expect(ipv6_layer_iface.ipv6Layer.get_immutable_header().get_next_header() == .ICMPv6);
 }
 
 test "parse ipv6 packet" {

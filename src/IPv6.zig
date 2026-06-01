@@ -22,6 +22,7 @@ const ApplicationLayer = GenericLayer.ApplicationLayer;
 pub const NextHeader = IPv6Ext.NextHeader;
 pub const ExtensionHeader = IPv6Ext.ExtensionHeader;
 pub const HobByHop = IPv6Ext.HopByHop;
+pub const DestinationOpts = IPv6Ext.DestinationOpts;
 pub const OptionType = IPv6Ext.OptionType;
 pub const ExtensionHeaders = IPv6Ext.ExtensionHeaders;
 
@@ -181,6 +182,12 @@ pub const IPv6Layer = struct {
         var current_next: u8 = self.get_immutable_header().next_header;
         const data = self.get_data();
 
+        var end: usize = data.len;
+
+        if (self.owner.is_packet_owned()) {
+            end = self.owner.packet_layer.length;
+        }
+
         var ext_total_len: usize = 0;
         var ext_count: usize = 0;
 
@@ -190,7 +197,7 @@ pub const IPv6Layer = struct {
             current_next != @intFromEnum(NextHeader.ICMP) and
             current_next != @intFromEnum(NextHeader.ICMPv6))
         {
-            if (offset >= data.len) break;
+            if (offset >= end) break;
 
             const next_header_type: NextHeader = @enumFromInt(current_next);
 
@@ -263,8 +270,14 @@ pub const IPv6Layer = struct {
 
         const data = self.get_data();
 
+        var end: usize = data.len;
+
         if (data.len <= IPv6HeaderSize) {
             return null;
+        }
+
+        if (self.owner.is_packet_owned()) {
+            end = self.owner.packet_layer.length;
         }
 
         var extensions: ExtensionHeaders = (.{});
@@ -277,7 +290,7 @@ pub const IPv6Layer = struct {
             current_next != @intFromEnum(NextHeader.ICMP) and
             current_next != @intFromEnum(NextHeader.ICMPv6))
         {
-            if (offset >= data.len) break;
+            if (offset >= end) break;
 
             const next_header_type: NextHeader = @enumFromInt(current_next);
 
@@ -432,6 +445,17 @@ pub const IPv6Layer = struct {
     }
 
     pub fn add_extension(self: *IPv6Layer, ext: *ExtensionHeader) !void {
+        const exttype = ext.get_type();
+
+        if (exttype == (NextHeader.TCP) or exttype == (NextHeader.UDP) or
+            exttype == (NextHeader.ICMP) or
+            exttype == (NextHeader.ICMPv6))
+        {
+            return error.CannotSetTransport;
+        }
+
+        if (exttype == (NextHeader.NoNext)) return error.CannotSetNoNext;
+
         const meta = self.get_meta();
 
         const offset = meta.ext_total_len;
@@ -440,8 +464,64 @@ pub const IPv6Layer = struct {
 
         @memmove(buf, ext.get_data());
 
+        // if the extension count is 0 then set the IPv6's next_header to the one added
         if (meta.ext_count == 0) {
             self.get_mutable_header().next_header = @intFromEnum(ext.get_type());
+            //self.get_data()[IPv6HeaderSize + 1]
+            if (meta.ip_proto != .Unknown) {
+                buf[0] = @intFromEnum(meta.ip_proto);
+            }
+            return;
+        }
+
+        const packet_layer = self.owner.is_packet_owned();
+
+        _ = packet_layer;
+
+        var last_ext_byte = meta.ext_total_len;
+
+        const ext_buf = self.get_data()[IPv6HeaderSize .. IPv6HeaderSize + last_ext_byte];
+
+        var found = false;
+
+        last_ext_byte -= 1;
+
+        while (last_ext_byte >= 0) {
+            if (ext_buf[last_ext_byte] == @intFromEnum(NextHeader.NoNext)) {
+                ext_buf[last_ext_byte] = @intFromEnum(ext.get_type());
+                found = true;
+                break;
+            }
+
+            if (found) break;
+
+            if (last_ext_byte == 0) break;
+            last_ext_byte -= 1;
+        }
+    }
+
+    pub fn remove_extension(self: *IPv6Layer, ext: *ExtensionHeader) !void {
+        const meta = self.get_meta();
+
+        const length = meta.ext_total_len;
+
+        if (length == 0) {
+            return;
+        }
+
+        const ext_buf = self.get_data()[IPv6HeaderSize .. IPv6HeaderSize + length];
+
+        const ext_offset = std.mem.indexOf(u8, ext_buf, ext.get_data()) orelse return;
+        const ext_length = ext.get_length();
+
+        const nh_type = ext.get_type();
+
+        const next_ext = ext.next_ext();
+
+        try self.owner.shorten_payload(IPv6HeaderSize + ext_offset, ext_length);
+
+        if (self.get_immutable_header().next_header == @intFromEnum(nh_type)) {
+            self.get_mutable_header().set_next_header(next_ext);
         }
     }
 

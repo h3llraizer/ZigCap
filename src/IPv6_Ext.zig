@@ -188,6 +188,10 @@ pub const ExtensionHeader = union(enum) {
         };
     }
 
+    pub fn next_ext(self: *ExtensionHeader) NextHeader {
+        return @enumFromInt(self.get_data()[0]);
+    }
+
     pub fn get_next(self: *ExtensionHeader) ?*ExtensionHeader {
         return switch (self.*) {
             inline else => |*ext| ext.next,
@@ -312,6 +316,7 @@ pub const HopByHop = struct {
 
                     @memset(hbh_data, 0);
 
+                    hbh_data[0] = @intFromEnum(NextHeader.NoNext);
                     hbh_data[3] = 2;
                 } else {
                     if (self.owner.owned_buffer.buffer.items[0] != @intFromEnum(NextHeader.HopByHop)) {
@@ -346,11 +351,11 @@ pub const HopByHop = struct {
     pub fn get_data(self: *HopByHop) []const u8 {
         const data = self.owner.get_data();
 
-        const offset: usize = self.get_offset();
-        const hdr_ext_len = self.owner.get_data()[offset + 1];
+        const absolute_offset: usize = self.get_offset();
+        const hdr_ext_len = self.owner.get_data()[absolute_offset + 1];
         const ext_len = (@as(u16, hdr_ext_len) + 1) * 8;
 
-        return data[offset .. offset + ext_len];
+        return data[absolute_offset .. absolute_offset + ext_len];
     }
 
     fn get_data_mut(self: *HopByHop) []u8 {
@@ -420,11 +425,35 @@ pub const DestinationOpts = struct {
     next: ?*ExtensionHeader = null,
     prev: ?*ExtensionHeader = null,
 
-    pub fn init(owner: TLVOwner) DestinationOpts {
-        return DestinationOpts{ .owner = owner };
+    const MinLength = 8;
+
+    pub fn init(owner: TLVOwner) !DestinationOpts {
+        switch (owner) {
+            .owned_buffer => {
+                var self = DestinationOpts{ .owner = owner };
+                const buffer_len = self.owner.owned_buffer.buffer.items.len;
+                if (buffer_len < DestinationOpts.MinLength) {
+                    const hbh_data = try self.owner.owned_buffer.extend(buffer_len, DestinationOpts.MinLength);
+
+                    @memset(hbh_data, 0);
+
+                    hbh_data[0] = @intFromEnum(NextHeader.NoNext);
+                    hbh_data[3] = 2;
+                } else {
+                    if (self.owner.owned_buffer.buffer.items[0] != @intFromEnum(NextHeader.DestOpts)) {
+                        return error.TypeByteInvalid;
+                    }
+                }
+
+                return self;
+            },
+            else => {
+                return error.UseTUInstead;
+            },
+        }
     }
 
-    fn get_offset(self: *DestinationOpts) usize {
+    pub fn get_offset(self: *DestinationOpts) usize {
         var offset: usize = 0;
 
         if (self.owner.is_layer_owned()) {
@@ -443,11 +472,11 @@ pub const DestinationOpts = struct {
     pub fn get_data(self: *DestinationOpts) []const u8 {
         const data = self.owner.get_data();
 
-        const offset: usize = self.get_offset();
-        const hdr_ext_len = self.owner.get_data()[offset + 1];
+        const absolute_offset: usize = self.get_offset();
+        const hdr_ext_len = self.owner.get_data()[absolute_offset + 1];
         const ext_len = (@as(u16, hdr_ext_len) + 1) * 8;
 
-        return data[offset .. offset + ext_len];
+        return data[absolute_offset .. absolute_offset + ext_len];
     }
 
     fn get_data_mut(self: *DestinationOpts) []u8 {
@@ -461,21 +490,54 @@ pub const DestinationOpts = struct {
         return data[absolute_offset .. absolute_offset + ext_len];
     }
 
-    pub fn get_length(self: *DestinationOpts) usize {
-        return @intCast(self.get_data()[1]);
-    }
-
-    pub fn get_action(self: *DestinationOpts) OptionType {
+    pub fn get_opt_type(self: *DestinationOpts) OptionType {
         return @enumFromInt(self.get_data()[2]);
     }
 
-    pub fn set_action(self: *DestinationOpts, opt: OptionType) void {
+    pub fn set_opt_type(self: *DestinationOpts, opt: OptionType) void {
         self.get_data_mut()[2] = @intFromEnum(opt);
+    }
+
+    pub fn get_opt_len(self: *DestinationOpts) u8 {
+        return self.get_data()[3];
+    }
+
+    pub fn get_opt_value(self: *DestinationOpts) u16 {
+        return std.mem.readInt(u16, self.get_data()[4..6], .big);
+    }
+
+    pub fn set_opt_value(self: *DestinationOpts, val: u16) void {
+        std.mem.writeInt(u16, self.get_data_mut()[4..6], val, .big);
+    }
+
+    pub fn get_pad_option(self: *DestinationOpts) OptionType {
+        return @enumFromInt(self.get_data()[6]);
+    }
+
+    /// Provide either:
+    /// 0 - PAD1
+    /// 1 - PADN
+    pub fn set_pad_option(self: *DestinationOpts, opt: u1) void {
+        self.get_data_mut()[6] = opt;
+    }
+
+    pub fn get_pad_len(self: *DestinationOpts) u8 {
+        return self.get_data()[7];
+    }
+
+    pub fn get_length(self: *DestinationOpts) usize {
+        const hdr_ext_len = self.get_data()[1];
+        const ext_len = (@as(u16, hdr_ext_len) + 1) * 8;
+        return @intCast(ext_len);
     }
 
     pub fn get_ext_type(self: DestinationOpts) NextHeader {
         _ = self;
         return .DestOpts;
+    }
+
+    pub fn deinit(self: *DestinationOpts) void {
+        self.owner.deinit();
     }
 };
 

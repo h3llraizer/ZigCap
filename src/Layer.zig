@@ -62,7 +62,7 @@ pub const LayerOwner = union(enum) {
         }
     }
 
-    pub fn is_packet_owned(self: *LayerOwner) bool {
+    pub fn is_packet_owned(self: *const LayerOwner) bool {
         switch (self.*) {
             .packet_layer => {
                 return true;
