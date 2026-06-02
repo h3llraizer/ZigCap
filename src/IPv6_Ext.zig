@@ -885,6 +885,7 @@ pub const ESP = struct {
 
     const SPI_OFFSET = 0;
     const SEQ_NUM_OFFSET = 4;
+    const PAYLOAD_OFFSET = 8;
 
     pub fn init(owner: TLVOwner) ESP {
         return ESP{ .owner = owner };
@@ -933,12 +934,12 @@ pub const ESP = struct {
 
     /// Get the sequence number
     pub fn get_seq_num(self: *ESP) u32 {
-        return std.mem.readInt(u32, self.get_data()[ESP.SEQ_NUM_OFFSET..8], .big);
+        return std.mem.readInt(u32, self.get_data()[ESP.SEQ_NUM_OFFSET..ESP.PAYLOAD_OFFSET], .big);
     }
 
     /// Get the encrypted payload
     pub fn get_payload(self: *ESP) []const u8 {
-        return self.get_data()[8..];
+        return self.get_data()[ESP.PAYLOAD_OFFSET..];
     }
 
     pub fn get_ext_type(self: ESP) NextHeader {

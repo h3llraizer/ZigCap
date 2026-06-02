@@ -48,16 +48,19 @@ pub const IPv6Header = extern struct {
     }
 
     pub fn get_traffic_class(self: *const IPv6Header) u8 {
-        return self.version_traffic_flow[1];
+        const l4 = self.version_traffic_flow[0] & 0x0F;
+        const up4 = self.version_traffic_flow[1] >> 4;
+
+        return (up4 << 4) | l4;
     }
 
     pub fn set_traffic_class(self: *IPv6Header, tc: u8) void {
-        //        self.version_traffic_flow = (self.version_traffic_flow & 0xF00FFFFF) | (@as(u32, tc) << 20);
         self.version_traffic_flow[1] = tc;
     }
 
     pub fn get_flow_label(self: *const IPv6Header) u20 {
-        return std.mem.readInt(u16, self.version_traffic_flow[2..4], .big);
+        const word = std.mem.readInt(u32, self.version_traffic_flow[0..4], .big);
+        return @truncate(word);
     }
 
     pub fn set_flow_label(self: *IPv6Header, label: u20) void {
@@ -113,7 +116,9 @@ pub const IPv6Header = extern struct {
 const IPv6LayerMeta = struct {
     ext_count: usize, // total extension headers
     ext_total_len: usize, // the total length of the extended headers from first header to last (not including IPProtocol layer)
+    last_ext: ?NextHeader,
     ip_proto: IPProtocol, // the IP protocol this layer uses
+
 };
 
 pub const IPv6Layer = struct {
@@ -191,6 +196,8 @@ pub const IPv6Layer = struct {
         var ext_total_len: usize = 0;
         var ext_count: usize = 0;
 
+        var last_ext: ?NextHeader = null;
+
         while (current_next != @intFromEnum(NextHeader.NoNext) and
             current_next != @intFromEnum(NextHeader.TCP) and
             current_next != @intFromEnum(NextHeader.UDP) and
@@ -211,12 +218,16 @@ pub const IPv6Layer = struct {
                     offset += ext_len;
                     ext_total_len += ext_len;
                     ext_count += 1;
+
+                    last_ext = next_header_type;
                 },
                 .Fragment => {
                     current_next = data[offset];
                     offset += 8;
                     ext_count += 1;
                     ext_total_len += 8;
+
+                    last_ext = next_header_type;
                 },
                 .AH => {
                     const payload_len = data[offset + 1];
@@ -226,18 +237,21 @@ pub const IPv6Layer = struct {
                     offset += ext_len;
                     ext_count += 1;
                     ext_total_len += ext_len;
+                    last_ext = next_header_type;
                 },
                 .ESP => {
                     current_next = @intFromEnum(NextHeader.NoNext);
                     offset = data.len;
                     ext_count += 1;
                     ext_total_len += data.len - offset;
+                    last_ext = next_header_type;
                 },
                 .Mobility, .HostIdentity, .Shim6 => {
                     current_next = data[offset];
                     offset += 8;
                     ext_count += 1;
                     ext_total_len += 8;
+                    last_ext = next_header_type;
                 },
                 else => {
                     std.debug.print("unknown ext.\n", .{});
@@ -254,7 +268,12 @@ pub const IPv6Layer = struct {
             else => @intFromEnum(IPProtocol.Unknown),
         };
 
-        const meta = IPv6LayerMeta{ .ext_count = ext_count, .ip_proto = @enumFromInt(ip_proto), .ext_total_len = ext_total_len };
+        const meta = IPv6LayerMeta{
+            .ext_count = ext_count,
+            .ext_total_len = ext_total_len,
+            .last_ext = last_ext,
+            .ip_proto = @enumFromInt(ip_proto),
+        };
 
         return meta;
     }
@@ -445,16 +464,17 @@ pub const IPv6Layer = struct {
     }
 
     pub fn add_extension(self: *IPv6Layer, ext: *ExtensionHeader) !void {
-        const exttype = ext.get_type();
+        const ext_type = ext.get_type();
 
-        if (exttype == (NextHeader.TCP) or exttype == (NextHeader.UDP) or
-            exttype == (NextHeader.ICMP) or
-            exttype == (NextHeader.ICMPv6))
+        if (ext_type == (NextHeader.TCP) or
+            ext_type == (NextHeader.UDP) or
+            ext_type == (NextHeader.ICMP) or
+            ext_type == (NextHeader.ICMPv6))
         {
-            return error.CannotSetTransport;
+            return error.CannotSetTransport; // IPProtocol should not be set this way
         }
 
-        if (exttype == (NextHeader.NoNext)) return error.CannotSetNoNext;
+        if (ext_type == (NextHeader.NoNext)) return error.CannotSetNoNext; // NoNext should not be set this way
 
         const meta = self.get_meta();
 
@@ -469,7 +489,7 @@ pub const IPv6Layer = struct {
             self.get_mutable_header().next_header = @intFromEnum(ext.get_type());
             //self.get_data()[IPv6HeaderSize + 1]
             if (meta.ip_proto != .Unknown) {
-                buf[0] = @intFromEnum(meta.ip_proto);
+                buf[0] = @intFromEnum(meta.ip_proto); // set the extension added's next header to the IPProtocol (TCP, UDP, etc)
             }
             return;
         }
@@ -487,7 +507,10 @@ pub const IPv6Layer = struct {
         last_ext_byte -= 1;
 
         while (last_ext_byte >= 0) {
-            if (ext_buf[last_ext_byte] == @intFromEnum(NextHeader.NoNext)) {
+            // this is causes more than one extension not to be correct set because
+            // the last header may not be NoNext
+            // AH and ESP have variable length so traversing backwards needs to be handled carefully
+            if (ext_buf[last_ext_byte] == @intFromEnum(meta.last_ext.?)) {
                 ext_buf[last_ext_byte] = @intFromEnum(ext.get_type());
                 found = true;
                 break;
