@@ -13,6 +13,7 @@ const LayerOwner = zigcap.Layer.LayerOwner;
 const LayerIface = zigcap.LayerIface;
 
 const IPv6 = zigcap.IPv6;
+const IPv6Address = IPv6.IPv6Address;
 
 test "parse ipv6 with hop-by-hop ext and ICMPv6 listen report" {
     const ipv6_hbh_icmpv6: [48]u8 = [_]u8{ 0x60, 0x0, 0x0, 0x0, 0x0, 0x24, 0x0, 0x1, 0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xa6, 0x61, 0x8f, 0x26, 0x87, 0xeb, 0xbe, 0x60, 0xff, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x16, 0x3a, 0x0, 0x5, 0x2, 0x0, 0x0, 0x1, 0x0 };
@@ -152,4 +153,39 @@ test "build ipv6 layer" {
     const hdr = ipv6_iface.ipv6Layer.get_mutable_header();
 
     hdr.set_src_ip(IPv6.IPv6Address.init_from_array(.{ 0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xa6, 0x61, 0x8f, 0x26, 0x87, 0xeb, 0xbe, 0x60 }));
+}
+
+test "ipv6 header getters/setters" {
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.detectLeaks();
+
+    const allocator = debug_allocator.allocator();
+
+    const tmp_buf: LayerOwner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+
+    var ipv6_iface = try LayerIface.init(IPv6.IPv6Layer, tmp_buf);
+    defer ipv6_iface.deinit();
+
+    const hdr = ipv6_iface.ipv6Layer.get_mutable_header();
+
+    const src_ip = try IPv6Address.init_from_string("2a00:23c8:73ca:d701:c71d:3969:7e99:f486");
+
+    const dst_ip = try IPv6Address.init_from_string("2a00:23c8:73ca:d701:a00:27ff:fe5f:bdc5");
+
+    hdr.set_traffic_class(0);
+
+    const flow_label: u20 = 0x0b4140;
+
+    hdr.set_flow_label(flow_label);
+
+    hdr.set_src_ip(src_ip);
+    hdr.set_dst_ip(dst_ip);
+
+    try expect(hdr.get_version() == 6);
+
+    try expect(hdr.get_traffic_class() == 0);
+    try expect(hdr.get_flow_label() == flow_label);
+
+    try expect(std.mem.eql(u8, &hdr.get_src_ip().array, &src_ip.array));
+    try expect(std.mem.eql(u8, &hdr.get_dst_ip().array, &dst_ip.array));
 }

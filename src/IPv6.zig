@@ -55,7 +55,12 @@ pub const IPv6Header = extern struct {
     }
 
     pub fn set_traffic_class(self: *IPv6Header, tc: u8) void {
-        self.version_traffic_flow[1] = tc;
+        var word = std.mem.readInt(u32, self.version_traffic_flow[0..4], .big);
+
+        word &= ~@as(u32, 0x0FF0_0000); // clear traffic class
+        word |= (@as(u32, tc & 0xFF) << 20); // set traffic class
+
+        std.mem.writeInt(u32, self.version_traffic_flow[0..4], word, .big);
     }
 
     pub fn get_flow_label(self: *const IPv6Header) u20 {
@@ -64,7 +69,11 @@ pub const IPv6Header = extern struct {
     }
 
     pub fn set_flow_label(self: *IPv6Header, label: u20) void {
-        self.version_traffic_flow = (self.version_traffic_flow & 0xFFF00000) | (label & 0xFFFFF);
+        var word = std.mem.readInt(u32, self.version_traffic_flow[0..4], .big);
+
+        word = (word & 0xFFF00000) | @as(u32, label);
+
+        std.mem.writeInt(u32, self.version_traffic_flow[0..4], word, .big);
     }
 
     /// returns the payload length set in the header (can be inaccurate due to malformed packet / incomplete layers etc)
@@ -254,7 +263,7 @@ pub const IPv6Layer = struct {
                     last_ext = next_header_type;
                 },
                 else => {
-                    std.debug.print("unknown ext.\n", .{});
+                    print("unknown ext.\n", .{});
                     break;
                 },
             }

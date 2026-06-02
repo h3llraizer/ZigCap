@@ -88,7 +88,6 @@ test "hop-by-hop" {
 }
 
 test "hop-by-hop & destination opts" {
-    print(" ------ TESTING MULTIPLE OPTIONS ------ \n", .{});
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.detectLeaks();
 
