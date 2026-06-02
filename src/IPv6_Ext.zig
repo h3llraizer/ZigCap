@@ -932,9 +932,17 @@ pub const ESP = struct {
         return std.mem.readInt(u32, self.get_data()[ESP.SPI_OFFSET..ESP.SEQ_NUM_OFFSET], .big);
     }
 
+    pub fn set_spi(self: *ESP, spi: u32) void {
+        std.mem.writeInt(u32, self.get_data_mut()[ESP.SPI_OFFSET..ESP.SEQ_NUM_OFFSET], spi, .big);
+    }
+
     /// Get the sequence number
     pub fn get_seq_num(self: *ESP) u32 {
         return std.mem.readInt(u32, self.get_data()[ESP.SEQ_NUM_OFFSET..ESP.PAYLOAD_OFFSET], .big);
+    }
+
+    pub fn set_seq_num(self: *ESP, seq_num: u32) void {
+        std.mem.writeInt(u32, self.get_data_mut()[ESP.SEQ_NUM_OFFSET..ESP.PAYLOAD_OFFSET], seq_num, .big);
     }
 
     /// Get the encrypted payload

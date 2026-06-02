@@ -362,4 +362,12 @@ test "ipv6 esp" {
     try expect(ext.esp.get_seq_num() == 224);
     try expect(ext.esp.get_payload().len == 128);
     try expect(std.mem.eql(u8, ipv6_hdr[48..], ext.esp.get_payload()));
+
+    ext.esp.set_spi(123456);
+
+    try expect(ext.esp.get_spi() == 123456);
+
+    ext.esp.set_seq_num(891234);
+
+    try expect(ext.esp.get_seq_num() == 891234);
 }
