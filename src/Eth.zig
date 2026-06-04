@@ -153,13 +153,13 @@ pub const EthLayer = struct {
 
         // Allocate MAC strings
         const src_mac = hdr.get_src_mac().to_string(allocator) catch |err| {
-            std.debug.print("src_mac to_string failed: {s}\n", .{@errorName(err)});
+            print("src_mac to_string failed: {s}\n", .{@errorName(err)});
             return "";
         };
         defer allocator.free(src_mac);
 
         const dst_mac = hdr.get_dst_mac().to_string(allocator) catch |err| {
-            std.debug.print("dst_mac to_string failed: {s}\n", .{@errorName(err)});
+            print("dst_mac to_string failed: {s}\n", .{@errorName(err)});
             allocator.free(src_mac);
             return "";
         };
@@ -182,7 +182,7 @@ pub const EthLayer = struct {
             @tagName(kt)
         else
             std.fmt.allocPrint(allocator, "0x{X:0>4}", .{eth_type_raw}) catch |err| {
-                std.debug.print("eth_type allocPrint failed: {s}\n", .{@errorName(err)});
+                print("eth_type allocPrint failed: {s}\n", .{@errorName(err)});
                 return "";
             };
 
@@ -197,7 +197,7 @@ pub const EthLayer = struct {
             "EthLayer: EthType: {s}, src: {s}, dst: {s}\n",
             .{ eth_type_str, src_mac, dst_mac },
         ) catch |err| {
-            std.debug.print("result allocPrint failed: {s}\n", .{@errorName(err)});
+            print("result allocPrint failed: {s}\n", .{@errorName(err)});
             if (known_type == null) {
                 allocator.free(@constCast(eth_type_str));
             }
@@ -288,7 +288,7 @@ pub const EthLayer = struct {
 pub const MacAddress = struct {
     addr: [6]u8,
 
-    pub const Error = error{
+    pub const InitError = error{
         InvalidFormat,
         TooManyOctets,
         TooFewOctets,
@@ -325,8 +325,8 @@ pub const MacAddress = struct {
             (@as(u48, self.addr[5]));
     }
 
-    /// Create from string like "AA:BB:CC:DD:EE:FF" (case-insensitive)
-    pub fn init_from_string(str: []const u8) !MacAddress {
+    /// Create from string like "AA:BB:CC:DD:EE:FF" or "AA-BB-CC-DD-EE-FF"  (case-insensitive)
+    pub fn init_from_string(str: []const u8) InitError!MacAddress {
         var octets: [6]u8 = undefined;
         var oct_index: usize = 0;
         var cur_value: u8 = 0;
@@ -334,23 +334,23 @@ pub const MacAddress = struct {
 
         for (str) |c| {
             if (c == ':' or c == '-') {
-                if (digit_count != 2) return Error.InvalidFormat;
+                if (digit_count != 2) return InitError.InvalidFormat;
                 octets[oct_index] = cur_value;
                 oct_index += 1;
-                if (oct_index > 6) return Error.TooManyOctets;
+                if (oct_index > 6) return InitError.TooManyOctets;
 
                 cur_value = 0;
                 digit_count = 0;
                 continue;
             }
 
-            const digit = parseHexDigit(c) orelse return Error.NonHexDigit;
+            const digit = parseHexDigit(c) orelse return InitError.NonHexDigit;
             cur_value = (cur_value << 4) | digit;
             digit_count += 1;
         }
 
-        if (digit_count != 2) return Error.InvalidFormat;
-        if (oct_index != 5) return Error.TooFewOctets;
+        if (digit_count != 2) return InitError.InvalidFormat;
+        if (oct_index != 5) return InitError.TooFewOctets;
 
         octets[oct_index] = cur_value;
 

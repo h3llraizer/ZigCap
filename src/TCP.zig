@@ -516,14 +516,14 @@ pub const TCPLayer = struct {
 
         const original_len = self.get_immutable_header().get_hdr_length();
 
-        try self.owner.shorten_payload(TCPHeaderMinSize + offset, length);
+        try self.owner.shorten_layer(TCPHeaderMinSize + offset, length);
 
         var new_header_len = original_len - length;
 
         const pad_required = if (new_header_len % HeaderAlignment == 0) 0 else HeaderAlignment - (new_header_len % HeaderAlignment);
 
         if (pad_required > 0) {
-            _ = try self.owner.extend_payload(TCPHeaderMinSize + (opt_buf.len - length), pad_required);
+            _ = try self.owner.extend_layer(TCPHeaderMinSize + (opt_buf.len - length), pad_required);
             new_header_len += pad_required;
         }
 
@@ -572,7 +572,7 @@ pub const TCPLayer = struct {
 
         const extend_offset = (TCPHeaderMinSize + opt_buf.len) - self.check_padding();
 
-        const buf = try self.owner.extend_payload(extend_offset, extend_len);
+        const buf = try self.owner.extend_layer(extend_offset, extend_len);
 
         buf[0] = @intFromEnum(opt); // set the type
 

@@ -238,7 +238,7 @@ pub const NSRecord = struct {
             print("extend len: {}\n", .{extend_len});
 
             // Extend the payload
-            _ = try self.layer.extend_payload(cname_offset, extend_len);
+            _ = try self.layer.extend_layer(cname_offset, extend_len);
 
             // Update this record's length
             self.length += extend_len;
@@ -264,7 +264,7 @@ pub const NSRecord = struct {
             const cname_offset = self.offset + 12;
 
             // Shrink the records RR
-            _ = try self.layer.shorten_payload(cname_offset, @intCast(shrink_len));
+            _ = try self.layer.shorten_layer(cname_offset, @intCast(shrink_len));
             print("shortened.\n", .{});
 
             // Update this record's length
@@ -1103,10 +1103,10 @@ pub fn buildCompressionDict(allocator: Allocator, domains: []const []const u8) (
 //                               // Handle both positive and negative differences
 //                               if (difference > 0) {
 //                                   // Extend the payload
-//                                   _ = try self.layer.extend_payload(extend_start, @as(usize, @intCast(difference)));
+//                                   _ = try self.layer.extend_layer(extend_start, @as(usize, @intCast(difference)));
 //                               } else if (difference < 0) {
 //                                   // Shrink the payload
-//                                   _ = try self.layer.shorten_payload(extend_start, @as(usize, @intCast(-difference)));
+//                                   _ = try self.layer.shorten_layer(extend_start, @as(usize, @intCast(-difference)));
 //                               }
 //                               // difference == 0: no change needed
 //
@@ -1201,7 +1201,7 @@ pub fn buildCompressionDict(allocator: Allocator, domains: []const []const u8) (
 //           print("extend len: {}\n", .{extend_len});
 //
 //           // Extend the payload
-//           _ = try self.layer.extend_payload(cname_offset, extend_len);
+//           _ = try self.layer.extend_layer(cname_offset, extend_len);
 //
 //           // Update this record's length
 //           self.length += extend_len;
@@ -1227,7 +1227,7 @@ pub fn buildCompressionDict(allocator: Allocator, domains: []const []const u8) (
 //           const cname_offset = self.offset + 12;
 //
 //           // Shrink the records RR
-//           _ = try self.layer.shorten_payload(cname_offset, @intCast(shrink_len));
+//           _ = try self.layer.shorten_layer(cname_offset, @intCast(shrink_len));
 //           print("shortened.\n", .{});
 //
 //           // Update this record's length

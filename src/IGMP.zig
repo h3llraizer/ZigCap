@@ -339,7 +339,7 @@ pub const IGMPv3Layer = struct {
         }
 
         if (igmp_type == IGMPType.v3_membership_report) {
-            _ = try self.owner.extend_payload(self.get_data().len, 4);
+            _ = try self.owner.extend_layer(self.get_data().len, 4);
             const base_hdr = self.get_mutable_header();
             base_hdr.group_address[0] = 0;
             base_hdr.group_address[1] = 0;
@@ -368,7 +368,7 @@ pub const IGMPv3Layer = struct {
         if (payload.len > current_payload_len) {
             const extend_len: usize = payload.len - current_payload_len;
 
-            buf = try self.owner.extend_payload(full_header_size, extend_len);
+            buf = try self.owner.extend_layer(full_header_size, extend_len);
         }
 
         if (current_payload_len > payload.len) {
@@ -376,7 +376,7 @@ pub const IGMPv3Layer = struct {
 
             const offset = full_header_size + payload.len;
 
-            try self.owner.shorten_payload(offset, shorten_len);
+            try self.owner.shorten_layer(offset, shorten_len);
             buf = self.get_data()[full_header_size..];
         }
 
@@ -387,7 +387,7 @@ pub const IGMPv3Layer = struct {
     pub fn remove_payload(self: *IGMPv3Layer) !void {
         const payload_len = self.get_payload().len;
         if (payload_len > 0) {
-            try self.owner.shorten_payload(self.get_data().len - payload_len, payload_len);
+            try self.owner.shorten_layer(self.get_data().len - payload_len, payload_len);
         }
     }
 

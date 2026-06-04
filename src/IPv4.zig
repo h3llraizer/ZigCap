@@ -412,7 +412,7 @@ pub const IPv4Layer = struct {
 
         const extend_len: usize = new_option_bytes_len + pad_required;
 
-        const ops_buf = try self.owner.extend_payload(
+        const ops_buf = try self.owner.extend_layer(
             offset,
             extend_len,
         );
@@ -441,21 +441,21 @@ pub const IPv4Layer = struct {
             return;
         };
 
-        try self.owner.shorten_payload(MinHeaderLength + offset, opt_len);
+        try self.owner.shorten_layer(MinHeaderLength + offset, opt_len);
 
         var new_header_len = hdr_len - opt_len;
 
         const pad_required = if ((new_header_len - cur_pad_len) % HeaderAlignment == 0) 0 else HeaderAlignment - ((new_header_len - cur_pad_len) % HeaderAlignment);
 
         if (pad_required > 0) {
-            _ = try self.owner.extend_payload( // this can be discarded because its 0'd (NOP'd) by default
+            _ = try self.owner.extend_layer( // this can be discarded because its 0'd (NOP'd) by default
                 new_header_len - 1, // - 1 added here because without it is causing proceeding layer in packet to be mutated
                 pad_required,
             );
 
             new_header_len += pad_required;
         } else {
-            try self.owner.shorten_payload(
+            try self.owner.shorten_layer(
                 new_header_len - 1, // - 1 added here because without it is causing proceeding layer in packet to be mutated
                 cur_pad_len,
             );
@@ -484,7 +484,7 @@ pub const IPv4Layer = struct {
 
         const ops_len = header_len - MinHeaderLength;
 
-        try self.owner.shorten_payload(MinHeaderLength, ops_len);
+        try self.owner.shorten_layer(MinHeaderLength, ops_len);
 
         const new_hdr = self.get_mutable_header(); // get header again because ptr to to previously initialised one got mutated
         new_hdr.set_ihl(@intCast(MinHeaderLength));

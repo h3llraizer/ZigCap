@@ -579,7 +579,7 @@ pub const DHCPLayer = struct {
         return @ptrCast(aligned_ptr);
     }
 
-    fn extend_payload(self: *DHCPLayer, offset: usize, extend_len: usize) Allocator.Error![]u8 {
+    fn extend_layer(self: *DHCPLayer, offset: usize, extend_len: usize) Allocator.Error![]u8 {
         var buf: []u8 = undefined;
         switch (self.owner) {
             .packet_layer => |layer| {
@@ -593,7 +593,7 @@ pub const DHCPLayer = struct {
         return buf;
     }
 
-    fn shorten_payload(self: *DHCPLayer, offset: usize, shorten_len: usize) Allocator.Error!void {
+    fn shorten_layer(self: *DHCPLayer, offset: usize, shorten_len: usize) Allocator.Error!void {
         switch (self.owner) {
             .packet_layer => |layer| {
                 try layer.packet.shorten_layer(layer, offset, shorten_len);
@@ -648,7 +648,7 @@ pub const DHCPLayer = struct {
             // Total option size: opcode(1) + length(1) + value_length
             const total_option_size = 2 + value_length;
 
-            try self.shorten_payload(op_offset, total_option_size);
+            try self.shorten_layer(op_offset, total_option_size);
         }
     }
 
@@ -692,11 +692,11 @@ pub const DHCPLayer = struct {
                 // Remove the old parameter list option entirely
                 const old_option_start = pb;
                 const old_option_length = 2 + current_length; // opcode(1) + length(1) + values
-                try self.shorten_payload(old_option_start, old_option_length);
+                try self.shorten_layer(old_option_start, old_option_length);
 
                 // Add back the new parameter list if not empty
                 if (new_len > 0) {
-                    var opt_buf = try self.extend_payload(self.get_data().len, 2 + new_len);
+                    var opt_buf = try self.extend_layer(self.get_data().len, 2 + new_len);
                     opt_buf[0] = @intFromEnum(Option.ParameterRequestList);
                     opt_buf[1] = @intCast(new_len);
                     @memcpy(opt_buf[2..][0..new_len], new_params[0..new_len]);
@@ -709,7 +709,7 @@ pub const DHCPLayer = struct {
         // Remove existing if present
         if (self.find_op(Option.ParameterRequestList)) |offset| {
             const length = self.get_data()[offset + 1];
-            try self.shorten_payload(offset, 2 + length);
+            try self.shorten_layer(offset, 2 + length);
         }
 
         var offset = self.get_data().len;
@@ -718,7 +718,7 @@ pub const DHCPLayer = struct {
         }
 
         // Add new parameter request list at the end
-        var opt_buf = try self.extend_payload(offset, 2 + requested_options.len);
+        var opt_buf = try self.extend_layer(offset, 2 + requested_options.len);
         opt_buf[0] = @intFromEnum(Option.ParameterRequestList);
         opt_buf[1] = @intCast(requested_options.len);
         for (requested_options, 0..) |opt, i| {
@@ -729,7 +729,7 @@ pub const DHCPLayer = struct {
     pub fn add_option(self: *DHCPLayer, opt: Option, value: OptionValues) Allocator.Error!void {
         const data = self.get_data();
         const opt_length = value.get_opt_length();
-        var opt_buf = try self.extend_payload(
+        var opt_buf = try self.extend_layer(
             data.len, // last byte - //TODO: handle last byte
             1 + 1 + opt_length, // opcode, len byte, opt_length
         );
@@ -775,7 +775,7 @@ pub const DHCPLayer = struct {
         const data = self.get_data();
 
         if (data[data.len - 1] != 0xff) {
-            var end_byte = self.extend_payload(data.len, 1) catch {
+            var end_byte = self.extend_layer(data.len, 1) catch {
                 print("failed to extend packet.\n", .{});
                 return;
             };

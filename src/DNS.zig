@@ -499,7 +499,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             start_offset = last_q_offset;
         }
 
-        var query_buf = try self.owner.extend_payload(start_offset, extend_len);
+        var query_buf = try self.owner.extend_layer(start_offset, extend_len);
 
         // Slice buffer starting at offset
         var qbuffer = query_buf[0..];
@@ -538,7 +538,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
     pub fn remove_query(self: *DNSLayer, query: *Query) Allocator.Error!void { // TODO: destroy the Query struct and rejoin
         const start_offset = query.offset;
 
-        try self.owner.shorten_payload(start_offset, query.length);
+        try self.owner.shorten_layer(start_offset, query.length);
 
         var hdr = self.get_mutable_header();
         var qdcount = hdr.get_qdcount();
@@ -895,7 +895,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         const extend_len: usize = dns_encoded_name_len + qtype_len + class_len + ttl_len + rd_len + dns_encoded_answer_len;
 
         // extend the payload
-        var ans_buf = try self.owner.extend_payload(start_offset, extend_len);
+        var ans_buf = try self.owner.extend_layer(start_offset, extend_len);
         var abuffer = ans_buf[0..];
         var buf_offset: usize = 0;
 

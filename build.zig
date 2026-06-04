@@ -77,7 +77,11 @@ pub fn build(b: *std.Build) void {
         tests.linkSystemLibrary("iphlpapi");
     } else if (target.result.os.tag == .linux) {
         std.debug.print("Building for Linux\n", .{});
-        mod.linkSystemLibrary("pcap", .{});
+        const is_native = target.query.isNative();
+
+        if (is_native) {
+            mod.linkSystemLibrary("pcap", .{});
+        }
     } else if (target.result.os.tag == .macos) {
         std.debug.print("Building for macOS\n", .{});
     }

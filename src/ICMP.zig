@@ -571,7 +571,7 @@ pub const ICMPLayer = struct {
         if (payload.len > current_payload_len) {
             const extend_len: usize = payload.len - current_payload_len;
 
-            buf = try self.owner.extend_payload(full_header_size, extend_len);
+            buf = try self.owner.extend_layer(full_header_size, extend_len);
         }
 
         if (current_payload_len > payload.len) {
@@ -579,7 +579,7 @@ pub const ICMPLayer = struct {
 
             const offset = full_header_size + payload.len;
 
-            try self.owner.shorten_payload(offset, shorten_len);
+            try self.owner.shorten_layer(offset, shorten_len);
             buf = self.get_data()[full_header_size..];
         }
 
@@ -590,7 +590,7 @@ pub const ICMPLayer = struct {
     pub fn remove_payload(self: *ICMPLayer) Allocator.Error!void {
         const payload_len = self.get_payload().len;
         if (payload_len > 0) {
-            try self.owner.shorten_payload(self.get_data().len - payload_len, payload_len);
+            try self.owner.shorten_layer(self.get_data().len - payload_len, payload_len);
         }
     }
 
@@ -605,13 +605,13 @@ pub const ICMPLayer = struct {
 
         switch (icmp_type) {
             .TimestampRequest, .TimestampReply => {
-                _ = try self.owner.extend_payload(ICMPHeaderSize, @sizeOf(ICMPTimestamp));
+                _ = try self.owner.extend_layer(ICMPHeaderSize, @sizeOf(ICMPTimestamp));
             },
             .AddressMaskRequest, .AddressMaskReply => {
-                _ = try self.owner.extend_payload(ICMPHeaderSize, @sizeOf(ICMPAddrMask));
+                _ = try self.owner.extend_layer(ICMPHeaderSize, @sizeOf(ICMPAddrMask));
             },
             .SourceQuench => {
-                _ = try self.owner.extend_payload(ICMPHeaderSize, @sizeOf(ICMPSourceQuench));
+                _ = try self.owner.extend_layer(ICMPHeaderSize, @sizeOf(ICMPSourceQuench));
             },
             else => {
                 return; // no extend required

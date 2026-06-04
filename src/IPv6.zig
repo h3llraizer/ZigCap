@@ -492,7 +492,7 @@ pub const IPv6Layer = struct {
 
         const ext_len = ext.get_data().len;
 
-        const ext_buf = try self.owner.extend_payload(len, ext_len);
+        const ext_buf = try self.owner.extend_layer(len, ext_len);
 
         @memmove(ext_buf, ext.get_data());
 
@@ -550,7 +550,7 @@ pub const IPv6Layer = struct {
         const next_header: u8 = if (ext_type == @intFromEnum(NextHeader.ESP)) @intFromEnum(NextHeader.NoNext) else ext.get_data()[0];
 
         if (offset == IPv6HeaderSize) {
-            try self.owner.shorten_payload(offset, ext_len);
+            try self.owner.shorten_layer(offset, ext_len);
             self.get_mutable_header().next_header = next_header;
 
             const payload_len = self.get_immutable_header().get_payload_length();
@@ -568,7 +568,7 @@ pub const IPv6Layer = struct {
             off -= 1;
         }
 
-        try self.owner.shorten_payload(offset + ext_len, ext_len);
+        try self.owner.shorten_layer(offset + ext_len, ext_len);
 
         self.get_data()[off - ext_len] = next_header;
 

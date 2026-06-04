@@ -54,11 +54,14 @@ pub const Layer = struct {
     }
 };
 
-pub const PacketError = error{
+pub const InitError = error{
     PacketBufferNotEmpty,
     LinkLayerCreationFailed,
-    HeaderTooSmall,
     LinkLayerNotHandled,
+};
+
+pub const ParseError = error{
+    HeaderTooSmall,
 };
 
 pub const Packet = struct {
@@ -66,7 +69,6 @@ pub const Packet = struct {
     buffer: Buffer,
     first_layer: ?*Layer,
     last_layer: ?*Layer,
-    // *Packet // encapsulation? e.g. VPN packet payloads etc
 
     /// Creates an empty Packet by creating it's internal buffer using the first (buffer allocator) passed
     /// the second allocator is used to create the layer structs (you can pass the same allocator if you want)
@@ -88,16 +90,16 @@ pub const Packet = struct {
         buffer: *std.array_list.Aligned(u8, .@"2"),
         link_type: link_layer_type,
         parse_until: ?tcp_ip_protocol,
-    ) (PacketError || LayerError || Allocator.Error)!void {
+    ) (InitError || LayerError || Allocator.Error)!void {
         if (self.buffer.buffer.items.len > 0) {
-            return error.PacketBufferNotEmpty;
+            return InitError.PacketBufferNotEmpty;
         }
         // Take ownership of the ArrayList's memory
         self.buffer = try Buffer.init(try buffer.toOwnedSlice(allocator), allocator);
 
         const first_layer = try self.layer_allocator.create(Layer);
         const link_layer = try create_first_layer(self.buffer.buffer.items, link_type, first_layer) orelse {
-            return error.LinkLayerCreationFailed;
+            return InitError.LinkLayerCreationFailed;
         };
 
         first_layer.* = Layer.init(0, self.buffer.buffer.items.len, link_layer, self);
@@ -152,7 +154,7 @@ pub const Packet = struct {
                 return try LayerIface.init(Loopback.LoopbackLayer, LayerOwner{ .packet_layer = layer });
             },
             else => {
-                return PacketError.LinkLayerNotHandled;
+                return InitError.LinkLayerNotHandled;
             },
         }
     }
@@ -239,6 +241,8 @@ pub const Packet = struct {
         @memmove(layer_buffer, data);
     }
 
+    /// Returns ptr to the concrete type
+    /// changes made are made directly in the packet - zero-copy
     pub fn get_layer_of_type(self: *Packet, layer_type: anytype) ?*layer_type {
         const layer_type_enum = get_layer_type_enum(layer_type) catch {
             return null;
@@ -253,6 +257,7 @@ pub const Packet = struct {
         return null;
     }
 
+    /// example: has_protocol_layer(.eth) in a packet which has EthLayer->IPv4Layer->UDPLayer->DNSLayer
     pub fn has_protocol_layer(self: *Packet, layer_proto: tcp_ip_protocol) bool {
         if (self.search_layers(layer_proto) != null) {
             return true;
@@ -261,6 +266,7 @@ pub const Packet = struct {
         return false;
     }
 
+    /// Returns Layer. Packet uses this Layer struct to seperate layers and coordinate mutations
     pub fn search_layers(self: *Packet, target: tcp_ip_protocol) ?*Layer { // this should return a const ptr
         var cur = self.first_layer;
         while (cur) |layer| {
@@ -371,39 +377,6 @@ pub const Packet = struct {
             cur = layer.next_layer;
         }
     }
-
-    /// experimental - does not work
-    //   pub fn extract(self: *Packet, layer: *LayerIface, owner: *LayerOwner) !void {
-    //       try self.buffer.cutRange(&owner.owned_buffer, layer.offset, layer.length);
-    //
-    //       layer.deinit(); // destroy structs which view over variable data - not the raw data itself
-    //
-    //       try layer.reinit(owner.*); // transfers ownership of the packets data to the new owner
-    //
-    //       //const return_layer = layer.layer_iface; // copy the layer_iface before Layer is destroyed
-    //
-    //       var cur = layer.next_layer;
-    //       while (cur) |next_layer| {
-    //           next_layer.offset -= layer.length;
-    //           cur = next_layer.next_layer;
-    //       }
-    //
-    //       if (layer.prev_layer == null) {
-    //           self.first_layer = layer.next_layer;
-    //       }
-    //
-    //       if (layer.prev_layer) |prev| {
-    //           prev.next_layer = layer.next_layer;
-    //       }
-    //
-    //       if (layer.next_layer) |next| {
-    //           next.prev_layer = layer.prev_layer;
-    //       }
-    //
-    //       self.layer_allocator.destroy(layer); // destroy the layer
-    //
-    //       //return return_layer; // return the copied implementation layer
-    //   }
 
     pub fn extract_layer(self: *Packet, layer: *Layer, owner: *LayerOwner) (LayerError || Allocator.Error)!?LayerIface {
         try self.buffer.cutRange(&owner.owned_buffer, layer.offset, layer.length);

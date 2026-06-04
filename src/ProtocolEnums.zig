@@ -58,6 +58,7 @@ pub const NullLinkType = enum(u8) {
 };
 
 // TODO: Rename to LayerParseError
+// TODO: Also move out of ProtocolEnums
 pub const LayerError = error{
     OutOfMemory,
     BufferTooSmall,

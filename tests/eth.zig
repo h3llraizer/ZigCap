@@ -23,5 +23,5 @@ test "build independant eth layer" {
 
     eth_hdr.set_dst_mac(try Eth.MacAddress.init_from_string("1A:2A:3A:4A:5A:6A"));
 
-    eth_hdr.set_src_mac(try Eth.MacAddress.init_from_string("1B:2B:3B:4B:5B:6B"));
+    eth_hdr.set_src_mac(try Eth.MacAddress.init_from_string("1B-2B-3B-4B-5B-6B"));
 }
