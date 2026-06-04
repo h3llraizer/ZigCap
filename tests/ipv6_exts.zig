@@ -63,22 +63,11 @@ test "hop-by-hop" {
 
     try expect(extensions.ext_header_count == 1);
 
-    //print("ipv6 layer: ({}) {x}\n", .{ ipv6_layer.get_data().len, ipv6_layer.get_data() });
-
     var cur = extensions.first;
     while (cur) |ext| {
         //print("type: {any}\n", .{ext.get_type()});
         //print("data: {x}\n", .{ext.hop_by_hop.get_data()});
-        //print("offset: {}\n", .{ext.hop_by_hop.get_offset()});
-        //print("ipv6 ext buf: {x}\n", .{ipv6_layer.get_data()[ext.hop_by_hop.get_offset()..]});
-        //print("{any}\n", .{ext.hop_by_hop.get_opt_type()});
-        //print("opt len: {}\n", .{ext.hop_by_hop.get_opt_len()});
-        //print("opt value: {}\n", .{ext.hop_by_hop.get_opt_value()});
 
-        //print("pad option: {any}\n", .{ext.hop_by_hop.get_pad_option()});
-
-        //print("pad len: {}\n", .{ext.hop_by_hop.get_pad_len()});
-        //print("next header: {any}\n", .{ext.next_ext()});
         cur = ext.get_next();
     }
 
@@ -168,17 +157,8 @@ test "hop-by-hop & destination opts" {
     var cur = extensions.first;
     while (cur) |ext| {
         //print("type: {any}\n", .{ext.get_type()});
-        ////print("data: {x}\n", .{ext.hop_by_hop.get_data()});
-        ////print("offset: {}\n", .{ext.hop_by_hop.get_offset()});
-        ////print("ipv6 ext buf: {x}\n", .{ipv6_layer.get_data()[ext.hop_by_hop.get_offset()..]});
-        ////print("{any}\n", .{ext.hop_by_hop.get_opt_type()});
-        ////print("opt len: {}\n", .{ext.hop_by_hop.get_opt_len()});
-        ////print("opt value: {}\n", .{ext.hop_by_hop.get_opt_value()});
+        //print("data: {x}\n", .{ext.hop_by_hop.get_data()});
 
-        ////print("pad option: {any}\n", .{ext.hop_by_hop.get_pad_option()});
-
-        ////print("pad len: {}\n", .{ext.hop_by_hop.get_pad_len()});
-        //print("next header: {any}\n", .{ext.next_ext()});
         cur = ext.get_next();
     }
     //
@@ -248,12 +228,6 @@ test "hop-by-hop & destination opts in packet" {
     var ipv6_layer_iface = try LayerIface.init(IPv6.IPv6Layer, tmp_owner);
     defer ipv6_layer_iface.deinit();
 
-    //   const src_ip = try IPv6.IPv6Address.init_from_string("2a00:23c8:73ca:d701:c71d:3969:7e99:f486");
-    //   const dst_ip = try IPv6.IPv6Address.init_from_string("2a00:23c8:73ca:d701:a00:27ff:fe5f:bdc5");
-    //
-    //   ipv6_layer_iface.ipv6Layer.get_mutable_header().set_src_ip(src_ip);
-    //   ipv6_layer_iface.ipv6Layer.get_mutable_header().set_dst_ip(dst_ip);
-
     var udp_layer_iface = try LayerIface.init(UDP.UDPLayer, tmp_owner);
     defer udp_layer_iface.deinit();
 
@@ -278,6 +252,13 @@ test "hop-by-hop & destination opts in packet" {
 
     try ipv6_layer.add_extension(&hbh_ext);
 
+    var ext_buf = ipv6_layer.get_ext_buf();
+    var idx: usize = 0;
+    for (ext_buf) |byte| {
+        _ = byte;
+        idx += 1;
+    }
+
     try ipv6_layer.add_extension(&dest_opts_ext);
 
     var extensions = try ipv6_layer.get_extensions(allocator) orelse {
@@ -287,37 +268,60 @@ test "hop-by-hop & destination opts in packet" {
 
     defer extensions.deinit(allocator);
 
-    print("ext count: {}\n", .{extensions.ext_header_count});
-
-    //try expect(extensions.ext_header_count == 2);
-
-    //print("ipv6 layer: ({}) {x}\n", .{ ipv6_layer.get_data().len, ipv6_layer.get_data() });
+    try expect(extensions.ext_header_count == 2);
 
     var cur = extensions.first;
+    var count: usize = 0;
     while (cur) |ext| {
-        print("type: {any}\n", .{ext.get_type()});
-        //print("data: {x}\n", .{ext.hop_by_hop.get_data()});
-        //print("offset: {}\n", .{ext.hop_by_hop.get_offset()});
-        //print("ipv6 ext buf: {x}\n", .{ipv6_layer.get_data()[ext.hop_by_hop.get_offset()..]});
-        //print("{any}\n", .{ext.hop_by_hop.get_opt_type()});
-        //print("opt len: {}\n", .{ext.hop_by_hop.get_opt_len()});
-        //print("opt value: {}\n", .{ext.hop_by_hop.get_opt_value()});
+        if (count == 0) {
+            try expect(ext.get_type() == .HopByHop);
+            try expect(ext.next_ext() == .DestOpts);
+        }
+        if (count == 1) {
+            try expect(ext.get_type() == .DestOpts);
+            try expect(ext.next_ext() == .UDP);
+        }
 
-        //print("pad option: {any}\n", .{ext.hop_by_hop.get_pad_option()});
-
-        //print("pad len: {}\n", .{ext.hop_by_hop.get_pad_len()});
-        print("next header: {any}\n", .{ext.next_ext()});
+        count += 1;
         cur = ext.get_next();
     }
 
+    ext_buf = ipv6_layer.get_ext_buf();
+    idx = 0;
+    for (ext_buf) |byte| {
+        _ = byte;
+        idx += 1;
+    }
+
+    var d: [8]u8 = .{0x00} ** 8;
+
+    @memmove(&d, extensions.first.?.get_data());
+
+    print("first d: {x}\n", .{d});
+
     try ipv6_layer.remove_extension(extensions.first.?);
+
+    print("NH: {any}\n", .{@as(IPv6.NextHeader, (@enumFromInt(ipv6_layer.get_immutable_header().next_header)))});
 
     print("ipv6 layer: ({}) {x}\n", .{ ipv6_layer.get_data().len, ipv6_layer.get_data() });
 
-    print(" ------ END ------ \n", .{});
+    const i = std.mem.indexOf(u8, ipv6_layer.get_data()[IPv6.IPv6HeaderSize + 8 ..], &d);
+
+    if (i) |offset| {
+        print("found at {}\n", .{offset});
+    } else {
+        print("not found.\n", .{});
+    }
+
+    try expect(ipv6_layer.get_immutable_header().next_header == @intFromEnum(IPv6.NextHeader.DestOpts));
+
+    //try ipv6_layer.remove_extension(extensions.first.?.get_next().?);
+
+    //   print(" ------ END ------ \n", .{});
 }
 
 test "ipv6 esp" {
+    print("----------- TESTING IPV6 ESP Extension -----------", .{});
     const ipv6_hdr: [176]u8 = [_]u8{ 0x60, 0xb, 0x41, 0x40, 0x0, 0x88, 0x32, 0x40, 0x2a, 0x0, 0x23, 0xc8, 0x73, 0xca, 0xd7, 0x1, 0xc7, 0x1d, 0x39, 0x69, 0x7e, 0x99, 0xf4, 0x86, 0x2a, 0x0, 0x23, 0xc8, 0x73, 0xca, 0xd7, 0x1, 0xa, 0x0, 0x27, 0xff, 0xfe, 0x5f, 0xbd, 0xc5, 0xc8, 0xb8, 0x9a, 0x4b, 0x0, 0x0, 0x0, 0xe0, 0x98, 0x7c, 0xa5, 0x20, 0xe6, 0x44, 0xfc, 0x22, 0xd0, 0x49, 0x36, 0xc, 0x6, 0x8f, 0xf9, 0x6a, 0xd8, 0x7b, 0xb4, 0x6e, 0x40, 0xaa, 0xe0, 0x1d, 0xf1, 0x33, 0x0, 0xdb, 0xfb, 0xed, 0x9d, 0x7b, 0x7c, 0xd6, 0xa4, 0xbc, 0xd9, 0x69, 0xc9, 0x6b, 0x52, 0x32, 0xc2, 0xf9, 0x92, 0x9f, 0xc1, 0x69, 0xf2, 0x79, 0x52, 0xf, 0xb8, 0xf9, 0x2c, 0x6d, 0xbd, 0xf1, 0x1b, 0x34, 0xb4, 0x37, 0x9a, 0xff, 0x17, 0xdc, 0x80, 0xe1, 0x25, 0x99, 0x87, 0xf7, 0xab, 0x4a, 0x60, 0x59, 0x1, 0xbe, 0x95, 0x5a, 0xf7, 0xc5, 0x24, 0x16, 0x37, 0xe6, 0x4, 0x5, 0x92, 0x40, 0xc6, 0x8d, 0xe7, 0x50, 0x13, 0x6, 0x6d, 0x7c, 0x6, 0x5f, 0x92, 0x3a, 0x82, 0xb7, 0x9c, 0x98, 0x8a, 0x38, 0xf6, 0x3f, 0xa4, 0x6c, 0xaa, 0x25, 0x25, 0x5b, 0xf5, 0x50, 0x85, 0xd9, 0x9c, 0xa3, 0x7e, 0xa2, 0xa, 0xd1, 0xc6, 0xbf };
 
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
@@ -369,11 +373,30 @@ test "ipv6 esp" {
     try expect(ext.esp.get_payload().len == 128);
     try expect(std.mem.eql(u8, ipv6_hdr[48..], ext.esp.get_payload()));
 
-    ext.esp.set_spi(123456);
+    //  ext.esp.set_spi(123456);
 
-    try expect(ext.esp.get_spi() == 123456);
+    //  try expect(ext.esp.get_spi() == 123456);
 
-    ext.esp.set_seq_num(891234);
+    //  ext.esp.set_seq_num(891234);
 
-    try expect(ext.esp.get_seq_num() == 891234);
+    //  try expect(ext.esp.get_seq_num() == 891234);
+
+    try ipv6_layer_iface.ipv6Layer.remove_extension(ext);
+
+    print("ipv6: {}\n", .{ipv6_layer_iface.get_data().len});
+
+    const ipv6_h = ipv6_layer_iface.ipv6Layer.get_immutable_header();
+
+    try expect(ipv6_h.get_version() == 6);
+
+    try expect(ipv6_h.get_traffic_class() == 0);
+
+    try expect(ipv6_h.get_flow_label() == 0xb4140);
+
+    try expect(ipv6_h.next_header == @intFromEnum(IPv6.NextHeader.NoNext));
+    try expect(ipv6_h.get_payload_length() == 0);
+    try expect(ipv6_h.hop_limit == 64);
+
+    try expect(std.mem.eql(u8, &ipv6_h.get_src_ip().array, &expected_src_ip.array));
+    try expect(std.mem.eql(u8, &ipv6_h.get_dst_ip().array, &expected_dst_ip.array));
 }

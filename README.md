@@ -26,8 +26,6 @@ Currently supported functionality:
 - DHCP (`src/DHCP.zig`)
 - Generic / Application Layer (`src/GenericLayer.zig`)
 
-Note, Adding or removing IPv6 extension headers currently requires a DIY approach
-
 ## Testing
 All tests are can be found in `tests/`.
 
