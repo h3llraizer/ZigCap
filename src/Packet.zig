@@ -54,6 +54,13 @@ pub const Layer = struct {
     }
 };
 
+pub const PacketError = error{
+    PacketBufferNotEmpty,
+    LinkLayerCreationFailed,
+    HeaderTooSmall,
+    LinkLayerNotHandled,
+};
+
 pub const Packet = struct {
     layer_allocator: Allocator,
     buffer: Buffer,
@@ -63,7 +70,7 @@ pub const Packet = struct {
 
     /// Creates an empty Packet by creating it's internal buffer using the first (buffer allocator) passed
     /// the second allocator is used to create the layer structs (you can pass the same allocator if you want)
-    pub fn create(buffer_allocator: Allocator, layer_allocator: Allocator) !Packet {
+    pub fn create(buffer_allocator: Allocator, layer_allocator: Allocator) !Packet { // TODO: This does not need an error return
         return Packet{
             .layer_allocator = layer_allocator,
             .buffer = Buffer.init_empty(buffer_allocator),
@@ -81,7 +88,7 @@ pub const Packet = struct {
         buffer: *std.array_list.Aligned(u8, .@"2"),
         link_type: link_layer_type,
         parse_until: ?tcp_ip_protocol,
-    ) !void {
+    ) (PacketError || LayerError || Allocator.Error)!void {
         if (self.buffer.buffer.items.len > 0) {
             return error.PacketBufferNotEmpty;
         }
@@ -105,7 +112,7 @@ pub const Packet = struct {
 
     fn create_ip_layer(raw: []const u8, layer: *Layer) !?LayerIface {
         if (raw.len < IPv4.MinHeaderLength) {
-            return error.HeaderTooSmall;
+            return LayerError.LayerInvalid;
         }
 
         const ihl_byte = raw[0];
@@ -122,7 +129,7 @@ pub const Packet = struct {
 
         if (ip_version == @intFromEnum(IPVersions.IPv6)) {
             if (raw.len < IPv6.IPv6HeaderSize) {
-                return error.HeaderTooSmall;
+                return LayerError.LayerInvalid;
             }
             layer.length = IPv6.IPv6HeaderSize;
             return try LayerIface.init(IPv6.IPv6Layer, LayerOwner{ .packet_layer = layer });
@@ -145,12 +152,12 @@ pub const Packet = struct {
                 return try LayerIface.init(Loopback.LoopbackLayer, LayerOwner{ .packet_layer = layer });
             },
             else => {
-                return error.LinkLayerUnknown;
+                return PacketError.LinkLayerNotHandled;
             },
         }
     }
 
-    fn accumulate_layers(self: *Packet, parse_until: ?tcp_ip_protocol) !void {
+    fn accumulate_layers(self: *Packet, parse_until: ?tcp_ip_protocol) (LayerError || Allocator.Error)!void {
         var cur = self.first_layer;
 
         while (cur) |current_layer| {
@@ -203,7 +210,7 @@ pub const Packet = struct {
         return self.last_layer;
     }
 
-    pub fn add_layer(self: *Packet, layer_iface: *LayerIface) !void {
+    pub fn add_layer(self: *Packet, layer_iface: *LayerIface) (LayerError || Allocator.Error)!void {
         const data = layer_iface.get_data();
 
         const layer: *Layer = try self.layer_allocator.create(Layer); // create the layer
@@ -275,8 +282,8 @@ pub const Packet = struct {
         }
     }
 
-    pub fn extend_layer(self: *Packet, layer: *Layer, offset: usize, length: usize) ![]u8 { // TODO: call proceeding layers calculate_length
-
+    // TODO: call proceeding layers calculate_length
+    pub fn extend_layer(self: *Packet, layer: *Layer, offset: usize, length: usize) Allocator.Error![]u8 {
         const extend_offset = layer.offset + offset; // absolute position in packet
 
         const buf = try self.buffer.extend(extend_offset, length);
@@ -293,7 +300,7 @@ pub const Packet = struct {
         return buf; // return the extend slice
     }
 
-    pub fn shorten_layer(self: *Packet, layer: *Layer, offset: usize, length: usize) !void { // TODO: call proceeding layers calculate_length
+    pub fn shorten_layer(self: *Packet, layer: *Layer, offset: usize, length: usize) Allocator.Error!void { // TODO: call proceeding layers calculate_length
         const shorten_offset = layer.offset + offset;
 
         try self.buffer.shorten(shorten_offset, length);
@@ -321,7 +328,7 @@ pub const Packet = struct {
 
     /// Insert a layer after the prev_layer
     /// Use search_layers to find the specific layer you want to insert after
-    pub fn insert_layer(self: *Packet, prev_layer: *Layer, layer_to_insert: *LayerIface) !bool {
+    pub fn insert_layer(self: *Packet, prev_layer: *Layer, layer_to_insert: *LayerIface) (LayerError || Allocator.Error)!bool {
         var cur = self.first_layer;
         while (cur) |layer| {
             if (layer == prev_layer) {
@@ -398,7 +405,7 @@ pub const Packet = struct {
     //       //return return_layer; // return the copied implementation layer
     //   }
 
-    pub fn extract_layer(self: *Packet, layer: *Layer, owner: *LayerOwner) !?LayerIface {
+    pub fn extract_layer(self: *Packet, layer: *Layer, owner: *LayerOwner) (LayerError || Allocator.Error)!?LayerIface {
         try self.buffer.cutRange(&owner.owned_buffer, layer.offset, layer.length);
 
         layer.layer_iface.deinit(); // destroy structs which view over variable data - not the raw data itself
@@ -443,7 +450,7 @@ pub const Packet = struct {
         return false;
     }
 
-    pub fn delete_layer(self: *Packet, layer: *Layer) !bool {
+    pub fn delete_layer(self: *Packet, layer: *Layer) Allocator.Error!bool {
         try self.buffer.shorten(layer.offset, layer.length);
 
         if (layer.prev_layer == null) {
@@ -493,7 +500,7 @@ pub const Packet = struct {
     }
 
     /// calls each layers to_string method and appends to an ArrayList, returning an ownedSlice of that ArrayList
-    pub fn to_string(self: *Packet, allocator: Allocator) ![]const u8 {
+    pub fn to_string(self: *Packet, allocator: Allocator) Allocator.Error![]const u8 {
         var buffer: std.ArrayList(u8) = .empty;
         var cur = self.first_layer;
         while (cur) |layer| {

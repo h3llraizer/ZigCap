@@ -489,7 +489,7 @@ pub const TCPLayer = struct {
         return ops_buf.len - offset;
     }
 
-    pub fn remove_option(self: *TCPLayer, opt: TCPOption) !void {
+    pub fn remove_option(self: *TCPLayer, opt: TCPOption) Allocator.Error!void {
         const opt_buf = self.get_opt_buf();
 
         if (opt_buf.len == 0) {
@@ -530,7 +530,12 @@ pub const TCPLayer = struct {
         self.get_mutable_header().set_hdr_length(new_header_len);
     }
 
-    pub fn add_option(self: *TCPLayer, opt: TCPOption, data: ?[]const u8) !void {
+    pub const TCPError = error{
+        OptionsTooLarge,
+        DataSuppliedForNonTLVOption,
+    };
+
+    pub fn add_option(self: *TCPLayer, opt: TCPOption, data: ?[]const u8) (TCPError || Allocator.Error)!void {
         const opt_buf = self.get_opt_buf();
 
         var expected_tcp_header_len = (opt_buf.len + TCPHeaderMinSize + @sizeOf(TCPOption));

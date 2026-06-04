@@ -79,7 +79,7 @@ pub const LayerIface = union(enum) {
     /// calls the concrete layers get_next_layer method.
     /// mostly used for Packet to accumulate all layers from slices
     /// can be used when a layer is standalone but isn't recommended
-    pub fn get_next_layer(self: *LayerIface, next_layer: *Packet.Layer) !?LayerIface {
+    pub fn get_next_layer(self: *LayerIface, next_layer: *Packet.Layer) LayerError!?LayerIface {
         return switch (self.*) {
             inline else => |*layer| try layer.get_next_layer_type(next_layer),
         };

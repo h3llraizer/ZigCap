@@ -309,6 +309,10 @@ pub const Option = enum(u8) {
     }
 };
 
+pub const DHCPError = error{
+    ServerNameTooLong,
+};
+
 pub const DHCPHeader = extern struct {
     op: u8, // Message op code / message type
     htype: u8, // Hardware address type
@@ -463,7 +467,7 @@ pub const DHCPHeader = extern struct {
     }
 
     // Server name getters/setters
-    pub fn set_sname(self: *DHCPHeader, server_name: []const u8) !void {
+    pub fn set_sname(self: *DHCPHeader, server_name: []const u8) DHCPError!void {
         if (server_name.len > 64) {
             return error.ServerNameTooLong;
         }
@@ -528,7 +532,7 @@ pub const DHCPLayer = struct {
     owner: LayerOwner,
     const Protocol = tcp_ip_protocol.dhcp;
 
-    pub fn init(owner: LayerOwner) LayerError!DHCPLayer {
+    pub fn init(owner: LayerOwner) (LayerError || Allocator.Error)!DHCPLayer {
         switch (owner) {
             .packet_layer => {
                 return DHCPLayer{
@@ -575,7 +579,7 @@ pub const DHCPLayer = struct {
         return @ptrCast(aligned_ptr);
     }
 
-    fn extend_payload(self: *DHCPLayer, offset: usize, extend_len: usize) ![]u8 {
+    fn extend_payload(self: *DHCPLayer, offset: usize, extend_len: usize) Allocator.Error![]u8 {
         var buf: []u8 = undefined;
         switch (self.owner) {
             .packet_layer => |layer| {
@@ -589,7 +593,7 @@ pub const DHCPLayer = struct {
         return buf;
     }
 
-    fn shorten_payload(self: *DHCPLayer, offset: usize, shorten_len: usize) !void {
+    fn shorten_payload(self: *DHCPLayer, offset: usize, shorten_len: usize) Allocator.Error!void {
         switch (self.owner) {
             .packet_layer => |layer| {
                 try layer.packet.shorten_layer(layer, offset, shorten_len);
@@ -635,7 +639,7 @@ pub const DHCPLayer = struct {
         return null;
     }
 
-    pub fn remove_option(self: *DHCPLayer, opt: Option) !void {
+    pub fn remove_option(self: *DHCPLayer, opt: Option) Allocator.Error!void {
         if (self.find_op(opt)) |op_offset| {
             const data = self.get_data();
             const length_offset = op_offset + 1;
@@ -648,7 +652,7 @@ pub const DHCPLayer = struct {
         }
     }
 
-    pub fn remove_param_option(self: *DHCPLayer, opt: Option) !void {
+    pub fn remove_param_option(self: *DHCPLayer, opt: Option) Allocator.Error!void {
         if (self.find_op(Option.ParameterRequestList)) |pb| {
             const length_offset = pb + 1;
             const data = self.get_data();
@@ -701,7 +705,7 @@ pub const DHCPLayer = struct {
         }
     }
 
-    pub fn set_parameter_request_list(self: *DHCPLayer, requested_options: []const Option) !void {
+    pub fn set_parameter_request_list(self: *DHCPLayer, requested_options: []const Option) Allocator.Error!void {
         // Remove existing if present
         if (self.find_op(Option.ParameterRequestList)) |offset| {
             const length = self.get_data()[offset + 1];
@@ -722,7 +726,7 @@ pub const DHCPLayer = struct {
         }
     }
 
-    pub fn add_option(self: *DHCPLayer, opt: Option, value: OptionValues) !void {
+    pub fn add_option(self: *DHCPLayer, opt: Option, value: OptionValues) Allocator.Error!void {
         const data = self.get_data();
         const opt_length = value.get_opt_length();
         var opt_buf = try self.extend_payload(
@@ -870,7 +874,7 @@ pub const DHCPLayer = struct {
     }
 
     /// return the next layer protocol type (DHCP doesn't have a next layer)
-    pub fn get_next_layer_type(self: *DHCPLayer, layer: *Layer) !?LayerIface {
+    pub fn get_next_layer_type(self: *DHCPLayer, layer: *Layer) LayerError!?LayerIface {
         _ = self;
         _ = layer;
         return null;

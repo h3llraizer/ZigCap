@@ -145,7 +145,7 @@ pub const VlanLayer = struct {
     }
 
     /// return the next layer protocol type
-    pub fn get_next_layer_type(self: *VlanLayer, layer: *Packet.Layer) !?LayerIface {
+    pub fn get_next_layer_type(self: *VlanLayer, layer: *Packet.Layer) LayerError!?LayerIface {
         const hdr = self.get_immutable_header();
         const eth_type = hdr.get_tpi();
 

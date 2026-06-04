@@ -415,7 +415,7 @@ pub const Queries = struct {
 pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative Records
     owner: LayerOwner,
 
-    pub fn init(owner: LayerOwner) LayerError!DNSLayer {
+    pub fn init(owner: LayerOwner) (LayerError || Allocator.Error)!DNSLayer {
         switch (owner) {
             .packet_layer => {
                 const self = DNSLayer{
@@ -490,7 +490,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
     /// Append a DNS Query to the Queries section of the DNSLayer.
     /// Extends the layer, converts the name to DNS labels and copies the data at correct offset.
     /// Increases the qdcount value in the header by 1.
-    pub fn add_query(self: *DNSLayer, name: []const u8, qtype: QueryType, qclass: DnsClass) !void {
+    pub fn add_query(self: *DNSLayer, name: []const u8, qtype: QueryType, qclass: DnsClass) (LayerError || Allocator.Error)!void {
         const extend_len = name.len + 6; // 2 byte qtype, 2 byte qclass, 1 byte first label, 1 byte null terminator
 
         var start_offset = DNSHeaderSize;
@@ -535,7 +535,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
     /// Decreases qdcount value in the header by 1.
     /// Warning: RR-Records which are pointing to this query name (compression ptr) might become malformed,
     /// in this case, it's safer create a seperate DNSLayer and perform a selective manual copy
-    pub fn remove_query(self: *DNSLayer, query: *Query) !void { // TODO: destroy the Query struct and rejoin
+    pub fn remove_query(self: *DNSLayer, query: *Query) Allocator.Error!void { // TODO: destroy the Query struct and rejoin
         const start_offset = query.offset;
 
         try self.owner.shorten_payload(start_offset, query.length);
@@ -553,8 +553,16 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         }
     }
 
+    pub const DNSParseError = error{
+        InvalidPacket,
+        LabelOOB,
+        LabelTooLong,
+        LabelTooShort,
+        RecordTooShort,
+    };
+
     // this is primarily being used to advance offsets when names (queries or answers)
-    pub fn decode_name(raw: []const u8, offset: *usize) ![]const u8 {
+    pub fn decode_name(raw: []const u8, offset: *usize) DNSParseError![]const u8 {
         const start = offset.*;
         var end = start;
 
@@ -578,7 +586,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         }
     }
 
-    fn find_last_q_offset(self: *DNSLayer) !?usize {
+    fn find_last_q_offset(self: *DNSLayer) (LayerError || Allocator.Error)!?usize {
         const data = self.get_data();
         if (data.len < DNSHeaderSize) {
             return null;
@@ -619,7 +627,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
 
     /// return Queries struct which contains singly linkedlist of queries
     /// caller must call deinit on the returned Queries struct using allocator provided
-    pub fn get_queries(self: *DNSLayer, allocator: Allocator) !?Queries {
+    pub fn get_queries(self: *DNSLayer, allocator: Allocator) (LayerError || Allocator.Error)!?Queries {
         const data = self.get_data();
 
         if (data.len < DNSHeaderSize) {
@@ -696,7 +704,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         return queries;
     }
 
-    pub fn advance_past_name(slice: []const u8, offset: *usize) !void {
+    pub fn advance_past_name(slice: []const u8, offset: *usize) DNSParseError!void {
         while (offset.* < slice.len) {
             const byte = slice[offset.*];
             if (byte == 0) {
@@ -714,7 +722,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
 
     /// Returns AnswerRecords (doubly linkedlist)
     /// null-opt is returned when there are no answers
-    pub fn get_answers(self: *DNSLayer, allocator: Allocator) !?AnswerRecords {
+    pub fn get_answers(self: *DNSLayer, allocator: Allocator) (DNSParseError || Allocator.Error || LayerError)!?AnswerRecords {
         const data = self.get_data();
 
         var offset: usize = DNSHeaderSize;
@@ -800,7 +808,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         return ansrecords;
     }
 
-    fn find_last_ans_offset(self: *DNSLayer) !?usize {
+    fn find_last_ans_offset(self: *DNSLayer) (DNSParseError || LayerError)!?usize {
         const data = self.get_data();
         var offset = DNSHeaderSize;
 
@@ -847,7 +855,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
     /// all values will be copied
     /// Note: Compression pointer support not yet implemented
     /// Note: SOA records need to be built manually and passed as a slice (answer) - helper implmentation coming soon
-    pub fn add_answer(self: *DNSLayer, name: []const u8, qtype: QueryType, qclass: DnsClass, ttl: u32, answer: []const u8) !void {
+    pub fn add_answer(self: *DNSLayer, name: []const u8, qtype: QueryType, qclass: DnsClass, ttl: u32, answer: []const u8) (LayerError || Allocator.Error || DNSParseError)!void {
         var start_offset: usize = DNSHeaderSize;
 
         if (try self.find_last_ans_offset()) |off| {
@@ -945,7 +953,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         hdr.set_ancount(ancount);
     }
 
-    pub fn find_last_a_ans_offset(self: *DNSLayer) !?usize {
+    pub fn find_last_a_ans_offset(self: *DNSLayer) DNSParseError!?usize {
         const data = self.get_data();
         var offset = DNSHeaderSize;
 
@@ -989,7 +997,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
 
     /// Returns AnswerRecords (doubly linkedlist)
     /// null-opt is returned when there are no answers
-    pub fn get_auth_answers(self: *DNSLayer, allocator: Allocator) !?AnswerRecords {
+    pub fn get_auth_answers(self: *DNSLayer, allocator: Allocator) (DNSParseError || Allocator.Error || LayerError)!?AnswerRecords {
         const data = self.get_data();
 
         var offset: usize = DNSHeaderSize;
@@ -1075,7 +1083,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         return ansrecords;
     }
 
-    fn decompress(self: *DNSLayer) !void {
+    fn decompress(self: *DNSLayer) void {
         self.find_cmprs_ptrs();
     }
 
@@ -1148,7 +1156,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         return tcp_ip_protocol.dns;
     }
 
-    pub fn get_next_layer_type(self: *DNSLayer, layer: *Layer) !?LayerIface {
+    pub fn get_next_layer_type(self: *DNSLayer, layer: *Layer) LayerError!?LayerIface {
         _ = self;
         _ = layer;
         return null;
@@ -1161,7 +1169,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
 
 /// Creates a domain name from a DNS label. The allocator creates an ArrayList to store the bytes and returns a mutable slice
 /// The ArrayList is deinit'd before return but you must free the slice that is returned (it returns an ownedSlice)
-pub fn decodeQname(allocator: Allocator, dns_label: []const u8) ![]u8 {
+pub fn decodeQname(allocator: Allocator, dns_label: []const u8) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
     var list = try std.ArrayList(u8).initCapacity(allocator, dns_label.len);
     defer list.deinit(allocator);
 

@@ -235,7 +235,7 @@ pub const IPv4Layer = struct {
 
     /// use this when you want to zero the header to default values.
     /// see IPv4Header.init_default() to check what the default values will be
-    pub fn zero_hdr(self: *IPv4Layer) !void {
+    pub fn zero_hdr(self: *IPv4Layer) Allocator.Error!void {
         var header = IPv4Header.init_default();
         try self.remove_all_options();
         const data = self.get_data();
@@ -289,7 +289,7 @@ pub const IPv4Layer = struct {
     /// Returns LinkedList of IPv4 Options.
     /// Data is retrieved and made directly to the owning layer.
     /// Caller must deinit the LinkedList - does not destroy options data
-    pub fn get_options(self: *IPv4Layer, allocator: Allocator) !?IPv4Options {
+    pub fn get_options(self: *IPv4Layer, allocator: Allocator) Allocator.Error!?IPv4Options {
         const ops_buf = self.get_opt_buf();
 
         if (ops_buf.len == 0) {
@@ -387,7 +387,7 @@ pub const IPv4Layer = struct {
         return ops_buf.len - offset;
     }
 
-    pub fn add_option(self: *IPv4Layer, option: *IPv4Option) !void {
+    pub fn add_option(self: *IPv4Layer, option: *IPv4Option) Allocator.Error!void {
         const new_option_bytes = option.get_data();
 
         const new_option_bytes_len: usize = new_option_bytes.len;
@@ -423,7 +423,7 @@ pub const IPv4Layer = struct {
         self.get_mutable_header().set_length(@intCast(self.get_data().len));
     }
 
-    pub fn remove_option(self: *IPv4Layer, option: *IPv4Option, allocator: Allocator) !void {
+    pub fn remove_option(self: *IPv4Layer, option: *IPv4Option, allocator: Allocator) Allocator.Error!void {
         const opt_buf = self.get_opt_buf();
 
         const opt_data = option.get_data();
@@ -479,7 +479,7 @@ pub const IPv4Layer = struct {
         allocator.destroy(option);
     }
 
-    pub fn remove_all_options(self: *IPv4Layer) !void {
+    pub fn remove_all_options(self: *IPv4Layer) Allocator.Error!void {
         const header_len: usize = @intCast(self.get_header_len());
 
         const ops_len = header_len - MinHeaderLength;
@@ -548,7 +548,7 @@ pub const IPv4Layer = struct {
         return @ptrCast(aligned_ptr);
     }
 
-    pub fn get_next_layer_type(self: *const IPv4Layer, layer: *Packet.Layer) !?LayerIface {
+    pub fn get_next_layer_type(self: *const IPv4Layer, layer: *Packet.Layer) LayerError!?LayerIface {
         const data = self.get_data();
 
         if (data.len < @sizeOf(IPv4Header)) return error.BufferTooSmall;
@@ -597,7 +597,7 @@ pub const IPv4Layer = struct {
     }
 
     /// get the IP protocol. E.g. TCP, UDP, ICMP
-    pub fn get_ip_proto(self: *IPv4Layer) !IPProtocol {
+    pub fn get_ip_proto(self: *IPv4Layer) std.meta.IntToEnumError!IPProtocol {
         const hdr = self.get_immutable_header();
         return try std.meta.intToEnum(IPProtocol, hdr.protocol);
     }
@@ -651,7 +651,7 @@ pub const IPv4Address = struct {
             (@as(u32, self.array[3]));
     }
 
-    pub fn init_from_string(str: []const u8) !IPv4Address {
+    pub fn init_from_string(str: []const u8) IPv4Address.Error!IPv4Address {
         var octets: [4]u8 = undefined;
 
         var oct_index: usize = 0;
@@ -689,7 +689,7 @@ pub const IPv4Address = struct {
         return .{ .array = octets };
     }
 
-    pub fn to_string(self: IPv4Address, allocator: Allocator) ![]u8 {
+    pub fn to_string(self: IPv4Address, allocator: Allocator) Allocator.Error![]u8 {
         return std.fmt.allocPrint(
             allocator,
             "{d}.{d}.{d}.{d}",

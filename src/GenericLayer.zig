@@ -29,7 +29,7 @@ pub const ApplicationLayer = struct {
         }
     }
 
-    pub fn get_next_layer_type(self: *const ApplicationLayer, layer: *Layer) !?LayerIface {
+    pub fn get_next_layer_type(self: *const ApplicationLayer, layer: *Layer) LayerError!?LayerIface {
         _ = self;
         _ = layer;
         return null;
@@ -45,7 +45,7 @@ pub const ApplicationLayer = struct {
         return payload;
     }
 
-    pub fn set_payload(self: *ApplicationLayer, data: []const u8) !void {
+    pub fn set_payload(self: *ApplicationLayer, data: []const u8) Allocator.Error!void {
         switch (self.owner) {
             .packet_layer => |layer| {
                 const buf = try layer.packet.extend_layer(layer, 0, data.len);
@@ -57,7 +57,7 @@ pub const ApplicationLayer = struct {
         }
     }
 
-    pub fn delete_payload_data(self: *ApplicationLayer) !void {
+    pub fn delete_payload_data(self: *ApplicationLayer) Allocator.Error!void {
 
         //        const raw_len = raw_data.get_immutable().len;
 
@@ -89,13 +89,6 @@ pub const ApplicationLayer = struct {
     }
 
     pub fn deinit(self: *ApplicationLayer) void {
-        switch (self.owner) {
-            .packet_layer => {
-                return; // Layer in packet - don't free
-            },
-            .owned_buffer => |*buffer| {
-                return buffer.deinit(); // standalone layer - it is mutable by default
-            },
-        }
+        self.owner.deinit();
     }
 };

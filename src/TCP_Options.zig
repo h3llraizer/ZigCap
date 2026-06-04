@@ -122,23 +122,3 @@ pub const TCPOption = enum(u8) {
         };
     }
 };
-
-const TLVOption = struct {
-    owner: TLVOwner,
-
-    pub fn init(opt: TCPOption, owner: TLVOwner) !TLVOption {
-        switch (opt) {
-            .EOL, .NOP => return error.OptionIsNotTLV,
-            else => {
-                const extend_len = if (opt == TCPOption.SACK_PERM) 2 else 3;
-                const buf = owner.extend_buffer(0, extend_len); // Kind + Length + at least 1 value byte
-                buf[0] = @intFromEnum(opt);
-                buf[1] = 3;
-            },
-        }
-    }
-
-    pub fn deinit(self: *TLVOption) void {
-        self.owner.deinit();
-    }
-};

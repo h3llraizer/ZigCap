@@ -278,7 +278,14 @@ pub const UDPLayer = struct {
         }
     }
 
-    pub fn validate_checksum(self: *const UDPLayer) !bool {
+    pub const UDPError = error{
+        IPv6NotImplemented,
+        NoPrevLayer,
+        NotAttachedToPacket,
+        Unhandled,
+    };
+
+    pub fn validate_checksum(self: *const UDPLayer) UDPError!bool {
         const hdr = self.get_immutable_header();
 
         switch (self.owner) {
@@ -314,7 +321,7 @@ pub const UDPLayer = struct {
         return std.fmt.allocPrint(allocator, "UDP Layer: src_port: {} dst_port: {}\n", .{ src_port, dst_port }) catch return "";
     }
 
-    pub fn get_next_layer_type(self: *UDPLayer, layer: *Packet.Layer) !?LayerIface {
+    pub fn get_next_layer_type(self: *UDPLayer, layer: *Packet.Layer) LayerError!?LayerIface {
         const hdr = self.get_immutable_header();
         // check src and dst ports
         // check header length of expected protocol

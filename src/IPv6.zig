@@ -183,7 +183,7 @@ pub const IPv6Layer = struct {
     /// return mutable slice of the payload
     pub fn get_payload(self: *const IPv6Layer) []const u8 {
         const data = self.get_data();
-        const total_len = IPv6HeaderSize + self.get_layer_len();
+        const total_len = IPv6HeaderSize + self.get_meta().ext_total_len;
         if (data.len > total_len) {
             return data[total_len..];
         } else {
@@ -287,12 +287,7 @@ pub const IPv6Layer = struct {
         return meta;
     }
 
-    /// gets the full len of this layer including IPv6 base header + any extensions (not the proceeding payload)
-    fn get_layer_len(self: *const IPv6Layer) usize {
-        return self.get_meta().ext_total_len;
-    }
-
-    pub fn get_extensions(self: *IPv6Layer, allocator: Allocator) !?ExtensionHeaders {
+    pub fn get_extensions(self: *IPv6Layer, allocator: Allocator) Allocator.Error!?ExtensionHeaders {
         var offset: usize = IPv6HeaderSize;
         var current_next: u8 = self.get_immutable_header().next_header;
 
@@ -472,7 +467,14 @@ pub const IPv6Layer = struct {
         return null;
     }
 
-    pub fn add_extension(self: *IPv6Layer, ext: *ExtensionHeader) !void {
+    pub const ModError = error{
+        CannotSetTransport,
+        CannotSetNoNext,
+    };
+
+    /// This methods error union will be either a Modification Error (invalid extension being added)
+    /// or an allocator error - OOM etc
+    pub fn add_extension(self: *IPv6Layer, ext: *ExtensionHeader) (ModError || Allocator.Error)!void {
         const ext_type = ext.get_type();
 
         if (ext_type == (NextHeader.TCP) or
@@ -480,10 +482,10 @@ pub const IPv6Layer = struct {
             ext_type == (NextHeader.ICMP) or
             ext_type == (NextHeader.ICMPv6))
         {
-            return error.CannotSetTransport; // IPProtocol should not be set this way
+            return ModError.CannotSetTransport; // IPProtocol should not be set this way
         }
 
-        if (ext_type == (NextHeader.NoNext)) return error.CannotSetNoNext; // NoNext should not be set this way
+        if (ext_type == (NextHeader.NoNext)) return ModError.CannotSetNoNext; // NoNext should not be set this way
 
         const meta = self.get_meta();
 
@@ -516,7 +518,7 @@ pub const IPv6Layer = struct {
         last_ext_byte -= 1;
 
         while (last_ext_byte >= 0) {
-            // this is causes more than one extension not to be correct set because
+            // this is causes more than one extension not to be correctly set because
             // the last header may not be NoNext
             // AH and ESP have variable length so traversing backwards needs to be handled carefully
             if (ext_buf[last_ext_byte] == @intFromEnum(meta.last_ext.?)) {
@@ -532,7 +534,7 @@ pub const IPv6Layer = struct {
         }
     }
 
-    pub fn remove_extension(self: *IPv6Layer, ext: *ExtensionHeader) !void {
+    pub fn remove_extension(self: *IPv6Layer, ext: *ExtensionHeader) Allocator.Error!void {
         const meta = self.get_meta();
 
         const length = meta.ext_total_len;
@@ -557,12 +559,18 @@ pub const IPv6Layer = struct {
         }
     }
 
+    /// order IPv6 extensions in the RFC8200 recommended order.
+    /// Ref: https://www.ietf.org/rfc/inline-errata/rfc8200.html 4.1
+    //   pub fn rfc8200_order_exts(self: *IPv6Layer) void {
+    //       _ = self;
+    //   }
+
     pub fn validate_layer(self: *IPv6Layer) void {
         _ = self;
         return;
     }
 
-    pub fn get_ip_proto_type(self: *IPv6Layer) !IPProtocol {
+    pub fn get_ip_proto_type(self: *IPv6Layer) IPProtocol {
         const next = self.get_meta();
         return std.enums.fromInt(IPProtocol, next.ip_proto) orelse return error.UnknownIPProto;
         //return try std.meta.intToEnum(IPProtocol, hdr.next_header);

@@ -190,7 +190,7 @@ test "hop-by-hop & destination opts" {
 }
 
 test "hop-by-hop & destination opts in packet" {
-    //print(" ------ TESTING MULTIPLE OPTIONS IN PACKET ------ \n", .{});
+    print(" ------ TESTING MULTIPLE OPTIONS IN PACKET ------ \n", .{});
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.detectLeaks();
 
@@ -248,6 +248,12 @@ test "hop-by-hop & destination opts in packet" {
     var ipv6_layer_iface = try LayerIface.init(IPv6.IPv6Layer, tmp_owner);
     defer ipv6_layer_iface.deinit();
 
+    //   const src_ip = try IPv6.IPv6Address.init_from_string("2a00:23c8:73ca:d701:c71d:3969:7e99:f486");
+    //   const dst_ip = try IPv6.IPv6Address.init_from_string("2a00:23c8:73ca:d701:a00:27ff:fe5f:bdc5");
+    //
+    //   ipv6_layer_iface.ipv6Layer.get_mutable_header().set_src_ip(src_ip);
+    //   ipv6_layer_iface.ipv6Layer.get_mutable_header().set_dst_ip(dst_ip);
+
     var udp_layer_iface = try LayerIface.init(UDP.UDPLayer, tmp_owner);
     defer udp_layer_iface.deinit();
 
@@ -281,7 +287,7 @@ test "hop-by-hop & destination opts in packet" {
 
     defer extensions.deinit(allocator);
 
-    //print("ext count: {}\n", .{extensions.ext_header_count});
+    print("ext count: {}\n", .{extensions.ext_header_count});
 
     //try expect(extensions.ext_header_count == 2);
 
@@ -289,26 +295,26 @@ test "hop-by-hop & destination opts in packet" {
 
     var cur = extensions.first;
     while (cur) |ext| {
-        //print("type: {any}\n", .{ext.get_type()});
-        ////print("data: {x}\n", .{ext.hop_by_hop.get_data()});
-        ////print("offset: {}\n", .{ext.hop_by_hop.get_offset()});
-        ////print("ipv6 ext buf: {x}\n", .{ipv6_layer.get_data()[ext.hop_by_hop.get_offset()..]});
-        ////print("{any}\n", .{ext.hop_by_hop.get_opt_type()});
-        ////print("opt len: {}\n", .{ext.hop_by_hop.get_opt_len()});
-        ////print("opt value: {}\n", .{ext.hop_by_hop.get_opt_value()});
+        print("type: {any}\n", .{ext.get_type()});
+        //print("data: {x}\n", .{ext.hop_by_hop.get_data()});
+        //print("offset: {}\n", .{ext.hop_by_hop.get_offset()});
+        //print("ipv6 ext buf: {x}\n", .{ipv6_layer.get_data()[ext.hop_by_hop.get_offset()..]});
+        //print("{any}\n", .{ext.hop_by_hop.get_opt_type()});
+        //print("opt len: {}\n", .{ext.hop_by_hop.get_opt_len()});
+        //print("opt value: {}\n", .{ext.hop_by_hop.get_opt_value()});
 
-        ////print("pad option: {any}\n", .{ext.hop_by_hop.get_pad_option()});
+        //print("pad option: {any}\n", .{ext.hop_by_hop.get_pad_option()});
 
-        ////print("pad len: {}\n", .{ext.hop_by_hop.get_pad_len()});
-        //print("next header: {any}\n", .{ext.next_ext()});
+        //print("pad len: {}\n", .{ext.hop_by_hop.get_pad_len()});
+        print("next header: {any}\n", .{ext.next_ext()});
         cur = ext.get_next();
     }
 
     try ipv6_layer.remove_extension(extensions.first.?);
 
-    ////print("ipv6 layer: ({}) {x}\n", .{ ipv6_layer.get_data().len, ipv6_layer.get_data() });
+    print("ipv6 layer: ({}) {x}\n", .{ ipv6_layer.get_data().len, ipv6_layer.get_data() });
 
-    //print(" ------ END ------ \n", .{});
+    print(" ------ END ------ \n", .{});
 }
 
 test "ipv6 esp" {

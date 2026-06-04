@@ -364,7 +364,7 @@ pub const IPv4Option = union(enum) {
     }
 };
 
-fn get_ips_list(data: []const u8, allocator: Allocator) !?[]IPv4.IPv4Address {
+fn get_ips_list(data: []const u8, allocator: Allocator) Allocator.Error!?[]IPv4.IPv4Address {
     if (data.len < 7) {
         return null;
     }
@@ -426,7 +426,7 @@ fn get_ips_count(data: []const u8) usize {
     return ip_count;
 }
 
-fn add_ip_to_buffer(offset: usize, owner: *TLVOwner, ip: IPv4.IPv4Address) !void {
+fn add_ip_to_buffer(offset: usize, owner: *TLVOwner, ip: IPv4.IPv4Address) Allocator.Error!void {
     const cur_length: usize = @intCast(owner.get_data()[offset + 1]);
 
     std.debug.assert(cur_length <= owner.get_data()[offset..].len);
@@ -442,7 +442,7 @@ fn add_ip_to_buffer(offset: usize, owner: *TLVOwner, ip: IPv4.IPv4Address) !void
     try set_hdr_vals(owner, @sizeOf(IPv4.IPv4Address));
 }
 
-fn remove_ip_from_list(offset: usize, owner: *TLVOwner, ip: IPv4.IPv4Address) !void {
+fn remove_ip_from_list(offset: usize, owner: *TLVOwner, ip: IPv4.IPv4Address) Allocator.Error!void {
     var data = owner.get_data()[offset..];
     var data_len: usize = @intCast(data[1]);
 
@@ -531,7 +531,7 @@ fn get_ip_offset(owner: *TLVOwner, ip: IPv4.IPv4Address, cur_offset: usize) ?usi
     return null;
 }
 
-fn add_timestamp_to_buffer(offset: usize, owner: *TLVOwner, timestamp: u32, opt_type: IPv4.IPOptionType) !void {
+fn add_timestamp_to_buffer(offset: usize, owner: *TLVOwner, timestamp: u32, opt_type: IPv4.IPOptionType) Allocator.Error!void {
     _ = opt_type;
     const buf = try owner.extend_buffer(owner.get_data().len, @sizeOf(u32));
     @memmove(buf, &std.mem.toBytes(@byteSwap(timestamp))); // copy the ip
@@ -555,7 +555,7 @@ fn get_mutable_hdr(owner: *TLVOwner) *IPv4.IPv4Header {
     return @ptrCast(aligned_ptr);
 }
 
-fn set_hdr_vals(owner: *TLVOwner, len: isize) !void {
+fn set_hdr_vals(owner: *TLVOwner, len: isize) Allocator.Error!void {
     if (owner.is_layer_owned()) {
         var hdr = get_mutable_hdr(owner);
 
@@ -578,6 +578,16 @@ fn set_hdr_vals(owner: *TLVOwner, len: isize) !void {
     }
 }
 
+pub const IPv4OptErr = error{
+    TypeByteInvalid,
+    UseTUInstead,
+    PtrOutOfRange,
+    PtrPointsToTLVHeader,
+    InvalidTimestampOnlyRecord,
+    IPRequiredForNonTSOnlyRecord,
+    UseCorrectType,
+};
+
 pub const RecordRoute = struct {
     owner: TLVOwner,
     prev_op: ?*IPv4Option = null,
@@ -585,7 +595,7 @@ pub const RecordRoute = struct {
 
     pub const TLVHeaderLength = 3;
 
-    pub fn init(owner: TLVOwner) !RecordRoute {
+    pub fn init(owner: TLVOwner) (IPv4OptErr || Allocator.Error)!RecordRoute {
         switch (owner) {
             .owned_buffer => {
                 var self = RecordRoute{ .owner = owner };
@@ -660,7 +670,7 @@ pub const RecordRoute = struct {
     }
 
     /// Throws exception when the ptr value exceeds the length of the option or points to TLV header
-    pub fn set_ptr(self: *RecordRoute, ptr: u8) !void {
+    pub fn set_ptr(self: *RecordRoute, ptr: u8) IPv4OptErr!void {
         const ptr_u: usize = @intCast(ptr); // ptr byte val as usize
         if (ptr_u > self.get_data().len) {
             return error.PtrOutOfRange;
@@ -673,7 +683,7 @@ pub const RecordRoute = struct {
         self.get_data()[2] = ptr;
     }
 
-    pub fn get_ip_list(self: *RecordRoute, allocator: Allocator) !?[]IPv4.IPv4Address {
+    pub fn get_ip_list(self: *RecordRoute, allocator: Allocator) Allocator.Error!?[]IPv4.IPv4Address {
         const data = self.get_data();
 
         return get_ips_list(data, allocator);
@@ -684,11 +694,11 @@ pub const RecordRoute = struct {
         return get_ips_count(data);
     }
 
-    pub fn add_ip(self: *RecordRoute, ip: IPv4.IPv4Address) !void {
+    pub fn add_ip(self: *RecordRoute, ip: IPv4.IPv4Address) Allocator.Error!void {
         return add_ip_to_buffer(self.get_offset(), &self.owner, ip);
     }
 
-    pub fn remove_ip(self: *RecordRoute, ip: IPv4.IPv4Address) !void {
+    pub fn remove_ip(self: *RecordRoute, ip: IPv4.IPv4Address) Allocator.Error!void {
         return remove_ip_from_list(self.get_offset(), &self.owner, ip);
     }
 
@@ -704,7 +714,7 @@ pub const LooseSourceRoute = struct {
 
     pub const TLVHeaderLength = 3;
 
-    pub fn init(owner: TLVOwner) !LooseSourceRoute {
+    pub fn init(owner: TLVOwner) (IPv4OptErr || Allocator.Error)!LooseSourceRoute {
         switch (owner) {
             .owned_buffer => {
                 var self = LooseSourceRoute{ .owner = owner };
@@ -779,7 +789,7 @@ pub const LooseSourceRoute = struct {
     }
 
     /// Throws exception when the ptr value exceeds the length of the option or points to TLV header
-    pub fn set_ptr(self: *LooseSourceRoute, ptr: u8) !void {
+    pub fn set_ptr(self: *LooseSourceRoute, ptr: u8) IPv4OptErr!void {
         const ptr_u: usize = @intCast(ptr); // ptr byte val as usize
         if (ptr_u > self.get_data().len) {
             return error.PtrOutOfRange;
@@ -792,7 +802,7 @@ pub const LooseSourceRoute = struct {
         self.get_data()[2] = ptr;
     }
 
-    pub fn get_ip_list(self: *LooseSourceRoute, allocator: Allocator) !?[]IPv4.IPv4Address {
+    pub fn get_ip_list(self: *LooseSourceRoute, allocator: Allocator) Allocator.Error!?[]IPv4.IPv4Address {
         const data = self.get_data();
 
         return get_ips_list(data, allocator);
@@ -803,11 +813,11 @@ pub const LooseSourceRoute = struct {
         return get_ips_count(data);
     }
 
-    pub fn add_ip(self: *LooseSourceRoute, ip: IPv4.IPv4Address) !void {
+    pub fn add_ip(self: *LooseSourceRoute, ip: IPv4.IPv4Address) Allocator.Error!void {
         return add_ip_to_buffer(self.get_offset(), &self.owner, ip);
     }
 
-    pub fn remove_ip(self: *LooseSourceRoute, ip: IPv4.IPv4Address) !void {
+    pub fn remove_ip(self: *LooseSourceRoute, ip: IPv4.IPv4Address) Allocator.Error!void {
         return remove_ip_from_list(self.get_offset(), &self.owner, ip);
     }
 
@@ -823,7 +833,7 @@ pub const StrictSourceRoute = struct {
 
     pub const TLVHeaderLength = 3;
 
-    pub fn init(owner: TLVOwner) !StrictSourceRoute {
+    pub fn init(owner: TLVOwner) (IPv4OptErr || Allocator.Error)!StrictSourceRoute {
         switch (owner) {
             .owned_buffer => {
                 var self = StrictSourceRoute{ .owner = owner };
@@ -898,7 +908,7 @@ pub const StrictSourceRoute = struct {
     }
 
     /// Throws exception when the ptr value exceeds the length of the option or points to TLV header
-    pub fn set_ptr(self: *StrictSourceRoute, ptr: u8) !void {
+    pub fn set_ptr(self: *StrictSourceRoute, ptr: u8) IPv4OptErr!void {
         const ptr_u: usize = @intCast(ptr); // ptr byte val as usize
         if (ptr_u > self.get_data().len) {
             return error.PtrOutOfRange;
@@ -911,7 +921,7 @@ pub const StrictSourceRoute = struct {
         self.get_data()[2] = ptr;
     }
 
-    pub fn get_ip_list(self: *StrictSourceRoute, allocator: Allocator) !?[]IPv4.IPv4Address {
+    pub fn get_ip_list(self: *StrictSourceRoute, allocator: Allocator) Allocator.Error!?[]IPv4.IPv4Address {
         const data = self.get_data();
 
         return get_ips_list(data, allocator);
@@ -922,13 +932,13 @@ pub const StrictSourceRoute = struct {
         return get_ips_count(data);
     }
 
-    pub fn add_ip(self: *StrictSourceRoute, ip: IPv4.IPv4Address) !void {
+    pub fn add_ip(self: *StrictSourceRoute, ip: IPv4.IPv4Address) Allocator.Error!void {
         try add_ip_to_buffer(self.get_offset(), &self.owner, ip);
         //const hdr = get_mutable_hdr();
 
     }
 
-    pub fn remove_ip(self: *StrictSourceRoute, ip: IPv4.IPv4Address) !void {
+    pub fn remove_ip(self: *StrictSourceRoute, ip: IPv4.IPv4Address) Allocator.Error!void {
         return remove_ip_from_list(self.get_offset(), &self.owner, ip);
     }
 
@@ -944,7 +954,7 @@ pub const RouterAlert = struct {
 
     pub const TLVHeaderLength = 4;
 
-    pub fn init(owner: TLVOwner) !RouterAlert {
+    pub fn init(owner: TLVOwner) (IPv4OptErr || Allocator.Error)!RouterAlert {
         switch (owner) {
             .owned_buffer => {
                 var self = RouterAlert{ .owner = owner };
@@ -1015,7 +1025,7 @@ pub const RouterAlert = struct {
         return self.get_data()[1];
     }
 
-    pub fn set_ra_val(self: *RouterAlert, val: u16) !void {
+    pub fn set_ra_val(self: *RouterAlert, val: u16) !void { // TODO: Validate the buffer length
         @memmove(self.get_data_mut()[2..4], &std.mem.toBytes(val)); // copy the ip
     }
 
@@ -1031,7 +1041,7 @@ pub const StreamID = struct {
 
     pub const TLVHeaderLength = 4;
 
-    pub fn init(owner: TLVOwner) !StreamID {
+    pub fn init(owner: TLVOwner) (IPv4OptErr || Allocator.Error)!StreamID {
         switch (owner) {
             .owned_buffer => {
                 var self = StreamID{ .owner = owner };
@@ -1100,7 +1110,7 @@ pub const StreamID = struct {
         return self.get_data()[1];
     }
 
-    pub fn set_stream_id(self: *StreamID, val: u16) !void {
+    pub fn set_stream_id(self: *StreamID, val: u16) !void { // TODO: validate buffer length
         @memmove(self.get_data_mut()[2..4], &std.mem.toBytes(val)); // copy the ip
     }
 
@@ -1116,7 +1126,7 @@ pub const DynamicPacketState = struct {
 
     pub const TLVHeaderLength = 4;
 
-    pub fn init(owner: TLVOwner) !DynamicPacketState {
+    pub fn init(owner: TLVOwner) (IPv4OptErr || Allocator.Error)!DynamicPacketState {
         switch (owner) {
             .owned_buffer => {
                 var self = DynamicPacketState{ .owner = owner };
@@ -1201,7 +1211,7 @@ pub const UpstreamMulticast = struct {
 
     pub const TLVHeaderLength = 4;
 
-    pub fn init(owner: TLVOwner) !UpstreamMulticast {
+    pub fn init(owner: TLVOwner) (IPv4OptErr || Allocator.Error)!UpstreamMulticast {
         switch (owner) {
             .owned_buffer => {
                 var self = UpstreamMulticast{ .owner = owner };
@@ -1266,11 +1276,11 @@ pub const UpstreamMulticast = struct {
     }
 
     /// Returns the length of the Option from its TLV-Header
-    pub fn get_length(self: *UpstreamMulticast) u8 {
+    pub fn get_length(self: *UpstreamMulticast) u8 { // TODO: validate buffer length
         return self.get_data()[1];
     }
 
-    pub fn set_data(self: *UpstreamMulticast, val: u16) !void {
+    pub fn set_data(self: *UpstreamMulticast, val: u16) !void { // TODO: validate buffer length
         @memmove(self.get_data_mut()[2..4], &std.mem.toBytes(val)); // copy the ip
     }
 
@@ -1286,7 +1296,7 @@ pub const QuickStart = struct {
 
     pub const TLVHeaderLength = 8;
 
-    pub fn init(owner: TLVOwner) !QuickStart {
+    pub fn init(owner: TLVOwner) (IPv4OptErr || Allocator.Error)!QuickStart {
         switch (owner) {
             .owned_buffer => {
                 var self = QuickStart{ .owner = owner };
@@ -1351,15 +1361,15 @@ pub const QuickStart = struct {
     }
 
     /// Returns the length of the Option from its TLV-Header
-    pub fn get_length(self: *QuickStart) u8 {
+    pub fn get_length(self: *QuickStart) u8 { // TODO: validate buffer length
         return self.get_data()[1];
     }
 
-    pub fn set_requested_rate(self: *QuickStart, val: u16) !void {
+    pub fn set_requested_rate(self: *QuickStart, val: u16) !void { // TODO: validate buffer length
         @memmove(self.get_data_mut()[2..4], &std.mem.toBytes(val)); // copy the ip
     }
 
-    pub fn set_ttl(self: *QuickStart, val: u16) !void {
+    pub fn set_ttl(self: *QuickStart, val: u16) !void { // TODO: validate buffer length
         @memmove(self.get_data_mut()[4..6], &std.mem.toBytes(val)); // copy the ip
     }
 
@@ -1375,7 +1385,7 @@ pub const ExperimentalMeasurement = struct {
 
     pub const TLVHeaderLength = 4;
 
-    pub fn init(owner: TLVOwner) !ExperimentalMeasurement {
+    pub fn init(owner: TLVOwner) (IPv4OptErr || Allocator.Error)!ExperimentalMeasurement {
         switch (owner) {
             .owned_buffer => {
                 var self = ExperimentalMeasurement{ .owner = owner };
@@ -1446,7 +1456,7 @@ pub const ExperimentalMeasurement = struct {
         return self.get_data()[1];
     }
 
-    pub fn set_measurement(self: *ExperimentalMeasurement, val: u16) !void {
+    pub fn set_measurement(self: *ExperimentalMeasurement, val: u16) !void { // TODO: validate buffer length
         @memmove(self.get_data_mut()[2..4], &std.mem.toBytes(val)); // copy the ip
     }
 
@@ -1462,7 +1472,7 @@ pub const ExperimentalFlowControl = struct {
 
     pub const TLVHeaderLength = 4;
 
-    pub fn init(owner: TLVOwner) !ExperimentalFlowControl {
+    pub fn init(owner: TLVOwner) (IPv4OptErr || Allocator.Error)!ExperimentalFlowControl {
         switch (owner) {
             .owned_buffer => {
                 var self = ExperimentalFlowControl{ .owner = owner };
@@ -1549,7 +1559,7 @@ pub const ExperimentalAccessControl = struct {
 
     pub const TLVHeaderLength = 6;
 
-    pub fn init(owner: TLVOwner) !ExperimentalAccessControl {
+    pub fn init(owner: TLVOwner) (IPv4OptErr || Allocator.Error)!ExperimentalAccessControl {
         switch (owner) {
             .owned_buffer => {
                 var self = ExperimentalAccessControl{ .owner = owner };
@@ -1620,7 +1630,7 @@ pub const ExperimentalAccessControl = struct {
         return self.get_data()[1];
     }
 
-    pub fn set_data(self: *ExperimentalAccessControl, val: u32) !void {
+    pub fn set_data(self: *ExperimentalAccessControl, val: u32) !void { // TODO: validate buffer length
         @memmove(self.get_data_mut()[2..6], &std.mem.toBytes(val)); // copy the ip
     }
 
@@ -1636,7 +1646,7 @@ pub const ExtendedInternet = struct {
 
     pub const TLVHeaderLength = 4;
 
-    pub fn init(owner: TLVOwner) !ExtendedInternet {
+    pub fn init(owner: TLVOwner) (IPv4OptErr || Allocator.Error)!ExtendedInternet {
         switch (owner) {
             .owned_buffer => {
                 var self = ExtendedInternet{ .owner = owner };
@@ -1723,7 +1733,7 @@ pub const SelectiveDirectedBroadcast = struct {
 
     pub const TLVHeaderLength = 10;
 
-    pub fn init(owner: TLVOwner) !SelectiveDirectedBroadcast {
+    pub fn init(owner: TLVOwner) (IPv4OptErr || Allocator.Error)!SelectiveDirectedBroadcast {
         switch (owner) {
             .owned_buffer => {
                 var self = SelectiveDirectedBroadcast{ .owner = owner };
@@ -1812,7 +1822,7 @@ pub const MTUProbe = struct {
 
     pub const TLVHeaderLength = 4;
 
-    pub fn init(owner: TLVOwner) !MTUProbe {
+    pub fn init(owner: TLVOwner) (IPv4OptErr || Allocator.Error)!MTUProbe {
         switch (owner) {
             .owned_buffer => {
                 var self = MTUProbe{ .owner = owner };
@@ -1879,11 +1889,11 @@ pub const MTUProbe = struct {
     }
 
     /// Returns the length of the Option from its TLV-Header
-    pub fn get_length(self: *MTUProbe) u8 {
+    pub fn get_length(self: *MTUProbe) u8 { // TODO: validate buffer length
         return self.get_data()[1];
     }
 
-    pub fn set_mtu_val(self: *MTUProbe, val: u16) !void {
+    pub fn set_mtu_val(self: *MTUProbe, val: u16) !void { // TODO: validate buffer length
         @memmove(self.get_data_mut()[2..4], &std.mem.toBytes(val)); // copy the ip
     }
 
@@ -1899,7 +1909,7 @@ pub const MTUReply = struct {
 
     pub const TLVHeaderLength = 4;
 
-    pub fn init(owner: TLVOwner) !MTUReply {
+    pub fn init(owner: TLVOwner) (IPv4OptErr || Allocator.Error)!MTUReply {
         switch (owner) {
             .owned_buffer => {
                 var self = MTUReply{ .owner = owner };
@@ -1986,7 +1996,7 @@ pub const Security = struct {
 
     pub const TLVHeaderLength = 11;
 
-    pub fn init(owner: TLVOwner) !Security {
+    pub fn init(owner: TLVOwner) (IPv4OptErr || Allocator.Error)!Security {
         switch (owner) {
             .owned_buffer => {
                 var self = Security{ .owner = owner };
@@ -2055,11 +2065,11 @@ pub const Security = struct {
     }
 
     /// Returns the length of the Option from its TLV-Header
-    pub fn get_length(self: *Security) u8 {
+    pub fn get_length(self: *Security) u8 { // TODO: validate buffer length
         return self.get_data()[1];
     }
 
-    pub fn set_data(self: *Security, data: []const u8) !void {
+    pub fn set_data(self: *Security, data: []const u8) !void { // TODO: validate buffer length
         @memmove(self.get_data_mut()[2..], data); // copy the ip
     }
 
@@ -2075,7 +2085,7 @@ pub const ExtendedSecurity = struct {
 
     pub const TLVHeaderLength = 6;
 
-    pub fn init(owner: TLVOwner) !ExtendedSecurity {
+    pub fn init(owner: TLVOwner) (IPv4OptErr || Allocator.Error)!ExtendedSecurity {
         switch (owner) {
             .owned_buffer => {
                 var self = ExtendedSecurity{ .owner = owner };
@@ -2164,7 +2174,7 @@ pub const CommercialSecurity = struct {
 
     pub const TLVHeaderLength = 6;
 
-    pub fn init(owner: TLVOwner) !CommercialSecurity {
+    pub fn init(owner: TLVOwner) (IPv4OptErr || Allocator.Error)!CommercialSecurity {
         switch (owner) {
             .owned_buffer => {
                 var self = CommercialSecurity{ .owner = owner };
@@ -2287,7 +2297,7 @@ pub const Timestamp = struct {
     pub const TLVHeaderLength = 4;
 
     /// extends buffer of TLVOwner if it is not atleast 4 bytes and sets type to Timestamp (44), length to 4, mode to TIMESTAMP_ONLY, ptr to 5
-    pub fn init(owner: TLVOwner) !Timestamp {
+    pub fn init(owner: TLVOwner) (IPv4OptErr || Allocator.Error)!Timestamp {
         switch (owner) {
             .owned_buffer => {
                 var self = Timestamp{ .owner = owner };
@@ -2367,7 +2377,7 @@ pub const Timestamp = struct {
     }
 
     /// Throws exception when the ptr value exceeds the length of the option or points to TLV header
-    pub fn set_ptr(self: *Timestamp, ptr: u8) !void {
+    pub fn set_ptr(self: *Timestamp, ptr: u8) IPv4OptErr!void {
         const ptr_u: usize = @intCast(ptr); // ptr byte val as usize
         if (ptr_u > self.get_data().len) {
             return error.PtrOutOfRange;
@@ -2400,19 +2410,19 @@ pub const Timestamp = struct {
             (@as(u8, of) << 4);
     }
 
-    fn add_timestamp(self: *Timestamp, timestamp: u32) !void {
+    fn add_timestamp(self: *Timestamp, timestamp: u32) Allocator.Error!void {
         try add_timestamp_to_buffer(self.get_offset(), &self.owner, timestamp, IPv4.IPOptionType.Timestamp);
     }
 
-    fn add_ip(self: *Timestamp, ip: IPv4.IPv4Address) !void {
+    fn add_ip(self: *Timestamp, ip: IPv4.IPv4Address) Allocator.Error!void {
         return add_ip_to_buffer(self.get_offset(), &self.owner, ip);
     }
 
-    fn remove_ip(self: *Timestamp, ip: IPv4.IPv4Address) !void {
+    fn remove_ip(self: *Timestamp, ip: IPv4.IPv4Address) Allocator.Error!void {
         return remove_ip_from_list(&self.owner, ip);
     }
 
-    pub fn add_ts_record(self: *Timestamp, record: TimestampRecord) !void {
+    pub fn add_ts_record(self: *Timestamp, record: TimestampRecord) (IPv4OptErr || Allocator.Error)!void {
         if (self.get_mode_flag() == .TIMESTAMP_ONLY) {
             if (record.ip != null) {
                 return error.InvalidTimestampOnlyRecord; // TS Only does not contain IP addresses
@@ -2433,7 +2443,7 @@ pub const Timestamp = struct {
         //self.get_data_mut()[1] += (@sizeOf(u32) + @sizeOf(IPv4.IPv4Address));
     }
 
-    pub fn remove_ts_record(self: *Timestamp, record: TimestampRecord) !void {
+    pub fn remove_ts_record(self: *Timestamp, record: TimestampRecord) Allocator.Error!void {
         const data = self.get_data()[4..];
         if (record.ip == null) {
             const bytes: [4]u8 = std.mem.toBytes(@byteSwap(record.timestamp));
@@ -2467,7 +2477,7 @@ pub const Timestamp = struct {
         }
     }
 
-    pub fn get_records(self: *Timestamp, allocator: Allocator) !?TimestampRecords {
+    pub fn get_records(self: *Timestamp, allocator: Allocator) Allocator.Error!?TimestampRecords {
         const data = self.get_data();
         if (data.len < 8) {
             return null;
@@ -2535,7 +2545,7 @@ pub const GenericOption = struct {
 
     pub const TLVHeaderLength = 2;
 
-    pub fn init(owner: TLVOwner, opt_type: IPOptionType) !GenericOption {
+    pub fn init(owner: TLVOwner, opt_type: IPOptionType) (IPv4OptErr || Allocator.Error)!GenericOption {
         switch (opt_type) {
             .RecordRoute, .StrictSourceRoute, .LooseSourceRoute, .Timestamp, .RouterAlert => {
                 return error.UseCorrectType;
@@ -2593,13 +2603,13 @@ pub const GenericOption = struct {
         return data[offset .. offset + length];
     }
 
-    pub fn set_data(self: *GenericOption, data: []const u8) !void {
+    pub fn set_data(self: *GenericOption, data: []const u8) Allocator.Error!void {
         const buf = try self.owner.extend_buffer(self.get_data().len, data.len);
 
         @memmove(buf, data); // copy the ip
     }
 
-    pub fn set_type(self: *GenericOption, opt_type: IPOptionType) !void {
+    pub fn set_type(self: *GenericOption, opt_type: IPOptionType) IPv4OptErr!void {
         switch (opt_type) {
             .RecordRoute, .StrictSourceRoute, .LooseSourceRoute, .Timestamp, .RouterAlert => {
                 return error.UseCorrectType;

@@ -559,7 +559,7 @@ pub const ICMPLayer = struct {
 
     /// Sets the payload of the ICMPLayer.
     /// Can be any ICMP type but commonly ICMP Echo Request/Reply is the type which has a payload
-    pub fn set_payload(self: *ICMPLayer, payload: []const u8) !void {
+    pub fn set_payload(self: *ICMPLayer, payload: []const u8) Allocator.Error!void {
         const current_payload_len = self.get_payload().len;
 
         const header_type_size = self.get_header_type_size();
@@ -587,7 +587,7 @@ pub const ICMPLayer = struct {
     }
 
     /// Don't use this.
-    pub fn remove_payload(self: *ICMPLayer) !void {
+    pub fn remove_payload(self: *ICMPLayer) Allocator.Error!void {
         const payload_len = self.get_payload().len;
         if (payload_len > 0) {
             try self.owner.shorten_payload(self.get_data().len - payload_len, payload_len);
@@ -599,7 +599,7 @@ pub const ICMPLayer = struct {
         return hdr.get_type();
     }
 
-    pub fn set_type(self: *ICMPLayer, icmp_type: ICMPType) !void {
+    pub fn set_type(self: *ICMPLayer, icmp_type: ICMPType) Allocator.Error!void {
         var hdr = self.get_mutable_header();
         hdr.set_type(icmp_type);
 
@@ -682,7 +682,7 @@ pub const ICMPLayer = struct {
         return tcp_ip_protocol.icmp;
     }
 
-    pub fn get_next_layer_type(self: *ICMPLayer, layer: *Layer) !?LayerIface {
+    pub fn get_next_layer_type(self: *ICMPLayer, layer: *Layer) LayerError!?LayerIface {
         _ = self;
         _ = layer;
         // these types can include original IPv4 Header and full TCP Header or psuedo TCP Header:

@@ -26,7 +26,7 @@ pub const Buffer = struct {
     }
 
     /// takes slice offset and length in THIS buffer and appends it to the dst buffer
-    pub fn cutRange(self: *Buffer, dst: *Buffer, start: usize, len: usize) !void {
+    pub fn cutRange(self: *Buffer, dst: *Buffer, start: usize, len: usize) Allocator.Error!void {
         const end = start + len;
         std.debug.assert(end <= self.buffer.items.len);
 
@@ -39,7 +39,7 @@ pub const Buffer = struct {
     }
 
     /// takes slice from another Buffer and inserts into index of offset
-    pub fn cutFrom(self: *Buffer, src: *Buffer, start: usize, len: usize, offset: usize) !void {
+    pub fn cutFrom(self: *Buffer, src: *Buffer, start: usize, len: usize, offset: usize) Allocator.Error!void {
         const end = start + len;
         std.debug.assert(end <= src.buffer.items.len);
 
@@ -51,7 +51,7 @@ pub const Buffer = struct {
     }
 
     /// extends the buffer from the offset by length
-    pub fn extend(self: *Buffer, offset: usize, length: usize) ![]u8 {
+    pub fn extend(self: *Buffer, offset: usize, length: usize) Allocator.Error![]u8 {
         const slice = try self.buffer.addManyAt(self.allocator, offset, length);
         //        self.buffer.shrinkAndFree(self.allocator, self.buffer.items.len);
         return slice;
@@ -59,7 +59,7 @@ pub const Buffer = struct {
 
     /// shortens the buffer at the offset by length.
     /// e.g. start at offset 10 and length 4 decreases by 4
-    pub fn shorten(self: *Buffer, offset: usize, length: usize) !void {
+    pub fn shorten(self: *Buffer, offset: usize, length: usize) Allocator.Error!void {
         const end = offset + length;
         std.debug.assert(end <= self.buffer.items.len);
 

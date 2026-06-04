@@ -53,10 +53,14 @@ pub const WDPacket = struct {
     wd_addr: *WINDIVERT_ADDRESS,
 };
 
+pub const WinDivertError = error{
+    FailedToOpenWinDivert,
+};
+
 pub const WinDivert = struct {
     handle: ?*anyopaque, // windows handle are just opaque ptrs (in c/c++ they're void*)
 
-    pub fn init(filter: []const u8, layer: CaptureLayer, priority: i16, flags: u64) !WinDivert {
+    pub fn init(filter: []const u8, layer: CaptureLayer, priority: i16, flags: u64) WinDivertError!WinDivert {
         var self = WinDivert{ .handle = null };
         self.handle = c.WinDivertOpen(
             filter.ptr,
@@ -66,13 +70,13 @@ pub const WinDivert = struct {
         );
 
         if (self.handle == c.INVALID_HANDLE_VALUE) {
-            return error.FailedToOpenWinDivert;
+            return WinDivertError.FailedToOpenWinDivert;
         }
 
         return self;
     }
 
-    pub fn capture_one_raw(self: WinDivert, max_pkt_size: usize, allocator: Allocator) !?WDPacket {
+    pub fn capture_one_raw(self: WinDivert, max_pkt_size: usize, allocator: Allocator) Allocator.Error!?WDPacket {
         const pkt_buf: []align(2) u8 = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", max_pkt_size);
 
         const windivert_addr: *WINDIVERT_ADDRESS = try allocator.create(WINDIVERT_ADDRESS);

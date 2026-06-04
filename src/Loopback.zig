@@ -91,7 +91,7 @@ pub const LoopbackLayer = struct {
         }
     }
 
-    pub fn get_next_layer_type(self: *LoopbackLayer, layer: *Packet.Layer) !?LayerIface {
+    pub fn get_next_layer_type(self: *LoopbackLayer, layer: *Packet.Layer) LayerError!?LayerIface {
         const hdr = self.get_immutable_header();
         const protocol_type = hdr.get_protocol_type();
 

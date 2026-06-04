@@ -61,6 +61,14 @@ pub const IPAddress = union(enum) {
     }
 };
 
+pub const PcapError = error{
+    DeviceOpenFailed,
+    FilterParseFailed,
+    FilterSetFailed,
+    DeviceNotOpen,
+    FindAllDevsFailed,
+};
+
 pub const Interface = struct {
     name: []const u8,
     desc: []const u8,
@@ -69,7 +77,7 @@ pub const Interface = struct {
     link_type: ?link_layer_type, // store enum
     allocator: Allocator,
 
-    pub fn init(name: []const u8, desc: []const u8, ips: std.ArrayList(IPAddress), allocator: Allocator) !Interface {
+    pub fn init(name: []const u8, desc: []const u8, ips: std.ArrayList(IPAddress), allocator: Allocator) Allocator.Error!Interface {
         const name_copy = try allocator.alloc(u8, name.len);
         @memmove(name_copy, name);
 
@@ -96,7 +104,7 @@ pub const Interface = struct {
         }
     }
 
-    pub fn open(self: *Interface, allocator: Allocator) !void {
+    pub fn open(self: *Interface, allocator: Allocator) (PcapError || Allocator.Error)!void {
         var errbuf: [256:0]u8 = .{0} ** 256;
 
         const c_name = try allocator.dupeZ(u8, self.name);
@@ -106,7 +114,7 @@ pub const Interface = struct {
 
         if (handle == null) {
             print("Failed to open device {s}: {s}\n", .{ self.name, &errbuf });
-            return;
+            return PcapError.DeviceOpenFailed;
         }
 
         self.handle = handle;
@@ -121,7 +129,7 @@ pub const Interface = struct {
     }
 
     /// caller needs to free returned slice
-    pub fn to_string(self: Interface, allocator: Allocator) []const u8 {
+    pub fn to_string(self: Interface, allocator: Allocator) []const u8 { // TODO: Return error on allocPrint fail
         const s = allocPrint(allocator, "Name: {s} Description: {s}", .{ self.name, self.desc }) catch |err| {
             return @errorName(err);
         };
@@ -133,24 +141,24 @@ pub const Interface = struct {
         print("{s}\n", .{self.desc});
     }
 
-    pub fn set_filter(self: *Interface, filter_str: []const u8) !void {
+    pub fn set_filter(self: *Interface, filter_str: []const u8) PcapError!void {
         var fp: pcap.bpf_program = .{};
         const net: pcap.bpf_u_int32 = 0;
 
         if (self.handle) |handle| {
             if (pcap.pcap_compile(handle, &fp, filter_str.ptr, 0, net) == -1) {
-                return error.FilterParseFailed;
+                return PcapError.FilterParseFailed;
             } else {
                 if (pcap.pcap_setfilter(handle, &fp) == -1) {
-                    return error.FilterSetFailed;
+                    return PcapError.FilterSetFailed;
                 }
             }
         } else {
-            return error.DeviceNotOpen;
+            return PcapError.DeviceNotOpen;
         }
     }
 
-    pub fn capture_one_raw(self: Interface, allocator: Allocator) !?[]align(2) u8 {
+    pub fn capture_one_raw(self: Interface, allocator: Allocator) Allocator.Error!?[]align(2) u8 {
         var header: [*c]pcap.struct_pcap_pkthdr = null;
         var pkt_ptr: [*c]const u8 = null;
 
@@ -181,23 +189,19 @@ pub const Interface = struct {
     }
 };
 
-pub const InterfacesError = error{
-    PcapFindAllDevsFailed,
-};
-
 pub const Interfaces = struct {
     error_buffer: [256:0]u8 = .{0} ** 256,
     pcap_iface: ?*pcap.pcap_if,
     iface_list: std.ArrayList(Interface),
     allocator: Allocator,
 
-    pub fn init(allocator: Allocator) !Interfaces {
+    pub fn init(allocator: Allocator) PcapError!Interfaces {
         var errbuf: [256:0]u8 = .{0} ** 256;
         var alldevs: ?*pcap.pcap_if = null;
 
         if (pcap.pcap_findalldevs(&alldevs, &errbuf) != 0) {
             std.debug.print("pcap_findalldevs failed: {s}\n", .{&errbuf});
-            return InterfacesError.PcapFindAllDevsFailed; // <-- throw an error
+            return PcapError.FindAllDevsFailed; // <-- throw an error
         }
 
         return Interfaces{
@@ -208,7 +212,7 @@ pub const Interfaces = struct {
         };
     }
 
-    fn extractIPs(self: Interfaces, addresses_ptr: ?*pcap.pcap_addr) !std.ArrayList(IPAddress) {
+    fn extractIPs(self: Interfaces, addresses_ptr: ?*pcap.pcap_addr) Allocator.Error!std.ArrayList(IPAddress) {
         var ips_list: std.ArrayList(IPAddress) = .empty;
 
         var address_ptr = addresses_ptr;
@@ -246,7 +250,7 @@ pub const Interfaces = struct {
 
     /// Appends all available interfaces to iface_list
     /// Doesn't open for capturing specifically
-    pub fn get_all(self: *Interfaces) !std.ArrayList(Interface) {
+    pub fn get_all(self: *Interfaces) Allocator.Error!std.ArrayList(Interface) {
         var iface_list: std.ArrayList(Interface) = .empty;
         var dev = self.*.pcap_iface;
 

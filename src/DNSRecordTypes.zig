@@ -49,7 +49,7 @@ pub const ARecord = struct {
         return self.layer.get_data()[self.offset .. self.offset + self.length];
     }
 
-    pub fn get_name(self: *ARecord, allocator: Allocator) ![]u8 {
+    pub fn get_name(self: *ARecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         const data = self.get_data(); // the length of the name is not known so just take use the offset of this RR
 
         return try decode_name(self.layer.get_data(), data, allocator);
@@ -94,7 +94,7 @@ pub const ARecord = struct {
         }
     }
 
-    pub fn to_string(self: *ARecord, allocator: Allocator) ![]const u8 {
+    pub fn to_string(self: *ARecord, allocator: Allocator) Allocator.Error![]const u8 {
         var list: std.ArrayList(u8) = .empty;
 
         const name = try self.get_name(allocator);
@@ -192,16 +192,16 @@ pub const NSRecord = struct {
         return self.layer.get_data()[self.offset .. self.offset + self.length];
     }
 
-    pub fn get_name(self: *NSRecord, allocator: Allocator) ![]u8 {
+    pub fn get_name(self: *NSRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         const data = self.get_data(); // the length of the name is not known so just take use the offset of this RR
 
         return try decode_name(self.layer.get_data(), data, allocator);
     }
 
-    pub fn decode_ns_name(self: *NSRecord, allocator: Allocator) ![]u8 {
+    pub fn decode_ns_name(self: *NSRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         // NS's rdata, offset 12 is used for name ptr (2bytes), rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
         if (self.get_data().len < 12) {
-            return error.InalidCnameRecord;
+            return DNSLayer.DNSParseError.RecordTooShort;
         }
         return try decode_name(self.layer.get_data(), self.get_data()[12..], allocator);
     }
@@ -212,7 +212,7 @@ pub const NSRecord = struct {
     /// else if the new cname is shorter or longer, then the dns layers buffer is shortened or extended, respectively
     ///
     /// currently broken. don't use it.
-    fn set_ns_name(self: *NSRecord, cname: []const u8, allocator: Allocator) !void {
+    fn set_ns_name(self: *NSRecord, cname: []const u8, allocator: Allocator) Allocator.Error!void {
         // need to check if the cname being changed contains any sub label ptrs which proceeding records rely on
         // e.g. .net in a cname can be relied on proceeding records
         // in this case, find the next record that uses this ptr, edit the cname record to include that sub-label
@@ -298,7 +298,7 @@ pub const NSRecord = struct {
         }
     }
 
-    pub fn to_string(self: *NSRecord, allocator: Allocator) ![]const u8 {
+    pub fn to_string(self: *NSRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]const u8 {
         var list: std.ArrayList(u8) = .empty;
 
         const name = try self.get_name(allocator);
@@ -344,15 +344,15 @@ pub const CNAMERecord = struct {
         return self.layer.get_data()[self.offset .. self.offset + self.length];
     }
 
-    pub fn get_name(self: *CNAMERecord, allocator: Allocator) ![]u8 {
+    pub fn get_name(self: *CNAMERecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         const data = self.get_data(); // the length of the name is not known so just take use the offset of this RR
 
         return try decode_name(self.layer.get_data(), data, allocator);
     }
 
-    pub fn decode_cname(self: *CNAMERecord, allocator: Allocator) ![]u8 {
+    pub fn decode_cname(self: *CNAMERecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         if (self.get_data().len < 12) {
-            return error.InalidCnameRecord;
+            return DNSLayer.DNSParseError.RecordTooShort;
         }
 
         var offset: usize = 0;
@@ -364,7 +364,7 @@ pub const CNAMERecord = struct {
         return try decode_name(self.layer.get_data(), self.get_data()[offset..], allocator);
     }
 
-    pub fn to_string(self: *CNAMERecord, allocator: Allocator) ![]const u8 {
+    pub fn to_string(self: *CNAMERecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]const u8 {
         var list: std.ArrayList(u8) = .empty;
 
         const name = try self.get_name(allocator);
@@ -418,7 +418,7 @@ pub const TXTRecord = struct {
     }
 
     /// retrieves the name stated in the RR.
-    pub fn get_name(self: *TXTRecord, allocator: Allocator) ![]u8 {
+    pub fn get_name(self: *TXTRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         const data = self.get_data();
         return try decode_name(self.layer.get_data(), data, allocator);
     }
@@ -446,7 +446,7 @@ pub const MXRecord = struct {
         return self.layer.get_data()[self.offset .. self.offset + self.length];
     }
 
-    pub fn get_mx_domain(self: *MXRecord, allocator: Allocator) ![]const u8 {
+    pub fn get_mx_domain(self: *MXRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]const u8 {
         const domain_start = self.get_data()[14..];
         return try decode_name(self.layer.get_data(), domain_start, allocator);
     }
@@ -473,7 +473,7 @@ pub const PTRRecord = struct {
         return self.layer.get_data()[self.offset .. self.offset + self.length];
     }
 
-    pub fn get_name(self: *PTRRecord, allocator: Allocator) ![]u8 {
+    pub fn get_name(self: *PTRRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         return try decode_name(self.layer.get_data(), self.get_data()[12..], allocator);
     }
 
@@ -499,12 +499,12 @@ pub const SOARecord = struct {
         return self.layer.get_data()[self.offset .. self.offset + self.length];
     }
 
-    pub fn get_name(self: *SOARecord, allocator: Allocator) ![]u8 {
+    pub fn get_name(self: *SOARecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         return try decode_name(self.layer.get_data(), self.get_data()[12..], allocator);
     }
 
     /// Primary Name Server
-    pub fn get_mname(self: *SOARecord, allocator: Allocator) ![]u8 {
+    pub fn get_mname(self: *SOARecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         var offset: usize = 0;
 
         _ = try DNS.DNSLayer.decode_name(self.get_data(), &offset);
@@ -519,7 +519,7 @@ pub const SOARecord = struct {
     }
 
     /// Responsible Authorities Mailbox
-    pub fn get_rname(self: *SOARecord, allocator: Allocator) ![]u8 {
+    pub fn get_rname(self: *SOARecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         var offset: usize = 0;
 
         _ = try DNS.DNSLayer.decode_name(self.get_data(), &offset);
@@ -529,7 +529,7 @@ pub const SOARecord = struct {
         _ = try DNS.DNSLayer.decode_name(self.get_data(), &offset);
 
         if (self.get_data().len < offset) {
-            return "";
+            return ""; // return error instead
         }
 
         return try decode_name(self.layer.get_data(), self.get_data()[offset..], allocator);
@@ -756,7 +756,7 @@ pub const SOARecord = struct {
     }
 };
 
-pub fn advance_past_name(slice: []const u8, offset: *usize) !void {
+pub fn advance_past_name(slice: []const u8, offset: *usize) (DNSLayer.DNSParseError)!void {
     while (offset.* < slice.len) {
         const byte = slice[offset.*];
         if (byte == 0) {
@@ -786,7 +786,7 @@ pub fn advance_past_name(slice: []const u8, offset: *usize) !void {
 
 // MIN TTL - 4 bytes / u32
 
-pub fn decode_name(layer_data: []const u8, record_data: []const u8, allocator: Allocator) ![]u8 {
+pub fn decode_name(layer_data: []const u8, record_data: []const u8, allocator: Allocator) (DNS.DNSLayer.DNSParseError || Allocator.Error)![]u8 {
     const full_packet = layer_data; // get the entire dns layers data - this is required for pointer jumps
     const rdata = record_data;
 
@@ -843,7 +843,7 @@ pub fn decode_name(layer_data: []const u8, record_data: []const u8, allocator: A
     return list.toOwnedSlice(allocator);
 }
 
-fn decodeNameFromAbsolute(allocator: Allocator, full_packet: []const u8, start_offset: usize) ![]u8 {
+fn decodeNameFromAbsolute(allocator: Allocator, full_packet: []const u8, start_offset: usize) (DNS.DNSLayer.DNSParseError || Allocator.Error)![]u8 {
     var list = try std.ArrayList(u8).initCapacity(allocator, full_packet.len);
     defer list.deinit(allocator);
 
@@ -887,7 +887,7 @@ fn decodeNameFromAbsolute(allocator: Allocator, full_packet: []const u8, start_o
     return list.toOwnedSlice(allocator);
 }
 
-pub fn encodeQname(allocator: Allocator, domain: []const u8, compression_dict: ?std.StringHashMap(u16)) ![]u8 {
+pub fn encodeQname(allocator: Allocator, domain: []const u8, compression_dict: ?std.StringHashMap(u16)) (DNS.DNSLayer.DNSParseError || Allocator.Error)![]u8 {
     var list = try std.ArrayList(u8).initCapacity(allocator, domain.len + 2); // +2 for root and null
     defer list.deinit(allocator);
 
@@ -941,7 +941,7 @@ pub fn encodeQname(allocator: Allocator, domain: []const u8, compression_dict: ?
 }
 
 // Simplified version without compression
-pub fn encodeQnameSimple(allocator: Allocator, domain: []const u8) ![]u8 {
+pub fn encodeQnameSimple(allocator: Allocator, domain: []const u8) (DNS.DNSLayer.DNSParseError || Allocator.Error)![]u8 {
     var list = try std.ArrayList(u8).initCapacity(allocator, domain.len + 2);
     defer list.deinit(allocator);
 
@@ -963,7 +963,7 @@ pub fn encodeQnameSimple(allocator: Allocator, domain: []const u8) ![]u8 {
 }
 
 // Version that builds compression dictionary while encoding multiple names
-pub fn buildCompressionDict(allocator: Allocator, domains: []const []const u8) !std.StringHashMap(u16) {
+pub fn buildCompressionDict(allocator: Allocator, domains: []const []const u8) (DNSLayer.DNSParseError || Allocator.Error)!std.StringHashMap(u16) {
     var dict = std.StringHashMap(u16).init(allocator);
     errdefer dict.deinit();
 

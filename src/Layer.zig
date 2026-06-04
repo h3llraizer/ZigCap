@@ -34,7 +34,7 @@ pub const LayerOwner = union(enum) {
     }
 
     // TODO: Rename to extend_layer
-    pub fn extend_payload(self: *LayerOwner, offset: usize, extend_len: usize) ![]u8 {
+    pub fn extend_payload(self: *LayerOwner, offset: usize, extend_len: usize) Allocator.Error![]u8 {
         var buf: []u8 = undefined;
         switch (self.*) {
             .packet_layer => |layer| {
@@ -51,7 +51,7 @@ pub const LayerOwner = union(enum) {
     }
 
     // TODO: Rename to shorten_layer
-    pub fn shorten_payload(self: *LayerOwner, offset: usize, shorten_len: usize) !void {
+    pub fn shorten_payload(self: *LayerOwner, offset: usize, shorten_len: usize) Allocator.Error!void {
         switch (self.*) {
             .packet_layer => |layer| {
                 try layer.packet.shorten_layer(layer, offset, shorten_len);
@@ -96,7 +96,7 @@ pub const TLVOwner = union(enum) {
         };
     }
 
-    pub fn extend_buffer(self: *TLVOwner, offset: usize, extend_len: usize) ![]u8 {
+    pub fn extend_buffer(self: *TLVOwner, offset: usize, extend_len: usize) Allocator.Error![]u8 {
         var buf: []u8 = undefined;
         switch (self.*) {
             .layer => |layer| {
@@ -112,7 +112,7 @@ pub const TLVOwner = union(enum) {
         return buf;
     }
 
-    pub fn shorten_buffer(self: *TLVOwner, offset: usize, shorten_len: usize) !void {
+    pub fn shorten_buffer(self: *TLVOwner, offset: usize, shorten_len: usize) Allocator.Error!void {
         switch (self.*) {
             .layer => |layer| {
                 try layer.shorten_payload(offset, shorten_len);

@@ -362,7 +362,7 @@ pub const ARPLayer = struct {
     }
 
     /// return the next layer protocol type (ARP doesn't have a next layer)
-    pub fn get_next_layer_type(self: *ARPLayer, layer: *Layer) !?LayerIface {
+    pub fn get_next_layer_type(self: *ARPLayer, layer: *Layer) LayerError!?LayerIface {
         _ = self;
         _ = layer;
         return null;
