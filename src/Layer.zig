@@ -33,7 +33,6 @@ pub const LayerOwner = union(enum) {
         }
     }
 
-    // TODO: Rename to extend_layer
     pub fn extend_layer(self: *LayerOwner, offset: usize, extend_len: usize) Allocator.Error![]u8 {
         var buf: []u8 = undefined;
         switch (self.*) {
@@ -50,7 +49,6 @@ pub const LayerOwner = union(enum) {
         return buf;
     }
 
-    // TODO: Rename to shorten_layer
     pub fn shorten_layer(self: *LayerOwner, offset: usize, shorten_len: usize) Allocator.Error!void {
         switch (self.*) {
             .packet_layer => |layer| {

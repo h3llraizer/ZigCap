@@ -7,6 +7,8 @@ pub const IPProtocol = enum(u8) {
     IGMP = 2,
     TCP = 6,
     UDP = 17,
+    ESP = 50,
+    AH = 51,
     ICMPv6 = 58,
     Unknown = 0,
 };

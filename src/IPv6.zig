@@ -21,10 +21,9 @@ const ApplicationLayer = GenericLayer.ApplicationLayer;
 
 pub const NextHeader = IPv6Ext.NextHeader;
 pub const ExtensionHeader = IPv6Ext.ExtensionHeader;
-pub const HobByHop = IPv6Ext.HopByHop;
-pub const DestinationOpts = IPv6Ext.DestinationOpts;
-pub const OptionType = IPv6Ext.OptionType;
 pub const ExtensionHeaders = IPv6Ext.ExtensionHeaders;
+
+pub const IPv6Extensions = IPv6Ext;
 
 pub const IPv6HeaderSize = 40;
 
@@ -114,7 +113,7 @@ pub const IPv6Header = extern struct {
         return IPv6Header{
             .version_traffic_flow = .{ 0x60, 0x0, 0x0, 0x0 },
             .payload_length = 0,
-            .next_header = 0x3B,
+            .next_header = @intFromEnum(NextHeader.NoNext),
             .hop_limit = 64,
             .src_ip = .{0} ** 16,
             .dst_ip = .{0} ** 16,
@@ -577,10 +576,6 @@ pub const IPv6Layer = struct {
         self.get_mutable_header().set_payload_length(payload_len - @as(u16, @intCast(ext_len)));
     }
 
-    pub fn get_ext_buf(self: *IPv6Layer) []const u8 {
-        return self.get_data()[IPv6HeaderSize..];
-    }
-
     /// order IPv6 extensions in the RFC8200 recommended order.
     /// Ref: https://www.ietf.org/rfc/inline-errata/rfc8200.html 4.1
     //   pub fn order_exts(self: *IPv6Layer) void {
@@ -592,18 +587,64 @@ pub const IPv6Layer = struct {
         return;
     }
 
-    pub fn get_ip_proto_type(self: *IPv6Layer) IPProtocol {
-        const next = self.get_meta();
-        return std.enums.fromInt(IPProtocol, next.ip_proto) orelse return error.UnknownIPProto;
-        //return try std.meta.intToEnum(IPProtocol, hdr.next_header);
+    pub fn get_ip_protocol(self: *const IPv6Layer) IPProtocol {
+        const nh: NextHeader = @enumFromInt(self.get_immutable_header().next_header);
+
+        print("nh: {any}\n", .{nh});
+
+        if (nh != NextHeader.NoNext) {
+            switch (nh) {
+                .ICMP => return IPProtocol.ICMP,
+                .IGMP => return IPProtocol.IGMP,
+                .TCP => return IPProtocol.TCP,
+                .UDP => return IPProtocol.UDP,
+                .ICMPv6 => return IPProtocol.ICMPv6,
+                .ESP => return IPProtocol.ESP,
+                .AH => return IPProtocol.AH,
+
+                else => {},
+            }
+        }
+
+        const data: []const u8 = self.get_data();
+
+        const len: usize = if (self.owner.is_packet_owned()) self.owner.packet_layer.length else data.len;
+
+        if (len > IPv6HeaderSize) {
+            var offset: usize = IPv6HeaderSize;
+
+            while (offset < len) {
+                const next_hdr = data[offset];
+
+                switch (next_hdr) {
+                    @intFromEnum(NextHeader.ICMP) => return IPProtocol.ICMP,
+                    @intFromEnum(NextHeader.IGMP) => return IPProtocol.IGMP,
+                    @intFromEnum(NextHeader.TCP) => return IPProtocol.TCP,
+                    @intFromEnum(NextHeader.UDP) => return IPProtocol.UDP,
+                    @intFromEnum(NextHeader.ICMPv6) => return IPProtocol.ICMPv6,
+                    @intFromEnum(NextHeader.ESP) => return IPProtocol.ESP,
+                    @intFromEnum(NextHeader.AH) => return IPProtocol.AH,
+
+                    else => {},
+                }
+
+                if (offset + 8 <= len) {
+                    offset += 8;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        return IPProtocol.Unknown;
     }
 
     pub fn get_next_layer_type(self: *const IPv6Layer, layer: *Packet.Layer) LayerError!?LayerIface {
         const data = self.get_data();
 
-        if (data.len < @sizeOf(IPv6Header)) return error.BufferTooSmall;
+        if (data.len < IPv6HeaderSize) return LayerError.BufferTooSmall;
 
-        const ip_proto = self.get_meta().ip_proto;
+        const ip_proto = self.get_ip_protocol();
 
         switch (ip_proto) {
             .ICMP => {
