@@ -1,5 +1,4 @@
 const std = @import("std");
-const WirePacket = @import("WirePacket.zig").WirePacket;
 const IPv4Address = @import("IPv4.zig").IPv4Address;
 const IPv6Address = @import("IPv6.zig").IPv6Address;
 
