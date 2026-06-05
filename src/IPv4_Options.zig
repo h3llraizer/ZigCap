@@ -1,5 +1,5 @@
 const std = @import("std");
-const TLVOwner = @import("Layer.zig").TLVOwner;
+const TLVOwner = @import("Owner.zig").TLVOwner;
 const IPv4 = @import("IPv4.zig");
 
 const print = std.debug.print;

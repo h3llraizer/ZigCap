@@ -6,8 +6,8 @@ const expect = std.testing.expect;
 
 const Packet = zigcap.Packet.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
-const LayerOwner = zigcap.Layer.LayerOwner;
-const TLVOwner = zigcap.Layer.TLVOwner;
+const LayerOwner = zigcap.Owner.LayerOwner;
+const TLVOwner = zigcap.Owner.TLVOwner;
 const LayerIface = zigcap.LayerIface;
 const IPv4 = zigcap.IPv4;
 const Eth = zigcap.Eth;

@@ -8,15 +8,15 @@ const TCP = @import("TCP.zig");
 const UDP = @import("UDP.zig");
 const GenericLayer = @import("GenericLayer.zig");
 const Packet = @import("Packet.zig");
-const Layer = @import("Layer.zig");
+const Owner = @import("Owner.zig");
 const IPv6Ext = @import("IPv6_Ext.zig");
 
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 const panic = std.debug.panic;
 
-const LayerOwner = Layer.LayerOwner;
-const TLVOwner = Layer.TLVOwner;
+const LayerOwner = Owner.LayerOwner;
+const TLVOwner = Owner.TLVOwner;
 const ApplicationLayer = GenericLayer.ApplicationLayer;
 
 pub const NextHeader = IPv6Ext.NextHeader;

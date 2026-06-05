@@ -1,6 +1,6 @@
 const std = @import("std");
 const IPv6 = @import("IPv6.zig");
-const TLVOwner = @import("Layer.zig").TLVOwner;
+const TLVOwner = @import("Owner.zig").TLVOwner;
 
 const Allocator = std.mem.Allocator;
 const panic = std.debug.panic;

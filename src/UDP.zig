@@ -6,7 +6,7 @@ const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const ProtocolEnums = @import("ProtocolEnums.zig");
 
 const Packet = @import("Packet.zig");
-const LayerOwner = @import("Layer.zig").LayerOwner;
+const LayerOwner = @import("Owner.zig").LayerOwner;
 const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
 const LayerIface = @import("LayerIface.zig").LayerIface;
 

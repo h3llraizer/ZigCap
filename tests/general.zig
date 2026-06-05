@@ -1,7 +1,7 @@
 const std = @import("std");
 const zigcap = @import("zigcap");
 
-const LayerOwner = zigcap.Layer.LayerOwner;
+const LayerOwner = zigcap.Owner.LayerOwner;
 const LayerIface = zigcap.LayerIface;
 const Eth = zigcap.Eth;
 const IPv4 = zigcap.IPv4;

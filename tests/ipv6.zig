@@ -9,7 +9,7 @@ const ProtocolEnums = zigcap.ProtocolEnums;
 const link_layer_type = ProtocolEnums.link_layer_type;
 const IPProtocol = ProtocolEnums.IPProtocol;
 const tcp_ip_protocol = zigcap.tcp_ip_protocol;
-const LayerOwner = zigcap.Layer.LayerOwner;
+const LayerOwner = zigcap.Owner.LayerOwner;
 const LayerIface = zigcap.LayerIface;
 
 const IPv6 = zigcap.IPv6;

@@ -8,7 +8,7 @@ const DNS = zigcap.DNS;
 const IPv4 = zigcap.IPv4;
 const Packet = zigcap.Packet.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
-const LayerOwner = zigcap.Layer.LayerOwner;
+const LayerOwner = zigcap.Owner.LayerOwner;
 const LayerIface = zigcap.LayerIface;
 
 fn add_query(domain: []const u8, dns_layer_iface: *LayerIface) !void {

@@ -6,7 +6,7 @@ const LayerIface = @import("LayerIface.zig").LayerIface;
 const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
 const ARP = @import("ARP.zig");
-const Layer = @import("Layer.zig");
+const Owner = @import("Owner.zig");
 const GenericLayer = @import("GenericLayer.zig");
 const VLAN = @import("VLAN.zig");
 
@@ -16,7 +16,7 @@ const panic = std.debug.panic;
 const IPv4Header = IPv4.IPv4Header;
 const LayerError = ProtocolEnums.LayerError;
 const IPVersion = ProtocolEnums.IPVersions;
-const LayerOwner = Layer.LayerOwner;
+const LayerOwner = Owner.LayerOwner;
 const IPv6HeaderSize = IPv6HeaderSize;
 
 pub const EthType = enum(u16) {

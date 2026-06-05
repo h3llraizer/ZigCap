@@ -9,11 +9,13 @@ const ProtocolEnums = zigcap.ProtocolEnums;
 const link_layer_type = ProtocolEnums.link_layer_type;
 const IPProtocol = ProtocolEnums.IPProtocol;
 const tcp_ip_protocol = zigcap.tcp_ip_protocol;
-const LayerOwner = zigcap.Layer.LayerOwner;
-const TLVOwner = zigcap.Layer.TLVOwner;
+const LayerOwner = zigcap.Owner.LayerOwner;
+const TLVOwner = zigcap.Owner.TLVOwner;
 const LayerIface = zigcap.LayerIface;
 
 const IPv6 = zigcap.IPv6;
+const IPv6Extensions = IPv6.IPv6Extensions;
+
 const UDP = zigcap.UDP;
 
 test "hop-by-hop" {
@@ -24,7 +26,7 @@ test "hop-by-hop" {
 
     const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
 
-    var hbh: IPv6.HobByHop = try IPv6.HobByHop.init(tlv_owner);
+    var hbh: IPv6Extensions.HopByHop = try IPv6Extensions.HopByHop.init(tlv_owner);
     defer hbh.deinit();
 
     try expect(hbh.get_data().len == 8);
@@ -73,6 +75,10 @@ test "hop-by-hop" {
 
     try ipv6_layer.remove_extension(extensions.first.?);
 
+    _ = ipv6_layer.get_ip_protocol();
+
+    print("IPProtocol: {any}\n", .{ipv6_layer.get_ip_protocol()});
+
     //print("ipv6 layer: ({}) {x}\n", .{ ipv6_layer.get_data().len, ipv6_layer.get_data() });
 }
 
@@ -84,7 +90,7 @@ test "hop-by-hop & destination opts" {
 
     const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
 
-    var hbh: IPv6.HobByHop = try IPv6.HobByHop.init(tlv_owner);
+    var hbh: IPv6Extensions.HopByHop = try IPv6Extensions.HopByHop.init(tlv_owner);
     defer hbh.deinit();
 
     try expect(hbh.get_data().len == 8);
@@ -105,7 +111,7 @@ test "hop-by-hop & destination opts" {
 
     try expect(hbh.get_pad_len() == 0);
 
-    var dest_opts: IPv6.DestinationOpts = try IPv6.DestinationOpts.init(tlv_owner);
+    var dest_opts: IPv6Extensions.DestinationOpts = try IPv6Extensions.DestinationOpts.init(tlv_owner);
     defer dest_opts.deinit();
 
     try expect(dest_opts.get_data().len == 8);
@@ -181,7 +187,7 @@ test "hop-by-hop & destination opts in packet" {
 
     const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
 
-    var hbh: IPv6.HobByHop = try IPv6.HobByHop.init(tlv_owner);
+    var hbh: IPv6Extensions.HopByHop = try IPv6Extensions.HopByHop.init(tlv_owner);
     defer hbh.deinit();
 
     try expect(hbh.get_data().len == 8);
@@ -202,7 +208,7 @@ test "hop-by-hop & destination opts in packet" {
 
     try expect(hbh.get_pad_len() == 0);
 
-    var dest_opts: IPv6.DestinationOpts = try IPv6.DestinationOpts.init(tlv_owner);
+    var dest_opts: IPv6Extensions.DestinationOpts = try IPv6Extensions.DestinationOpts.init(tlv_owner);
     defer dest_opts.deinit();
 
     try expect(dest_opts.get_data().len == 8);
@@ -242,22 +248,17 @@ test "hop-by-hop & destination opts in packet" {
         return;
     };
 
-    ipv6_layer.get_mutable_header().next_header = @intFromEnum(IPv6.NextHeader.UDP);
+    ipv6_layer.get_mutable_header().set_next_header(IPv6.NextHeader.UDP);
 
     try expect(@as(IPv6.NextHeader, @enumFromInt(ipv6_layer.get_immutable_header().next_header)) == .UDP);
+
+    try expect(ipv6_layer.get_ip_protocol() == .UDP);
 
     var hbh_ext = IPv6.ExtensionHeader{ .hop_by_hop = hbh };
 
     var dest_opts_ext = IPv6.ExtensionHeader{ .dest_opts = dest_opts };
 
     try ipv6_layer.add_extension(&hbh_ext);
-
-    var ext_buf = ipv6_layer.get_ext_buf();
-    var idx: usize = 0;
-    for (ext_buf) |byte| {
-        _ = byte;
-        idx += 1;
-    }
 
     try ipv6_layer.add_extension(&dest_opts_ext);
 
@@ -285,14 +286,6 @@ test "hop-by-hop & destination opts in packet" {
         count += 1;
         cur = ext.get_next();
     }
-
-    ext_buf = ipv6_layer.get_ext_buf();
-    idx = 0;
-    for (ext_buf) |byte| {
-        _ = byte;
-        idx += 1;
-    }
-
     var d: [8]u8 = .{0x00} ** 8;
 
     @memmove(&d, extensions.first.?.get_data());
@@ -320,6 +313,8 @@ test "hop-by-hop & destination opts in packet" {
     //try ipv6_layer.remove_extension(extensions.first.?.get_next().?);
 
     //   //print(" ------ END ------ \n", .{});
+
+    print("{any}\n", .{ipv6_layer_iface.ipv6Layer.get_ip_protocol()});
 }
 
 test "ipv6 esp" {
@@ -341,6 +336,8 @@ test "ipv6 esp" {
     defer ipv6_layer_iface.deinit();
 
     const ipv6_header: *const IPv6.IPv6Header = ipv6_layer_iface.ipv6Layer.get_immutable_header();
+
+    print("IPProtocol: {any}\n", .{ipv6_layer_iface.ipv6Layer.get_ip_protocol()});
 
     try expect(ipv6_header.get_version() == 6);
 
@@ -399,4 +396,6 @@ test "ipv6 esp" {
 
     try expect(std.mem.eql(u8, &ipv6_h.get_src_ip().array, &expected_src_ip.array));
     try expect(std.mem.eql(u8, &ipv6_h.get_dst_ip().array, &expected_dst_ip.array));
+
+    print("{any}\n", .{ipv6_layer_iface.ipv6Layer.get_ip_protocol()});
 }

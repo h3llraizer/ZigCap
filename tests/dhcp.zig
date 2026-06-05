@@ -4,7 +4,7 @@ const expect = std.testing.expect;
 
 const zigcap = @import("zigcap");
 
-const LayerOwner = zigcap.Layer.LayerOwner;
+const LayerOwner = zigcap.Owner.LayerOwner;
 const LayerIface = zigcap.LayerIface;
 const DHCP = zigcap.DHCP;
 const Eth = zigcap.Eth;

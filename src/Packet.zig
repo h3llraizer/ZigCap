@@ -7,7 +7,7 @@ const Loopback = @import("Loopback.zig");
 const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
 const GenericLayer = @import("GenericLayer.zig");
-const LayerOwner = @import("Layer.zig").LayerOwner;
+const LayerOwner = @import("Owner.zig").LayerOwner;
 const Buffer = @import("Buffer.zig").Buffer;
 
 const print = std.debug.print;

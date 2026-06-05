@@ -6,7 +6,7 @@ const zigcap = @import("zigcap");
 
 const Packet = zigcap.Packet.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
-const LayerOwner = zigcap.Layer.LayerOwner;
+const LayerOwner = zigcap.Owner.LayerOwner;
 const LayerIface = zigcap.LayerIface;
 const ARP = zigcap.ARP;
 const IPv4 = zigcap.IPv4;

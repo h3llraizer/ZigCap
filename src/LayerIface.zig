@@ -16,7 +16,7 @@ const VLAN = @import("VLAN.zig");
 const IGMP = @import("IGMP.zig");
 const LayerError = @import("ProtocolEnums.zig").LayerError;
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
-const LayerOwner = @import("Layer.zig").LayerOwner;
+const LayerOwner = @import("Owner.zig").LayerOwner;
 
 const Allocator = std.mem.Allocator;
 

@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const TLVOwner = @import("Layer.zig").TLVOwner;
+const TLVOwner = @import("Owner.zig").TLVOwner;
 
 /// Note: TCP option 0x1c is officially assigned to UTO (RFC 5482).
 /// Some legacy SCPS implementations also used this value unofficially.
