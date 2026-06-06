@@ -16,7 +16,6 @@ const UDP = zigcap.UDP;
 const IPProtocol = zigcap.ProtocolEnums.IPProtocol;
 
 test "build rr opt" {
-    //print("\nTESTING RR OPTION.\n", .{});
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.detectLeaks();
 

@@ -2,6 +2,7 @@ const std = @import("std");
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerError = @import("ProtocolEnums.zig").LayerError;
 const LayerIface = @import("LayerIface.zig").LayerIface;
+const init_layer = @import("LayerIface.zig").init_layer;
 const IPProtocol = @import("ProtocolEnums.zig").IPProtocol;
 const ICMP = @import("ICMP.zig");
 const TCP = @import("TCP.zig");
@@ -26,6 +27,15 @@ pub const ExtensionHeaders = IPv6Ext.ExtensionHeaders;
 pub const IPv6Extensions = IPv6Ext;
 
 pub const IPv6HeaderSize = 40;
+
+const default_hdr = IPv6Header{
+    .version_traffic_flow = .{ 0x60, 0x0, 0x0, 0x0 },
+    .payload_length = 0,
+    .next_header = @intFromEnum(NextHeader.NoNext),
+    .hop_limit = 64,
+    .src_ip = .{0} ** 16,
+    .dst_ip = .{0} ** 16,
+};
 
 // IPv6 Header
 pub const IPv6Header = extern struct {
@@ -133,28 +143,7 @@ pub const IPv6Layer = struct {
     owner: LayerOwner,
 
     pub fn init(owner: LayerOwner) LayerError!IPv6Layer {
-        switch (owner) {
-            .packet_layer => {
-                return IPv6Layer{
-                    .owner = owner,
-                };
-            },
-            .owned_buffer => {
-                var self = IPv6Layer{ .owner = owner };
-                const buffer_len = self.owner.owned_buffer.buffer.items.len;
-                if (buffer_len < IPv6HeaderSize) {
-                    const ipv6_data = try self.owner.owned_buffer.extend(buffer_len, IPv6HeaderSize);
-
-                    @memset(ipv6_data, 0);
-
-                    var header = IPv6Header.init_default();
-
-                    @memmove(ipv6_data[0..IPv6HeaderSize], std.mem.asBytes(&header));
-                }
-
-                return self;
-            },
-        }
+        return try init_layer(IPv6Layer, owner, IPv6Header, default_hdr);
     }
 
     pub fn get_mutable_header(self: *IPv6Layer) *IPv6Header {
@@ -589,8 +578,6 @@ pub const IPv6Layer = struct {
 
     pub fn get_ip_protocol(self: *const IPv6Layer) IPProtocol {
         const nh: NextHeader = @enumFromInt(self.get_immutable_header().next_header);
-
-        print("nh: {any}\n", .{nh});
 
         if (nh != NextHeader.NoNext) {
             switch (nh) {

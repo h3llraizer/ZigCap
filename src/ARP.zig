@@ -5,6 +5,7 @@ const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerOwner = @import("Owner.zig").LayerOwner;
 const LayerError = @import("ProtocolEnums.zig").LayerError;
 const LayerIface = @import("LayerIface.zig").LayerIface;
+const init_layer = @import("LayerIface.zig").init_layer;
 const Layer = @import("Packet.zig").Layer;
 
 const Allocator = std.mem.Allocator;
@@ -42,6 +43,18 @@ pub const PTYPE = Eth.EthType;
 // https://www.iana.org/assignments/arp-parameters/arp-parameters.xhtml
 pub const HWTYPE = enum(u16) {
     Eth = 1,
+};
+
+const default_hdr = ARPHeader{
+    .hardware_type = @byteSwap(@intFromEnum(HWTYPE.Eth)),
+    .protocol_type = @byteSwap(@intFromEnum(PTYPE.IP)),
+    .hardware_size = 6,
+    .protocol_size = 4,
+    .opcode = 0,
+    .sender_mac = [_]u8{0} ** 6,
+    .sender_ip = [_]u8{0} ** 4,
+    .target_mac = [_]u8{0} ** 6,
+    .target_ip = [_]u8{0} ** 4,
 };
 
 // Use extern struct for exact 28-byte layout (standard ARP header)
@@ -195,28 +208,7 @@ pub const ARPLayer = struct {
     const Protocol = tcp_ip_protocol.arp;
 
     pub fn init(owner: LayerOwner) LayerError!ARPLayer {
-        switch (owner) {
-            .packet_layer => {
-                return ARPLayer{
-                    .owner = owner,
-                };
-            },
-            .owned_buffer => {
-                var self = ARPLayer{ .owner = owner };
-                const buffer_len = self.owner.owned_buffer.buffer.items.len;
-                if (buffer_len < ARPHeaderSize) {
-                    const arp_data = try self.owner.owned_buffer.extend(buffer_len, ARPHeaderSize);
-
-                    @memset(arp_data, 0);
-
-                    var header = ARPHeader.init_default();
-
-                    @memcpy(arp_data[0..ARPHeaderSize], std.mem.asBytes(&header));
-                }
-
-                return self;
-            },
-        }
+        return try init_layer(ARPLayer, owner, ARPHeader, default_hdr);
     }
 
     pub fn get_mutable_header(self: *ARPLayer) *ARPHeader {

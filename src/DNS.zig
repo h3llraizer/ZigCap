@@ -4,6 +4,7 @@ const LayerError = @import("ProtocolEnums.zig").LayerError;
 const LayerOwner = @import("Owner.zig").LayerOwner;
 const Layer = @import("Packet.zig").Layer;
 const LayerIface = @import("LayerIface.zig").LayerIface;
+const init_layer = @import("LayerIface.zig").init_layer;
 const Buffer = @import("Buffer.zig").Buffer;
 const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
@@ -84,6 +85,15 @@ pub const DNSHeaderFlags = packed struct {
 };
 
 pub const DNSHeaderSize: usize = 12;
+
+const default_hdr = DNSHeader{
+    .id = 0,
+    .flags = 0,
+    .qdcount = 0,
+    .ancount = 0,
+    .nscount = 0,
+    .arcount = 0,
+};
 
 /// Standard DNS Header.
 /// Setters take native values and byteswap before set
@@ -416,26 +426,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
     owner: LayerOwner,
 
     pub fn init(owner: LayerOwner) (LayerError || Allocator.Error)!DNSLayer {
-        switch (owner) {
-            .packet_layer => {
-                const self = DNSLayer{
-                    .owner = owner,
-                };
-
-                return self;
-            },
-            .owned_buffer => {
-                var self = DNSLayer{ .owner = owner };
-                const buffer_len = self.owner.owned_buffer.buffer.items.len;
-                if (buffer_len < DNSHeaderSize) {
-                    const dns_data = try self.owner.owned_buffer.extend(buffer_len, DNSHeaderSize);
-
-                    @memset(dns_data, 0);
-                }
-
-                return self;
-            },
-        }
+        return try init_layer(DNSLayer, owner, DNSHeader, default_hdr);
     }
 
     pub fn get_data(self: *const DNSLayer) []u8 {

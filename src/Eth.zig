@@ -3,6 +3,7 @@ const Packet = @import("Packet.zig");
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const ProtocolEnums = @import("ProtocolEnums.zig");
 const LayerIface = @import("LayerIface.zig").LayerIface;
+const init_layer = @import("LayerIface.zig").init_layer;
 const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
 const ARP = @import("ARP.zig");
@@ -52,6 +53,12 @@ pub const EthType = enum(u16) {
 };
 
 pub const EthHeaderSize = 14;
+
+const default_hdr = EthHeader{
+    .dst = [_]u8{0} ** 6,
+    .src = [_]u8{0} ** 6,
+    .eth_type = 0,
+};
 
 // Use extern struct for exact 14-byte layout (standard Ethernet header)
 pub const EthHeader = extern struct {
@@ -103,25 +110,7 @@ pub const EthLayer = struct {
     const Protocol = tcp_ip_protocol.eth;
 
     pub fn init(owner: LayerOwner) LayerError!EthLayer {
-        switch (owner) {
-            .packet_layer => {
-                return EthLayer{
-                    .owner = owner,
-                };
-            },
-            .owned_buffer => {
-                var self = EthLayer{ .owner = owner };
-                const buffer_len = self.owner.owned_buffer.buffer.items.len;
-                if (buffer_len < EthHeaderSize) {
-                    //print("buffer len: {}\n", .{buffer_len});
-                    const eth_data = try self.owner.owned_buffer.extend(buffer_len, EthHeaderSize);
-
-                    @memset(eth_data, 0);
-                }
-
-                return self;
-            },
-        }
+        return try init_layer(EthLayer, owner, EthHeader, default_hdr);
     }
 
     pub fn zero_hdr() []u8 {

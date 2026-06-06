@@ -68,4 +68,10 @@ pub const LayerError = error{
     EmptyPayload,
     InvalidOperation,
     LayerInvalid,
+    LayerMalformed,
+};
+
+pub const ParseError = error{
+    MisalignedBuffer,
+    BufferTooSmall,
 };

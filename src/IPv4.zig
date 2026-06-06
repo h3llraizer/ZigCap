@@ -8,6 +8,8 @@ const ICMP = @import("ICMP.zig");
 const LayerOwner = @import("Owner.zig").LayerOwner;
 const TLVOwner = @import("Owner.zig").TLVOwner;
 const LayerIface = @import("LayerIface.zig").LayerIface;
+const init_layer = @import("LayerIface.zig").init_layer;
+
 const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
 pub const IPv4_Options = @import("IPv4_Options.zig");
 pub const IPv4Options = IPv4_Options.IPv4Options;
@@ -25,7 +27,7 @@ pub const MaxHeaderLength = 60; //IPv4MinHeader Length
 pub const MinHeaderLength = 20; //IPv4 Max Header Length
 pub const HeaderAlignment = 4;
 
-const default_hdr = IPv4Header{
+pub const default_hdr = IPv4Header{
     .version_ihl = 0x45,
     .dscp_ecn = 0,
     .total_length = std.mem.nativeToBig(u16, MinHeaderLength),
@@ -209,28 +211,7 @@ pub const IPv4Layer = struct {
     owner: LayerOwner,
 
     pub fn init(owner: LayerOwner) LayerError!IPv4Layer {
-        switch (owner) {
-            .packet_layer => {
-                return IPv4Layer{
-                    .owner = owner,
-                };
-            },
-            .owned_buffer => {
-                var self = IPv4Layer{ .owner = owner };
-                const buffer_len = self.owner.owned_buffer.buffer.items.len;
-                if (buffer_len < MinHeaderLength) {
-                    const ipv4_data = try self.owner.owned_buffer.extend(buffer_len, MinHeaderLength);
-
-                    @memset(ipv4_data, 0);
-
-                    var header = IPv4Header.init_default();
-
-                    @memcpy(ipv4_data[0..MinHeaderLength], std.mem.asBytes(&header));
-                }
-
-                return self;
-            },
-        }
+        return try init_layer(IPv4Layer, owner, IPv4Header, default_hdr);
     }
 
     /// use this when you want to zero the header to default values.

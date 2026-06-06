@@ -9,6 +9,7 @@ const Packet = @import("Packet.zig");
 const LayerOwner = @import("Owner.zig").LayerOwner;
 const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
 const LayerIface = @import("LayerIface.zig").LayerIface;
+const init_layer = @import("LayerIface.zig").init_layer;
 
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
@@ -18,6 +19,13 @@ const panic = std.debug.panic;
 const LayerError = ProtocolEnums.LayerError;
 
 pub const UDPHeaderSize = 8;
+
+const default_hdr = UDPHeader{
+    .src_port = 0,
+    .dst_port = 0,
+    .length = std.mem.nativeToBig(u16, 8),
+    .checksum = 0,
+};
 
 // UDP Header structure (extern struct for exact layout)
 pub const UDPHeader = extern struct {
@@ -175,25 +183,7 @@ pub const UDPLayer = struct {
     const Protocol = tcp_ip_protocol.udp;
 
     pub fn init(owner: LayerOwner) LayerError!UDPLayer {
-        switch (owner) {
-            .packet_layer => {
-                return UDPLayer{
-                    .owner = owner,
-                };
-            },
-            .owned_buffer => {
-                var self = UDPLayer{ .owner = owner };
-                const buffer_len = self.owner.owned_buffer.buffer.items.len;
-                if (buffer_len < UDPHeaderSize) {
-                    const udp_data = try self.owner.owned_buffer.extend(buffer_len, UDPHeaderSize);
-                    @memset(udp_data, 0);
-                    var header = UDPHeader.init_default();
-                    @memcpy(udp_data[0..UDPHeaderSize], std.mem.asBytes(&header));
-                }
-
-                return self;
-            },
-        }
+        return try init_layer(UDPLayer, owner, UDPHeader, default_hdr);
     }
 
     pub fn zero_hdr() []u8 {

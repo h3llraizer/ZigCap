@@ -4,6 +4,7 @@ const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerError = @import("ProtocolEnums.zig").LayerError;
 const NullLinkType = @import("ProtocolEnums.zig").NullLinkType;
 const LayerIface = @import("LayerIface.zig").LayerIface;
+const init_layer = @import("LayerIface.zig").init_layer;
 const IPVersion = @import("ProtocolEnums.zig").IPVersions;
 const IPv4Layer = @import("IPv4.zig").IPv4Layer;
 const IPv4Header = @import("IPv4.zig").IPv4Header;
@@ -22,6 +23,10 @@ const IPv6HeaderSize = IPv6.IPv6HeaderSize;
 
 const LoopbackHeaderSize = 4;
 
+const default_hdr = LoopbackHeader{
+    .protocol_type = .{0x00} ** 4,
+};
+
 pub const LoopbackHeader = extern struct {
     protocol_type: [4]u8,
 
@@ -39,25 +44,7 @@ pub const LoopbackLayer = struct {
     const Protocol = tcp_ip_protocol.loopback;
 
     pub fn init(owner: LayerOwner) LayerError!LoopbackLayer {
-        switch (owner) {
-            .packet_layer => {
-                return LoopbackLayer{
-                    .owner = owner,
-                };
-            },
-            .owned_buffer => {
-                var self = LoopbackLayer{ .owner = owner };
-                const buffer_len = self.owner.owned_buffer.buffer.items.len;
-                if (buffer_len < LoopbackHeaderSize) {
-                    const diff = LoopbackHeaderSize - buffer_len;
-                    const lb_data = try self.owner.owned_buffer.extend(buffer_len, diff);
-
-                    @memset(lb_data, 0);
-                }
-
-                return self;
-            },
-        }
+        return try init_layer(LoopbackLayer, owner, LoopbackHeader, default_hdr);
     }
 
     fn get_mutable_header(self: *const LoopbackLayer) *LoopbackHeader {

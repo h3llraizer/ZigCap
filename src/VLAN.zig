@@ -3,6 +3,7 @@ const Packet = @import("Packet.zig");
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const ProtocolEnums = @import("ProtocolEnums.zig");
 const LayerIface = @import("LayerIface.zig").LayerIface;
+const init_layer = @import("LayerIface.zig").init_layer;
 const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
 const ARP = @import("ARP.zig");
@@ -21,6 +22,11 @@ const IPv6HeaderSize = IPv6.IPv6HeaderSize;
 const IPv4Header = IPv4.IPv4Header;
 
 const VlanHeaderSize = 4;
+
+const default_hdr = VlanHeader{
+    .tci = 0,
+    .tpi = 0,
+};
 
 pub const VlanHeader = extern struct {
     tci: u16, // Tag Control Information
@@ -61,24 +67,7 @@ pub const VlanLayer = struct {
     const Protocol = tcp_ip_protocol.vlan;
 
     pub fn init(owner: LayerOwner) LayerError!VlanLayer {
-        switch (owner) {
-            .packet_layer => {
-                return VlanLayer{
-                    .owner = owner,
-                };
-            },
-            .owned_buffer => {
-                var self = VlanLayer{ .owner = owner };
-                const buffer_len = self.owner.owned_buffer.buffer.items.len;
-                if (buffer_len < VlanHeaderSize) {
-                    const eth_data = try self.owner.owned_buffer.extend(buffer_len, VlanHeaderSize);
-
-                    @memset(eth_data, 0);
-                }
-
-                return self;
-            },
-        }
+        return try init_layer(VlanLayer, owner, VlanHeader, default_hdr);
     }
 
     pub fn zero_hdr() []u8 {

@@ -91,9 +91,9 @@ test "build ipv4 layer with Record Route option" {
 
     const allocator = debug_allocator.allocator();
 
-    var ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+    const ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
 
-    defer ipv4_layer_owner.owned_buffer.buffer.deinit(allocator);
+    //defer ipv4_layer_owner.owned_buffer.buffer.deinit(allocator);
 
     var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, ipv4_layer_owner);
     defer ipv4_layer_iface.deinit();

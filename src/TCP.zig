@@ -4,6 +4,7 @@ const ProtocolEnums = @import("ProtocolEnums.zig");
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerError = ProtocolEnums.LayerError;
 const LayerIface = @import("LayerIface.zig").LayerIface;
+const init_layer = @import("LayerIface.zig").init_layer;
 const LayerOwner = @import("Owner.zig").LayerOwner;
 const Packet = @import("Packet.zig");
 const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
@@ -18,6 +19,17 @@ pub const TCPOption = TCPOptions.TCPOption;
 pub const TCPHeaderMinSize = 20;
 pub const TCPHeaderMaxSize = 40;
 const HeaderAlignment = 4;
+
+const default_hdr = TCPHeader{
+    .src_port = 0,
+    .dst_port = 0,
+    .seq_num = [_]u8{0} ** 4,
+    .ack_num = [_]u8{0} ** 4,
+    .data_offset_reserved_flags = [_]u8{0} ** 2,
+    .window = 0,
+    .checksum = 0,
+    .urgent_ptr = 0,
+};
 
 const TCPFlags = packed struct {
     fin: u1,
@@ -251,28 +263,7 @@ pub const TCPLayer = struct {
 
     /// Creates layer from ptr to minimum 20 byte length buffer
     pub fn init(owner: LayerOwner) LayerError!TCPLayer {
-        switch (owner) {
-            .packet_layer => {
-                return TCPLayer{
-                    .owner = owner,
-                };
-            },
-            .owned_buffer => {
-                var self = TCPLayer{ .owner = owner };
-                const buffer_len = self.owner.owned_buffer.buffer.items.len;
-                if (buffer_len < TCPHeaderMinSize) {
-                    const tcp_data = try self.owner.owned_buffer.extend(buffer_len, TCPHeaderMinSize);
-
-                    @memset(tcp_data, 0);
-
-                    var header = TCPHeader.init_default();
-
-                    @memcpy(tcp_data[0..TCPHeaderMinSize], std.mem.asBytes(&header));
-                }
-
-                return self;
-            },
-        }
+        return try init_layer(TCPLayer, owner, TCPHeader, default_hdr);
     }
 
     /// Calculate the checksum of the TCPHeader - not yet implemented

@@ -20,6 +20,32 @@ const LayerOwner = @import("Owner.zig").LayerOwner;
 
 const Allocator = std.mem.Allocator;
 
+pub fn init_layer(concrete_type: anytype, owner: LayerOwner, header: anytype, default_hdr: anytype) !concrete_type {
+    switch (owner) {
+        .packet_layer => {
+            return concrete_type{
+                .owner = owner,
+            };
+        },
+        .owned_buffer => {
+            var self = concrete_type{ .owner = owner };
+            const buffer_len = owner.get_data().len;
+
+            if (buffer_len < @sizeOf(header)) {
+                const diff = @sizeOf(header) - buffer_len;
+
+                const ipv4_data = try self.owner.extend_layer(buffer_len, diff);
+
+                @memset(ipv4_data, 0);
+
+                @memcpy(ipv4_data[0..@sizeOf(header)], std.mem.asBytes(&default_hdr));
+            }
+
+            return self;
+        },
+    }
+}
+
 /// soon to be converted to a vtable style polymorphic interface to handle protocol plugins
 pub const LayerIface = union(enum) {
     ethLayer: Eth.EthLayer,

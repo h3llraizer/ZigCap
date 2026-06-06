@@ -1,6 +1,7 @@
 const std = @import("std");
 const ProtocolEnums = @import("ProtocolEnums.zig");
 const LayerIface = @import("LayerIface.zig").LayerIface;
+const init_layer = @import("LayerIface.zig").init_layer;
 const LayerOwner = @import("Owner.zig").LayerOwner;
 const Layer = @import("Packet.zig").Layer;
 const IPv4 = @import("IPv4.zig");
@@ -305,6 +306,11 @@ pub const ICMP_type = union(enum) {
     icmpInfo: *ICMPInfo,
     icmpAddrMask: *ICMPAddrMask,
     icmpSrcQuench: *ICMPSourceQuench,
+};
+const default_hdr = ICMPHeader{
+    .type = 0,
+    .code = 0,
+    .checksum = 0,
 };
 
 /// Acts as the base header for ICMP

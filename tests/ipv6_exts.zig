@@ -77,8 +77,6 @@ test "hop-by-hop" {
 
     _ = ipv6_layer.get_ip_protocol();
 
-    print("IPProtocol: {any}\n", .{ipv6_layer.get_ip_protocol()});
-
     //print("ipv6 layer: ({}) {x}\n", .{ ipv6_layer.get_data().len, ipv6_layer.get_data() });
 }
 
@@ -314,7 +312,6 @@ test "hop-by-hop & destination opts in packet" {
 
     //   //print(" ------ END ------ \n", .{});
 
-    print("{any}\n", .{ipv6_layer_iface.ipv6Layer.get_ip_protocol()});
 }
 
 test "ipv6 esp" {
@@ -336,8 +333,6 @@ test "ipv6 esp" {
     defer ipv6_layer_iface.deinit();
 
     const ipv6_header: *const IPv6.IPv6Header = ipv6_layer_iface.ipv6Layer.get_immutable_header();
-
-    print("IPProtocol: {any}\n", .{ipv6_layer_iface.ipv6Layer.get_ip_protocol()});
 
     try expect(ipv6_header.get_version() == 6);
 
@@ -396,6 +391,4 @@ test "ipv6 esp" {
 
     try expect(std.mem.eql(u8, &ipv6_h.get_src_ip().array, &expected_src_ip.array));
     try expect(std.mem.eql(u8, &ipv6_h.get_dst_ip().array, &expected_dst_ip.array));
-
-    print("{any}\n", .{ipv6_layer_iface.ipv6Layer.get_ip_protocol()});
 }

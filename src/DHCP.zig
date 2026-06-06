@@ -4,6 +4,7 @@ const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerOwner = @import("Owner.zig").LayerOwner;
 const LayerError = @import("ProtocolEnums.zig").LayerError;
 const LayerIface = @import("LayerIface.zig").LayerIface;
+const init_layer = @import("LayerIface.zig").init_layer;
 const Layer = @import("Packet.zig").Layer;
 const IPv4Address = @import("IPv4.zig").IPv4Address;
 const Eth = @import("Eth.zig");
@@ -313,6 +314,24 @@ pub const DHCPError = error{
     ServerNameTooLong,
 };
 
+const default_hdr = DHCPHeader{
+    .op = @intFromEnum(OPCode.BootRequest),
+    .htype = 1, // Ethernet
+    .hlen = 6, // MAC address length
+    .hops = 0,
+    .xid = [_]u8{0} ** 4,
+    .secs = 0,
+    .flags = 0,
+    .ciaddr = [_]u8{0} ** 4,
+    .yiaddr = [_]u8{0} ** 4,
+    .siaddr = [_]u8{0} ** 4,
+    .giaddr = [_]u8{0} ** 4,
+    .chaddr = [_]u8{0} ** 16,
+    .sname = [_]u8{0} ** 64,
+    .file = [_]u8{0} ** 128,
+    .magic_cookie = std.mem.toBytes(@byteSwap(@as(u32, 0x63825363))),
+};
+
 pub const DHCPHeader = extern struct {
     op: u8, // Message op code / message type
     htype: u8, // Hardware address type
@@ -533,28 +552,7 @@ pub const DHCPLayer = struct {
     const Protocol = tcp_ip_protocol.dhcp;
 
     pub fn init(owner: LayerOwner) (LayerError || Allocator.Error)!DHCPLayer {
-        switch (owner) {
-            .packet_layer => {
-                return DHCPLayer{
-                    .owner = owner,
-                };
-            },
-            .owned_buffer => {
-                var self = DHCPLayer{ .owner = owner };
-                const buffer_len = self.owner.owned_buffer.buffer.items.len;
-                if (buffer_len < DHCPHeaderSize) {
-                    const dhcp_data = try self.owner.owned_buffer.extend(buffer_len, DHCPHeaderSize);
-
-                    @memset(dhcp_data, 0);
-
-                    var header = DHCPHeader.init_default();
-
-                    @memcpy(dhcp_data[0..DHCPHeaderSize], std.mem.asBytes(&header));
-                }
-
-                return self;
-            },
-        }
+        return try init_layer(DHCPLayer, owner, DHCPHeader, default_hdr);
     }
 
     pub fn get_mutable_header(self: *DHCPLayer) *DHCPHeader {
