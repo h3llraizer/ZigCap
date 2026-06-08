@@ -58,9 +58,6 @@ pub const ApplicationLayer = struct {
     }
 
     pub fn delete_payload_data(self: *ApplicationLayer) Allocator.Error!void {
-
-        //        const raw_len = raw_data.get_immutable().len;
-
         switch (self.owner) {
             .packet_layer => |layer| {
                 try layer.packet.shorten_layer(layer, 0, self.get_data().len);
@@ -76,11 +73,38 @@ pub const ApplicationLayer = struct {
         _ = self;
     }
 
+    fn return_raw(bytes: []const u8, allocator: Allocator) ![]const u8 {
+        const new_lines = bytes.len / 16;
+
+        var buf = try allocator.alloc(u8, bytes.len + new_lines);
+
+        var idx: usize = 0;
+
+        for (bytes, 0..) |byte, i| {
+            buf[idx] =
+                if (byte >= 32 and byte <= 126)
+                    byte
+                else
+                    '.';
+            idx += 1;
+
+            if ((i + 1) % 16 == 0) {
+                buf[idx] = '\n';
+                idx += 1;
+            }
+        }
+
+        return buf[0..idx];
+    }
+
     pub fn to_string(self: *const ApplicationLayer, allocator: Allocator) []const u8 {
         const data = self.get_data();
-        return std.fmt.allocPrint(allocator, "Application Layer: {s}\n", .{
-            data,
-        }) catch return "";
+
+        const str = return_raw(data, allocator) catch {
+            return "Error executing to_string.\n";
+        };
+
+        return str;
     }
 
     pub fn get_protocol(self: *ApplicationLayer) tcp_ip_protocol {

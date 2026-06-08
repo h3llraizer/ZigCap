@@ -39,7 +39,7 @@ test "build independant vlan layer" {
 
     const tmp = LayerOwner{ .owned_buffer = .init_empty(allocator) };
 
-    var vlan_iface: LayerIface = try LayerIface.init(VLAN.VlanLayer, tmp);
+    var vlan_iface: LayerIface = try LayerIface.init(VLAN.VLANLayer, tmp);
     defer vlan_iface.deinit();
 
     var vlan_hdr = vlan_iface.vlanLayer.get_mutable_header();

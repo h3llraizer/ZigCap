@@ -255,7 +255,7 @@ pub const EthLayer = struct {
                 return try LayerIface.init(ARP.ARPLayer, LayerOwner{ .packet_layer = layer });
             },
             EthType.VLAN => {
-                return try LayerIface.init(VLAN.VlanLayer, LayerOwner{ .packet_layer = layer });
+                return try LayerIface.init(VLAN.VLANLayer, LayerOwner{ .packet_layer = layer });
             },
             else => {
                 print("couldn't get Eth {any} protocol.\n", .{eth_type});

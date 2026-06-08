@@ -1,9 +1,6 @@
 const std = @import("std");
 const zigcap = @import("zigcap");
 
-const print = std.debug.print;
-const expect = std.testing.expect;
-
 const Packet = zigcap.Packet.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
 const LayerOwner = zigcap.Owner.LayerOwner;
@@ -13,32 +10,14 @@ const IPv4 = zigcap.IPv4;
 const Eth = zigcap.Eth;
 const UDP = zigcap.UDP;
 
+const print = std.debug.print;
+const expect = std.testing.expect;
+
 const IPProtocol = zigcap.ProtocolEnums.IPProtocol;
 
-pub fn init_layer(concrete_type: anytype, owner: LayerOwner, header: anytype, default_hdr: anytype) !concrete_type {
-    switch (owner) {
-        .packet_layer => {
-            return concrete_type{
-                .owner = owner,
-            };
-        },
-        .owned_buffer => {
-            var self = concrete_type{ .owner = owner };
-            const buffer_len = owner.get_data().len;
-
-            if (buffer_len < @sizeOf(header)) {
-                const diff = @sizeOf(header) - buffer_len;
-
-                const ipv4_data = try self.owner.extend_layer(buffer_len, diff);
-
-                @memset(ipv4_data, 0);
-
-                @memcpy(ipv4_data[0..@sizeOf(header)], std.mem.asBytes(&default_hdr));
-            }
-
-            return self;
-        },
-    }
+pub fn get_mutable_header(header: anytype, data: []u8) *header {
+    const aligned_ptr: [*]align(@alignOf(header)) u8 = @alignCast(data.ptr);
+    return @ptrCast(aligned_ptr);
 }
 
 test "ipv4 init" {
@@ -53,21 +32,26 @@ test "ipv4 init" {
 
     defer ipv4_layer.deinit();
 
-    print("{x}\n", .{ipv4_layer.owner.get_data()});
+    //print("{x}\n", .{ipv4_layer.owner.get_data()});
 
-    print("{x}\n", .{ipv4_layer.get_data()});
+    //print("{x}\n", .{ipv4_layer.get_data()});
 
     var str = ipv4_layer.to_string(allocator);
-    print("{s}\n", .{str});
+    //print("{s}\n", .{str});
     allocator.free(str);
 
     var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, tmp_owner);
 
     defer ipv4_layer_iface.deinit();
 
-    print("{x}\n", .{ipv4_layer_iface.get_data()});
+    //print("{x}\n", .{ipv4_layer_iface.get_data()});
 
     str = ipv4_layer_iface.to_string(allocator);
-    print("{s}\n", .{str});
+    //print("{s}\n", .{str});
     allocator.free(str);
+
+    const ipv4_header: *IPv4.IPv4Header = get_mutable_header(IPv4.IPv4Header, ipv4_layer_iface.get_data());
+    const str_h = try ipv4_header.to_string(allocator);
+    //print("{s}\n", .{str_h});
+    allocator.free(str_h);
 }

@@ -21,80 +21,80 @@ const EthType = Eth.EthType;
 const IPv6HeaderSize = IPv6.IPv6HeaderSize;
 const IPv4Header = IPv4.IPv4Header;
 
-const VlanHeaderSize = 4;
+const VLANHeaderSize = 4;
 
-const default_hdr = VlanHeader{
+const default_hdr = VLANHeader{
     .tci = 0,
     .tpi = 0,
 };
 
-pub const VlanHeader = extern struct {
+pub const VLANHeader = extern struct {
     tci: u16, // Tag Control Information
     tpi: u16, // Tag Protocol Identifier
 
     comptime {
-        if (@sizeOf(VlanHeader) != 4) {
-            @compileError("VlanHeader must be 4 bytes, got " ++ @typeName(@sizeOf(VlanHeader)));
+        if (@sizeOf(VLANHeader) != 4) {
+            @compileError("VLANHeader must be 4 bytes, got " ++ @typeName(@sizeOf(VLANHeader)));
         }
     }
 
-    pub fn init_default() VlanHeader {
+    pub fn init_default() VLANHeader {
         return .{
             .tci = 0,
             .tpi = 0,
         };
     }
 
-    pub fn set_tpi(self: *VlanHeader, tpi: EthType) void {
+    pub fn set_tpi(self: *VLANHeader, tpi: EthType) void {
         self.tpi = @byteSwap(@intFromEnum(tpi));
     }
 
-    pub fn get_tpi(self: *const VlanHeader) EthType {
+    pub fn get_tpi(self: *const VLANHeader) EthType {
         return @enumFromInt(@byteSwap(self.tpi));
     }
 
-    pub fn set_tci(self: *VlanHeader, tci: u16) void {
+    pub fn set_tci(self: *VLANHeader, tci: u16) void {
         self.tci = tci;
     }
 
-    pub fn get_tci(self: *const VlanHeader) u16 {
+    pub fn get_tci(self: *const VLANHeader) u16 {
         return self.tci;
     }
 };
 
-pub const VlanLayer = struct {
+pub const VLANLayer = struct {
     owner: LayerOwner,
     const Protocol = tcp_ip_protocol.vlan;
 
-    pub fn init(owner: LayerOwner) LayerError!VlanLayer {
-        return try init_layer(VlanLayer, owner, VlanHeader, default_hdr);
+    pub fn init(owner: LayerOwner) LayerError!VLANLayer {
+        return try init_layer(VLANLayer, owner, VLANHeader, default_hdr);
     }
 
     pub fn zero_hdr() []u8 {
-        var header = VlanHeader.init_default();
+        var header = VLANHeader.init_default();
         var data: []u8 = undefined;
-        @memcpy(data[0..@sizeOf(VlanHeader)], std.mem.asBytes(&header));
+        @memcpy(data[0..@sizeOf(VLANHeader)], std.mem.asBytes(&header));
         return data;
     }
 
-    pub fn get_mutable_header(self: *const VlanLayer) *VlanHeader {
+    pub fn get_mutable_header(self: *const VLANLayer) *VLANHeader {
         const data = self.get_data();
-        const aligned_ptr: [*]align(@alignOf(VlanHeader)) u8 = @alignCast(data.ptr);
+        const aligned_ptr: [*]align(@alignOf(VLANHeader)) u8 = @alignCast(data.ptr);
         return @ptrCast(aligned_ptr);
     }
 
-    pub fn get_immutable_header(self: *const VlanLayer) *const VlanHeader {
+    pub fn get_immutable_header(self: *const VLANLayer) *const VLANHeader {
         const data: []const u8 = self.get_data();
 
-        if (data.len < VlanHeaderSize) {
-            panic("Vlan Raw Data len ({}) less than VlanHeaderSize", .{data.len});
+        if (data.len < VLANHeaderSize) {
+            panic("VLAN Raw Data len ({}) less than VLANHeaderSize", .{data.len});
         }
 
-        const aligned_ptr: [*]align(@alignOf(VlanHeader)) const u8 = @alignCast(data.ptr);
+        const aligned_ptr: [*]align(@alignOf(VLANHeader)) const u8 = @alignCast(data.ptr);
         return @ptrCast(aligned_ptr);
     }
 
-    pub fn to_string(self: *const VlanLayer, allocator: Allocator) []const u8 {
+    pub fn to_string(self: *const VLANLayer, allocator: Allocator) []const u8 {
         const hdr = self.get_immutable_header();
 
         const eth_type = hdr.get_tpi();
@@ -103,7 +103,7 @@ pub const VlanLayer = struct {
 
         const result = std.fmt.allocPrint(
             allocator,
-            "VlanLayer: VlanType: {s}, tci: {}\n",
+            "VLANLayer: VLANType: {s}, tci: {}\n",
             .{ eth_type_str, hdr.tci },
         ) catch |err| {
             std.debug.print("allocPrint failed: {s}\n", .{@errorName(err)});
@@ -114,27 +114,27 @@ pub const VlanLayer = struct {
     }
 
     /// get slice of data (hdr+payload)
-    pub fn get_data(self: *const VlanLayer) []u8 {
+    pub fn get_data(self: *const VLANLayer) []u8 {
         return self.owner.get_data();
     }
 
     /// return mutable slice of the payload
-    pub fn get_payload(self: *VlanLayer) []const u8 {
+    pub fn get_payload(self: *VLANLayer) []const u8 {
         const data = self.get_data();
 
-        if (data.len > VlanHeaderSize) {
-            return data[VlanHeaderSize..]; // return remaining bytes after the header
+        if (data.len > VLANHeaderSize) {
+            return data[VLANHeaderSize..]; // return remaining bytes after the header
         } else {
             return "";
         }
     }
 
-    pub fn validate_layer(self: *VlanLayer) void {
+    pub fn validate_layer(self: *VLANLayer) void {
         _ = self;
     }
 
     /// return the next layer protocol type
-    pub fn get_next_layer_type(self: *VlanLayer, layer: *Packet.Layer) LayerError!?LayerIface {
+    pub fn get_next_layer_type(self: *VLANLayer, layer: *Packet.Layer) LayerError!?LayerIface {
         const hdr = self.get_immutable_header();
         const eth_type = hdr.get_tpi();
 
@@ -178,12 +178,12 @@ pub const VlanLayer = struct {
         }
     }
 
-    pub fn get_protocol(self: *VlanLayer) tcp_ip_protocol {
+    pub fn get_protocol(self: *VLANLayer) tcp_ip_protocol {
         _ = self;
-        return VlanLayer.Protocol;
+        return VLANLayer.Protocol;
     }
 
-    pub fn deinit(self: *VlanLayer) void {
+    pub fn deinit(self: *VLANLayer) void {
         self.owner.deinit();
     }
 };

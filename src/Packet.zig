@@ -112,7 +112,7 @@ pub const Packet = struct {
         return self.buffer.buffer.items;
     }
 
-    fn create_ip_layer(raw: []const u8, layer: *Layer) !?LayerIface {
+    fn create_ip_layer(raw: []const u8, layer: *Layer) LayerError!?LayerIface {
         if (raw.len < IPv4.MinHeaderLength) {
             return LayerError.LayerInvalid;
         }
@@ -141,7 +141,7 @@ pub const Packet = struct {
         }
     }
 
-    fn create_first_layer(raw: []const u8, link_type: link_layer_type, layer: *Layer) !?LayerIface {
+    fn create_first_layer(raw: []const u8, link_type: link_layer_type, layer: *Layer) (InitError || LayerError)!?LayerIface {
         switch (link_type) {
             .ETHERNET => {
                 layer.length = Eth.EthHeaderSize;
@@ -257,7 +257,7 @@ pub const Packet = struct {
         return null;
     }
 
-    /// example: has_protocol_layer(.eth) in a packet which has EthLayer->IPv4Layer->UDPLayer->DNSLayer
+    /// example: has_protocol_layer(.eth) in a packet which has EthLayer->IPv4Layer->UDPLayer->DNSLayer returns true
     pub fn has_protocol_layer(self: *Packet, layer_proto: tcp_ip_protocol) bool {
         if (self.search_layers(layer_proto) != null) {
             return true;
@@ -492,7 +492,7 @@ pub const Packet = struct {
         var cur = self.first_layer;
 
         while (cur) |layer| {
-            layer.layer_iface.deinit(); // calls deinit on the concrete layer - layers that have additional allocations to manage their data ( DNSLayer dynamically creates AnswerRecord and Query structs for example ) will destroy allocations
+            //layer.layer_iface.deinit();
             const next = layer.next_layer;
             self.layer_allocator.destroy(layer);
             cur = next;
