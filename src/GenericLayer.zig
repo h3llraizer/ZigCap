@@ -7,7 +7,6 @@ const LayerIface = @import("LayerIface.zig").LayerIface;
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 
 const print = std.debug.print;
-
 const Allocator = std.mem.Allocator;
 
 pub const ApplicationLayer = struct {
@@ -61,7 +60,6 @@ pub const ApplicationLayer = struct {
         switch (self.owner) {
             .packet_layer => |layer| {
                 try layer.packet.shorten_layer(layer, 0, self.get_data().len);
-                //                try layer.packet.remove_data(layer, raw_data);
             },
             .owned_buffer => |*buffer| {
                 try buffer.shorten(0, self.get_data().len);

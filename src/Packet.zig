@@ -215,8 +215,14 @@ pub const Packet = struct {
     pub fn add_layer(self: *Packet, layer_iface: *LayerIface) (LayerError || Allocator.Error)!void {
         const data = layer_iface.get_data();
 
-        const layer: *Layer = try self.layer_allocator.create(Layer); // create the layer
-        // init the layer by setting the initial offset to 0, data len to len of the layer data, deref th layerIface to copy it, specify the Packet to self (this Packet)
+        // create the layer
+        const layer: *Layer = try self.layer_allocator.create(Layer);
+
+        // init the layer by:
+        //  setting the initial offset to 0,
+        //  data len to len of the layer data,
+        //  deref th layerIface to copy it,
+        //  specify the Packet to self (this Packet)
         layer.* = Layer.init(0, data.len, layer_iface.*, self);
 
         // set the owner to packet layer that was just created

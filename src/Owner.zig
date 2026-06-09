@@ -21,18 +21,6 @@ pub const LayerOwner = union(enum) {
         };
     }
 
-    /// to be removed
-    fn get_allocator(self: *LayerOwner) Allocator {
-        switch (self.*) {
-            .packet_layer => |layer| {
-                return layer.packet.layer_allocator;
-            },
-            .owned_buffer => |*buffer| {
-                return buffer.allocator;
-            },
-        }
-    }
-
     pub fn extend_layer(self: *LayerOwner, offset: usize, extend_len: usize) Allocator.Error![]u8 {
         var buf: []u8 = undefined;
         switch (self.*) {

@@ -49,16 +49,16 @@ test "build icmp layer" {
     var icmp_layer_iface: LayerIface = try LayerIface.init(ICMP.ICMPLayer, owner);
     defer icmp_layer_iface.deinit();
 
-    const hdr: *ICMP.ICMPHeader = icmp_layer_iface.icmpLayer.get_mutable_header();
+    //const hdr: *ICMP.ICMPHeader = icmp_layer_iface.icmpLayer.get_mutable_header();
 
-    hdr.set_type(.TimestampRequest);
+    try icmp_layer_iface.icmpLayer.set_type(.TimestampRequest);
 
     const type_hdr: ICMP.ICMP_type = icmp_layer_iface.icmpLayer.get_icmp_type_hdr() orelse {
         try expect(false); // failed to get icmp type header
         return;
     };
 
-    const timestamp_hdr: *ICMP.ICMPTimestamp = type_hdr.icmpTimestamp;
+    const timestamp_hdr: *ICMP.ICMPTimestamp = type_hdr.timestamp;
 
     const id: u16 = try gen_random(u16);
 
@@ -88,21 +88,11 @@ test "parse icmp ttl exceeded packet" {
     try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.ETHERNET, null);
     defer packet.deinit();
 
-    //packet.print_layers_meta();
-
     try expect(packet.has_protocol_layer(.icmp));
 
     if (packet.get_layer_of_type(ICMP.ICMPLayer)) |icmp_layer| {
         const hdr: *const ICMP.ICMPHeader = icmp_layer.get_immutable_header();
         try expect(hdr.get_type() == .TimeExceeded);
-
-        //        const icmp_te_code: ICMP.TimeExceededCode = @enumFromInt(hdr.code);
-
-        //        print("icmp_te_code: {any}\n", .{icmp_te_code});
-
-        //      if (icmp_layer.get_icmp_type_hdr()) |icmp_type| {
-        //          print("{any}\n", .{icmp_type});
-        //      }
     }
 }
 
@@ -127,7 +117,7 @@ test "build icmp request" {
         return;
     };
 
-    icmp_type_hdr.icmpRedirect.gateway = (try IPv4.IPv4Address.init_from_string("192.168.1.254")).array;
+    icmp_type_hdr.redirect.gateway = (try IPv4.IPv4Address.init_from_string("192.168.1.254")).array;
 }
 
 test "build icmp request with redirect" {
@@ -160,16 +150,16 @@ test "build icmp request with redirect" {
 
     defer icmp_layer_iface.deinit();
 
-    var icmp_hdr: *ICMP.ICMPHeader = icmp_layer_iface.icmpLayer.get_mutable_header();
+    //var icmp_hdr: *ICMP.ICMPHeader = icmp_layer_iface.icmpLayer.get_mutable_header();
 
-    icmp_hdr.set_type(ICMP.ICMPType.Redirect);
+    try icmp_layer_iface.icmpLayer.set_type(ICMP.ICMPType.Redirect);
 
     var icmp_type_hdr: ICMP.ICMP_type = icmp_layer_iface.icmpLayer.get_icmp_type_hdr() orelse {
         try expect(false); // failed to get ICMP type hdr
         return;
     };
 
-    icmp_type_hdr.icmpRedirect.gateway = (try IPv4.IPv4Address.init_from_string("192.168.1.254")).array;
+    icmp_type_hdr.redirect.gateway = (try IPv4.IPv4Address.init_from_string("192.168.1.254")).array;
 
     var packet = try Packet.create(allocator, allocator);
     defer packet.deinit();
@@ -196,7 +186,7 @@ test "build icmp echo" {
         return error.ICMPTypeHdrNotSet;
     };
 
-    const info_hdr: *ICMP.ICMPEcho = type_hdr.icmpEcho;
+    const info_hdr: *ICMP.ICMPEcho = type_hdr.echo;
 
     const id: u16 = try gen_random(u16);
 
@@ -205,6 +195,8 @@ test "build icmp echo" {
     info_hdr.set_identifier(id);
 
     info_hdr.set_seq_num(seq_num);
+
+    try icmp_layer_iface.icmpLayer.remove_payload();
 
     const payload: []const u8 = "abcdefghijklmnopqrstuvwabcdefghi";
 
