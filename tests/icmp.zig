@@ -150,7 +150,9 @@ test "build icmp request with redirect" {
 
     defer icmp_layer_iface.deinit();
 
-    //var icmp_hdr: *ICMP.ICMPHeader = icmp_layer_iface.icmpLayer.get_mutable_header();
+    var icmp_hdr: *const ICMP.ICMPHeader = icmp_layer_iface.icmpLayer.get_immutable_header();
+
+    print("{any}\n", .{icmp_hdr.get_type()});
 
     try icmp_layer_iface.icmpLayer.set_type(ICMP.ICMPType.Redirect);
 
@@ -183,7 +185,8 @@ test "build icmp echo" {
     try icmp_layer_iface.icmpLayer.set_type(.EchoRequest);
 
     const type_hdr: ICMP.ICMP_type = icmp_layer_iface.icmpLayer.get_icmp_type_hdr() orelse {
-        return error.ICMPTypeHdrNotSet;
+        try expect(false); // failed to get icmp type
+        return;
     };
 
     const info_hdr: *ICMP.ICMPEcho = type_hdr.echo;

@@ -572,8 +572,12 @@ pub const IPv6Layer = struct {
     //   }
 
     pub fn validate_layer(self: *IPv6Layer) void {
-        _ = self;
-        return;
+        if (self.owner.is_packet_owned()) {
+            if (self.owner.packet_layer.next_layer) |next_layer| {
+                const protocol = next_layer.layer_iface.get_protocol();
+                _ = protocol;
+            }
+        }
     }
 
     pub fn get_ip_protocol(self: *const IPv6Layer) IPProtocol {

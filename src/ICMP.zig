@@ -12,16 +12,16 @@ const ICMP_Types = @import("ICMP_Types.zig");
 pub const ICMPType = ICMP_Types.ICMPType;
 pub const ICMP_type = ICMP_Types.ICMP_type;
 
-pub const ICMPEcho = ICMP_Types.ICMPEcho;
-pub const ICMPTimestamp = ICMP_Types.ICMPTimestamp;
-pub const ICMPDestUnr = ICMP_Types.ICMPDestUnr;
-pub const ICMPAddrMask = ICMP_Types.ICMPAddrMask;
-pub const ICMPRedirect = ICMP_Types.ICMPRedirect;
-pub const ICMPSourceQuench = ICMP_Types.ICMPSourceQuench;
-pub const ICMPParamProb = ICMP_Types.ICMPParamProb;
-pub const ICMPRouterAd = ICMP_Types.ICMPRouterAd;
-pub const ICMPRouterSol = ICMP_Types.ICMPRouterSol;
-pub const ICMPInfo = ICMP_Types.ICMPInfo;
+pub const ICMPEcho = ICMP_Types.Echo;
+pub const ICMPTimestamp = ICMP_Types.Timestamp;
+pub const ICMPDestUnr = ICMP_Types.DestinationUncreachable;
+pub const ICMPAddrMask = ICMP_Types.AddressMask;
+pub const ICMPRedirect = ICMP_Types.Redirect;
+pub const ICMPSourceQuench = ICMP_Types.SourceQuench;
+pub const ICMPParamProb = ICMP_Types.ParameterProblem;
+pub const ICMPRouterAd = ICMP_Types.RouterAdvertisement;
+pub const ICMPRouterSol = ICMP_Types.RouterSolicitation;
+pub const ICMPInfo = ICMP_Types.Info;
 
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
@@ -249,12 +249,11 @@ pub const ICMPLayer = struct {
     }
 
     /// returns mutable slice of data (hdr+payload).
-    /// this will likely be made private in future to avoid accidental mutations
     pub fn get_data(self: *const ICMPLayer) []u8 {
         return self.owner.get_data();
     }
 
-    /// return immutable slice of the payload // TODO: get the icmp type and add base header size
+    /// return immutable slice of the payload
     pub fn get_payload(self: *ICMPLayer) []const u8 {
         const data = self.get_data();
 

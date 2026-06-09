@@ -170,7 +170,7 @@ pub const EthLayer = struct {
         const eth_type_str = if (known_type) |kt|
             @tagName(kt)
         else
-            std.fmt.allocPrint(allocator, "0x{X:0>4}", .{eth_type_raw}) catch |err| {
+            std.fmt.allocPrint(allocator, "0x{X}", .{eth_type_raw}) catch |err| {
                 print("eth_type allocPrint failed: {s}\n", .{@errorName(err)});
                 return "";
             };
@@ -213,7 +213,22 @@ pub const EthLayer = struct {
     }
 
     pub fn validate_layer(self: *EthLayer) void {
-        _ = self;
+        if (self.owner.is_packet_owned()) {
+            if (self.owner.packet_layer.next_layer) |next_layer| {
+                const protocol = next_layer.layer_iface.get_protocol();
+
+                const hdr = self.get_mutable_header();
+
+                switch (protocol) {
+                    .ipv4 => hdr.set_eth_type(.IP),
+                    .ipv6 => hdr.set_eth_type(.IPV6),
+                    .arp => hdr.set_eth_type(.ARP),
+                    .vlan => hdr.set_eth_type(.VLAN),
+                    .loopback => hdr.set_eth_type(.LOOPBACK),
+                    else => {},
+                }
+            }
+        }
     }
 
     /// return the next layer protocol type
@@ -244,7 +259,6 @@ pub const EthLayer = struct {
                 if (ip_version == @intFromEnum(IPVersion.IPv6)) {
                     return null;
                 } else {
-                    print("unknown IP type.\n", .{});
                     return null;
                 }
             },
@@ -258,7 +272,6 @@ pub const EthLayer = struct {
                 return try LayerIface.init(VLAN.VLANLayer, LayerOwner{ .packet_layer = layer });
             },
             else => {
-                print("couldn't get Eth {any} protocol.\n", .{eth_type});
                 return null;
             },
         }

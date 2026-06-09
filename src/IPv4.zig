@@ -483,6 +483,20 @@ pub const IPv4Layer = struct {
         const new_hdr = self.get_mutable_header();
 
         new_hdr.calculate_checksum(self.get_data()[0..hdr_len]);
+
+        if (self.owner.is_packet_owned()) {
+            if (self.owner.packet_layer.next_layer) |next_layer| {
+                const protocol = next_layer.layer_iface.get_protocol();
+                const hdr = self.get_mutable_header();
+                switch (protocol) {
+                    .icmp => hdr.set_protocol(.ICMP),
+                    .tcp => hdr.set_protocol(.TCP),
+                    .udp => hdr.set_protocol(.UDP),
+                    .igmp_v1, .igmp_v2, .igmp_v3 => hdr.set_protocol(.IGMP),
+                    else => {},
+                }
+            }
+        }
     }
 
     /// takes total data (hdr+payload) length and sets the IPv4 header's total length field to that result
