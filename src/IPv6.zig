@@ -148,8 +148,8 @@ pub const IPv6Layer = struct {
 
     pub fn get_mutable_header(self: *IPv6Layer) *IPv6Header {
         const data = self.get_data();
-        const aligned_ptr: [*]align(@alignOf(IPv6Header)) u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
+        //const aligned_ptr: [*]align(@alignOf(IPv6Header)) u8 = @alignCast(data.ptr);
+        return @ptrCast(data.ptr);
     }
 
     pub fn get_immutable_header(self: *const IPv6Layer) *const IPv6Header {
@@ -159,8 +159,8 @@ pub const IPv6Layer = struct {
             panic("IPv6 Raw Data len ({}) less than IPv6HeaderSize", .{data.len});
         }
 
-        const aligned_ptr: [*]align(@alignOf(IPv6Header)) const u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
+        //const aligned_ptr: [*]align(@alignOf(IPv6Header)) const u8 = @alignCast(data.ptr);
+        return @ptrCast(data.ptr);
     }
 
     /// get slice of data (hdr+payload)

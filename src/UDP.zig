@@ -197,8 +197,8 @@ pub const UDPLayer = struct {
             panic("UDP data len ({}) less than UDPHeaderSize", .{data.len});
         }
 
-        const aligned_ptr: [*]align(@alignOf(UDPHeader)) u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
+        //const aligned_ptr: [*]align(@alignOf(UDPHeader)) u8 = @alignCast(data.ptr);
+        return @ptrCast(data.ptr);
     }
 
     pub fn get_immutable_header(self: *const UDPLayer) *const UDPHeader {
@@ -208,8 +208,8 @@ pub const UDPLayer = struct {
             panic("UDP data len ({}) less than UDPHeaderSize", .{data.len});
         }
 
-        const aligned_ptr: [*]align(@alignOf(UDPHeader)) const u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
+        //const aligned_ptr: [*]align(@alignOf(UDPHeader)) const u8 = @alignCast(data.ptr);
+        return @ptrCast(data.ptr);
     }
 
     /// Get slice of data (header + payload)

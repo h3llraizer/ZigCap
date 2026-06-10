@@ -176,48 +176,48 @@ pub const ICMPLayer = struct {
         switch (base_hdr.get_type()) {
             .EchoReply, .EchoRequest => {
                 const echo_hdr_start = data[BaseHeaderSize..];
-                const aligned_ptr: [*]align(@alignOf(ICMPEcho)) u8 = @alignCast(echo_hdr_start.ptr);
-                const icmp_echo_hdr: *ICMPEcho = @ptrCast(aligned_ptr);
+                //const aligned_ptr: [*]align(@alignOf(ICMPEcho)) u8 = @alignCast(echo_hdr_start.ptr);
+                const icmp_echo_hdr: *ICMPEcho = @ptrCast(echo_hdr_start.ptr);
                 return ICMP_type{ .echo = icmp_echo_hdr };
             },
             .DestinationUnreachable, .TimeExceeded => {
                 const te_hdr_start = data[BaseHeaderSize..];
-                const aligned_ptr: [*]align(@alignOf(ICMPDestUnr)) u8 = @alignCast(te_hdr_start.ptr);
-                const icmp_te_hdr: *ICMPDestUnr = @ptrCast(aligned_ptr);
+                //const aligned_ptr: [*]align(@alignOf(ICMPDestUnr)) u8 = @alignCast(te_hdr_start.ptr);
+                const icmp_te_hdr: *ICMPDestUnr = @ptrCast(te_hdr_start.ptr);
                 return ICMP_type{ .dest_unreachable = icmp_te_hdr };
             },
             .Redirect => {
                 const rd_hdr_start = data[BaseHeaderSize..];
-                const aligned_ptr: [*]align(@alignOf(ICMPRedirect)) u8 = @alignCast(rd_hdr_start.ptr);
-                const icmp_rd_hdr: *ICMPRedirect = @ptrCast(aligned_ptr);
+                //const aligned_ptr: [*]align(@alignOf(ICMPRedirect)) u8 = @alignCast(rd_hdr_start.ptr);
+                const icmp_rd_hdr: *ICMPRedirect = @ptrCast(rd_hdr_start.ptr);
                 return ICMP_type{ .redirect = icmp_rd_hdr };
             },
             .ParameterProblem => {
-                const hdr: *ICMPParamProb = @ptrCast(@alignCast(data[BaseHeaderSize..].ptr));
+                const hdr: *ICMPParamProb = @ptrCast(data[BaseHeaderSize..].ptr);
                 return ICMP_type{ .parameter_problem = hdr };
             },
             .RouterAdvertisement => {
-                const hdr: *ICMPRouterAd = @ptrCast(@alignCast(data[BaseHeaderSize..].ptr));
+                const hdr: *ICMPRouterAd = @ptrCast(data[BaseHeaderSize..].ptr);
                 return ICMP_type{ .router_advertisement = hdr };
             },
             .RouterSolicitation => {
-                const hdr: *ICMPRouterSol = @ptrCast(@alignCast(data[BaseHeaderSize..].ptr));
+                const hdr: *ICMPRouterSol = @ptrCast(data[BaseHeaderSize..].ptr);
                 return ICMP_type{ .route_solicitation = hdr };
             },
             .TimestampRequest, .TimestampReply => {
-                const hdr: *ICMPTimestamp = @ptrCast(@alignCast(data[BaseHeaderSize..].ptr));
+                const hdr: *ICMPTimestamp = @ptrCast(data[BaseHeaderSize..].ptr);
                 return ICMP_type{ .timestamp = hdr };
             },
             .InformationReply, .InformationRequest => {
-                const hdr: *ICMPInfo = @ptrCast(@alignCast(data[BaseHeaderSize..].ptr));
+                const hdr: *ICMPInfo = @ptrCast(data[BaseHeaderSize..].ptr);
                 return ICMP_type{ .info = hdr };
             },
             .AddressMaskReply, .AddressMaskRequest => {
-                const hdr: *ICMPAddrMask = @ptrCast(@alignCast(data[BaseHeaderSize..].ptr));
+                const hdr: *ICMPAddrMask = @ptrCast(data[BaseHeaderSize..].ptr);
                 return ICMP_type{ .address_mask = hdr };
             },
             .SourceQuench => {
-                const hdr: *ICMPSourceQuench = @ptrCast(@alignCast(data[BaseHeaderSize..].ptr));
+                const hdr: *ICMPSourceQuench = @ptrCast(data[BaseHeaderSize..].ptr);
                 return ICMP_type{ .source_quench = hdr };
             },
         }
@@ -230,8 +230,8 @@ pub const ICMPLayer = struct {
             panic("ICMP data len ({}) less than ICMPHeaderSize", .{data.len});
         }
 
-        const aligned_ptr: [*]align(@alignOf(ICMPHeader)) u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
+        //const aligned_ptr: [*]align(@alignOf(ICMPHeader)) u8 = @alignCast(data.ptr);
+        return @ptrCast(data.ptr);
     }
 
     pub fn get_immutable_header(self: *const ICMPLayer) *const ICMPHeader {
@@ -241,8 +241,8 @@ pub const ICMPLayer = struct {
             panic("ICMP data len ({}) less than ICMPHeaderSize", .{data.len});
         }
 
-        const aligned_ptr: [*]align(@alignOf(ICMPHeader)) const u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
+        //const aligned_ptr: [*]align(@alignOf(ICMPHeader)) const u8 = @alignCast(data.ptr);
+        return @ptrCast(data.ptr);
     }
 
     /// returns mutable slice of data (hdr+payload).

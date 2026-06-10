@@ -642,8 +642,8 @@ pub const TCPLayer = struct {
             panic("TCP Raw Data len ({}) less than TCPHeaderSize", .{data.len});
         }
 
-        const aligned_ptr: [*]align(@alignOf(TCPHeader)) u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
+        //const aligned_ptr: [*]align(@alignOf(TCPHeader)) u8 = @alignCast(data.ptr);
+        return @ptrCast(data.ptr);
     }
 
     pub fn get_immutable_header(self: *const TCPLayer) *const TCPHeader {
@@ -653,8 +653,8 @@ pub const TCPLayer = struct {
             panic("TCP Raw Data len ({}) less than TCPHeaderSize", .{data.len});
         }
 
-        const aligned_ptr: [*]align(@alignOf(TCPHeader)) const u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
+        //const aligned_ptr: [*]align(@alignOf(TCPHeader)) const u8 = @alignCast(data.ptr);
+        return @ptrCast(data.ptr);
     }
 
     /// Get slice of data (header + payload)

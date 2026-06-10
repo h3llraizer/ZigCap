@@ -546,8 +546,8 @@ pub const DHCPLayer = struct {
             std.debug.panic("DHCP data len ({}) less than DHCPHeaderSize", .{data.len});
         }
 
-        const aligned_ptr: [*]align(@alignOf(DHCPHeader)) u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
+        //const aligned_ptr: [*]align(@alignOf(DHCPHeader)) u8 = @alignCast(data.ptr);
+        return @ptrCast(data.ptr);
     }
 
     pub fn get_immutable_header(self: *const DHCPLayer) *const DHCPHeader {
@@ -557,8 +557,8 @@ pub const DHCPLayer = struct {
             std.debug.panic("DHCP data len ({}) less than DHCPHeaderSize", .{data.len});
         }
 
-        const aligned_ptr: [*]align(@alignOf(DHCPHeader)) const u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
+        //const aligned_ptr: [*]align(@alignOf(DHCPHeader)) const u8 = @alignCast(data.ptr);
+        return @ptrCast(data.ptr);
     }
 
     fn extend_layer(self: *DHCPLayer, offset: usize, extend_len: usize) Allocator.Error![]u8 {

@@ -574,8 +574,8 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             std.debug.panic("DNS data len ({}) less than DNSHeaderSize", .{data.len});
         }
 
-        const aligned_ptr: [*]align(@alignOf(DNSHeader)) u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
+        //const aligned_ptr: [*]align(@alignOf(DNSHeader)) u8 = @alignCast(data.ptr);
+        return @ptrCast(data.ptr);
     }
 
     pub fn get_immutable_header(self: *const DNSLayer) *const DNSHeader {
@@ -585,8 +585,8 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             std.debug.panic("DNS data len ({}) less than DNSHeaderSize", .{data.len});
         }
 
-        const aligned_ptr: [*]align(@alignOf(DNSHeader)) const u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
+        //const aligned_ptr: [*]align(@alignOf(DNSHeader)) const u8 = @alignCast(data.ptr);
+        return @ptrCast(data.ptr);
     }
 
     pub fn is_response(self: *DNSLayer) bool {

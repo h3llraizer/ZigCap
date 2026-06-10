@@ -43,7 +43,7 @@ pub const Buffer = struct {
         const end = start + len;
         std.debug.assert(end <= src.buffer.items.len);
 
-        const slice: []align(2) u8 = try src.buffer.toOwnedSlice(src.allocator);
+        const slice: []u8 = try src.buffer.toOwnedSlice(src.allocator);
 
         try self.buffer.insertSlice(self.allocator, offset, slice);
 

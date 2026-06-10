@@ -42,7 +42,7 @@ test "build igmp layer" {
 
     igmp_layer_iface.igmpv3Layer.validate_layer();
 
-    const checksum = @byteSwap(igmp_layer_iface.igmpv3Layer.get_immutable_header().checksum);
-
-    _ = checksum;
+    //   const checksum = @byteSwap(igmp_layer_iface.igmpv3Layer.get_immutable_header().checksum);
+    //
+    //   _ = checksum;
 }

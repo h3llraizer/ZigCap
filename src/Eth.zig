@@ -122,8 +122,8 @@ pub const EthLayer = struct {
 
     pub fn get_mutable_header(self: *const EthLayer) *EthHeader {
         const data = self.get_data();
-        const aligned_ptr: [*]align(@alignOf(EthHeader)) u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
+        //const aligned_ptr: [*]align(@alignOf(EthHeader)) u8 = @alignCast(data.ptr);
+        return @ptrCast(data.ptr);
     }
 
     pub fn get_immutable_header(self: *const EthLayer) *const EthHeader {
@@ -133,8 +133,8 @@ pub const EthLayer = struct {
             panic("Eth Raw Data len ({}) less than EthHeaderSize", .{data.len});
         }
 
-        const aligned_ptr: [*]align(@alignOf(EthHeader)) const u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
+        //const aligned_ptr: [*]align(@alignOf(EthHeader)) const u8 = @alignCast(data.ptr);
+        return @ptrCast(data.ptr);
     }
 
     pub fn to_string(self: *const EthLayer, allocator: Allocator) []const u8 {

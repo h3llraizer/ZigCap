@@ -53,14 +53,14 @@ pub const IGMPHeaderSize = 8;
 pub const IGMPv1Header = extern struct {
     type: u8,
     reserved: u8,
-    checksum: u16,
+    checksum: [2]u8,
     group_address: [4]u8,
 
     pub fn init_default() IGMPv1Header {
         return .{
             .type = @intFromEnum(.membership_query),
             .reserved = 0,
-            .checksum = 0,
+            .checksum = .{0} ** 2,
             .group_address = [_]u8{0} ** 4,
         };
     }
@@ -69,14 +69,14 @@ pub const IGMPv1Header = extern struct {
 pub const IGMPv2Header = extern struct {
     type: u8,
     max_resp_time: u8,
-    checksum: u16,
+    checksum: [2]u8,
     group_address: [4]u8,
 
     pub fn init_default() IGMPv2Header {
         return .{
             .type = @intFromEnum(IGMPType.membership_query),
             .max_resp_time = 0,
-            .checksum = 0,
+            .checksum = .{0} ** 2,
             .group_address = [_]u8{0} ** 4,
         };
     }
@@ -85,21 +85,21 @@ pub const IGMPv2Header = extern struct {
 pub const IGMPv3Header = extern struct {
     type: u8,
     max_resp_time: u8,
-    checksum: u16,
+    checksum: [2]u8,
     group_address: [4]u8,
 
     pub fn init_default() IGMPv3Header {
         return .{
             .type = @intFromEnum(IGMPType.membership_query),
             .max_resp_time = 0,
-            .checksum = 0,
+            .checksum = .{0} ** 2,
             .group_address = [_]u8{0} ** 4,
         };
     }
 
     pub fn calculate_checksum(self: *IGMPv3Header, payload: []const u8) void {
         const old_checksum = self.checksum;
-        self.checksum = 0;
+        self.checksum = .{ 0x00, 0x00 };
 
         var sum: u32 = 0;
 
@@ -134,7 +134,7 @@ pub const IGMPv3Header = extern struct {
         }
 
         // Take one's complement
-        self.checksum = @byteSwap(~@as(u16, @intCast(sum)));
+        std.mem.writeInt(u16, &self.checksum, ~@as(u16, @intCast(sum)), .big);
 
         _ = old_checksum;
     }
@@ -154,7 +154,7 @@ pub const GroupRecordType = enum(u8) {
 pub const IGMPv3GroupRecord = extern struct {
     record_type: u8,
     aux_data_len: u8,
-    num_sources: u16,
+    num_sources: [2]u8,
     multicast_address: [4]u8,
 
     pub fn get_record_type(self: *const IGMPv3GroupRecord) GroupRecordType {
@@ -200,7 +200,7 @@ pub const IGMPv3GroupRecord = extern struct {
 pub const IGMPv3QueryExtension = extern struct {
     s_qrv: u8,
     qqic: u8, // Querier's Query Interval Code (encoded value, usually 0x00 = 10 seconds)
-    num_sources: u16, // Number of source addresses in this query (N)
+    num_sources: [2]u8, // Number of source addresses in this query (N)
     // Followed by 'num_sources' IPv4 source addresses (each u32)
 
     pub fn set_s_flag(self: *IGMPv3QueryExtension, flag: u1) void {
@@ -276,8 +276,8 @@ pub const IGMPv3Layer = struct {
             panic("IGMP data len ({}) less than IGMPHeaderSize", .{data.len});
         }
 
-        const aligned_ptr: [*]align(@alignOf(IGMPv3Header)) u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
+        //const aligned_ptr: [*]align(@alignOf(IGMPv3Header)) u8 = @alignCast(data.ptr);
+        return @ptrCast(data.ptr);
     }
 
     pub fn get_immutable_header(self: *const IGMPv3Layer) *const IGMPv3Header {
@@ -287,8 +287,8 @@ pub const IGMPv3Layer = struct {
             panic("IGMP data len ({}) less than IGMPHeaderSize", .{data.len});
         }
 
-        const aligned_ptr: [*]align(@alignOf(IGMPv3Header)) const u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
+        //const aligned_ptr: [*]align(@alignOf(IGMPv3Header)) const u8 = @alignCast(data.ptr);
+        return @ptrCast(data.ptr);
     }
 
     pub fn get_igmp_type_hdr(self: *const IGMPv3Layer) ?IGMP_type {
@@ -300,13 +300,13 @@ pub const IGMPv3Layer = struct {
 
         switch (igmp_type) {
             .membership_query => {
-                const aligned_ptr: [*]align(@alignOf(IGMPv3QueryExtension)) u8 = @alignCast(data.ptr);
-                const igmp_header: *IGMPv3QueryExtension = @ptrCast(aligned_ptr);
+                //const aligned_ptr: [*]align(@alignOf(IGMPv3QueryExtension)) u8 = @alignCast(data.ptr);
+                const igmp_header: *IGMPv3QueryExtension = @ptrCast(data.ptr);
                 return IGMP_type{ .igmpv3_gry_ext = igmp_header };
             },
             .v3_membership_report => {
-                const aligned_ptr: [*]align(@alignOf(IGMPv3GroupRecord)) u8 = @alignCast(data.ptr);
-                const igmp_header: *IGMPv3GroupRecord = @ptrCast(aligned_ptr);
+                //const aligned_ptr: [*]align(@alignOf(IGMPv3GroupRecord)) u8 = @alignCast(data.ptr);
+                const igmp_header: *IGMPv3GroupRecord = @ptrCast(data.ptr);
                 return IGMP_type{ .igmpv3_grp_rec = igmp_header };
             },
             else => return null,

@@ -215,8 +215,8 @@ pub const ARPLayer = struct {
             panic("ARP data len ({}) less than ARPHeaderSize", .{data.len});
         }
 
-        const aligned_ptr: [*]align(@alignOf(ARPHeader)) u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
+        //const aligned_ptr: [*]align(@alignOf(ARPHeader)) u8 = @alignCast(data.ptr);
+        return @ptrCast(data.ptr);
     }
 
     pub fn get_immutable_header(self: *const ARPLayer) *const ARPHeader {
@@ -226,8 +226,8 @@ pub const ARPLayer = struct {
             panic("ARP data len ({}) less than ARPHeaderSize", .{data.len});
         }
 
-        const aligned_ptr: [*]align(@alignOf(ARPHeader)) const u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
+        //const aligned_ptr: [*]align(@alignOf(ARPHeader)) const u8 = @alignCast(data.ptr);
+        return @ptrCast(data.ptr);
     }
 
     /// returns mutable slice of data (hdr+payload).
