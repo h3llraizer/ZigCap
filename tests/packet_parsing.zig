@@ -82,7 +82,7 @@ test "parse udp packet" {
 
     const allocator = debug_allocator.allocator();
 
-    var raw_packet_buffer: std.array_list.Aligned(u8, std.mem.Alignment.@"2") = .empty;
+    var raw_packet_buffer: std.ArrayList(u8) = .empty;
     //    defer raw_packet_buffer.deinit(allocator); - doesn't need to be called because Packet takes ownership but it is still safe to do so
 
     try raw_packet_buffer.appendSlice(allocator, &simple_udp_packet);

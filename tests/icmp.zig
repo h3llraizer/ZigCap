@@ -80,7 +80,7 @@ test "parse icmp ttl exceeded packet" {
 
     const allocator = debug_allocator.allocator();
 
-    var raw_packet_buffer: std.array_list.Aligned(u8, std.mem.Alignment.@"2") = .empty;
+    var raw_packet_buffer: std.ArrayList(u8) = .empty;
 
     try raw_packet_buffer.appendSlice(allocator, &icmp_ttl_exceeded);
 
@@ -94,6 +94,8 @@ test "parse icmp ttl exceeded packet" {
         const hdr: *const ICMP.ICMPHeader = icmp_layer.get_immutable_header();
         try expect(hdr.get_type() == .TimeExceeded);
     }
+
+    //_ = packet.get_layer_as(ICMP.ICMPLayer);
 }
 
 test "build icmp request" {
@@ -152,7 +154,7 @@ test "build icmp request with redirect" {
 
     var icmp_hdr: *const ICMP.ICMPHeader = icmp_layer_iface.icmpLayer.get_immutable_header();
 
-    print("{any}\n", .{icmp_hdr.get_type()});
+    _ = &icmp_hdr;
 
     try icmp_layer_iface.icmpLayer.set_type(ICMP.ICMPType.Redirect);
 

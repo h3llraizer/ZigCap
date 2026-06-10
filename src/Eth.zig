@@ -57,14 +57,14 @@ pub const EthHeaderSize = 14;
 const default_hdr = EthHeader{
     .dst = [_]u8{0} ** 6,
     .src = [_]u8{0} ** 6,
-    .eth_type = 0,
+    .eth_type = [_]u8{2} ** 2,
 };
 
 // Use extern struct for exact 14-byte layout (standard Ethernet header)
 pub const EthHeader = extern struct {
     dst: [6]u8, // Destination MAC address
     src: [6]u8, // Source MAC address
-    eth_type: u16, // Ethernet type (network byte order)
+    eth_type: [2]u8, // Ethernet type (network byte order)
 
     comptime {
         if (@sizeOf(EthHeader) != 14) {
@@ -76,7 +76,7 @@ pub const EthHeader = extern struct {
         return .{
             .dst = [_]u8{0} ** 6,
             .src = [_]u8{0} ** 6,
-            .eth_type = 0,
+            .eth_type = [_]u8{0} ** 2,
         };
     }
 
@@ -97,11 +97,11 @@ pub const EthHeader = extern struct {
     }
 
     pub fn set_eth_type(self: *EthHeader, eth_type: EthType) void {
-        self.eth_type = @byteSwap(@intFromEnum(eth_type)); // Network byte order
+        std.mem.writeInt(u16, &self.eth_type, @intFromEnum(eth_type), .big); // Network byte order
     }
 
     pub fn get_eth_type(self: *const EthHeader) EthType {
-        return @enumFromInt(@byteSwap(self.eth_type));
+        return @enumFromInt(std.mem.readInt(u16, &self.eth_type, .big));
     }
 };
 
@@ -155,7 +155,7 @@ pub const EthLayer = struct {
         defer allocator.free(dst_mac);
 
         // Get EtherType in host byte order (network byte order from packet)
-        const eth_type_raw = @byteSwap(hdr.eth_type);
+        const eth_type_raw = std.mem.readInt(u16, &hdr.eth_type, .big);
 
         // Try to match against known EtherTypes (without byte-swapping since enum values are in host order)
         var known_type: ?EthType = null;

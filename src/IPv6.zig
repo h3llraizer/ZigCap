@@ -30,7 +30,7 @@ pub const IPv6HeaderSize = 40;
 
 const default_hdr = IPv6Header{
     .version_traffic_flow = .{ 0x60, 0x0, 0x0, 0x0 },
-    .payload_length = 0,
+    .payload_length = .{0} ** 2,
     .next_header = @intFromEnum(NextHeader.NoNext),
     .hop_limit = 64,
     .src_ip = .{0} ** 16,
@@ -40,7 +40,7 @@ const default_hdr = IPv6Header{
 // IPv6 Header
 pub const IPv6Header = extern struct {
     version_traffic_flow: [4]u8, // Version 6, Traffic Class 0, Flow Label 0
-    payload_length: u16 = 0, // Payload length (excluding IPv6 header)
+    payload_length: [2]u8 = .{0} ** 2, // Payload length (excluding IPv6 header)
     next_header: u8 = 0x3B, // Next header type
     hop_limit: u8 = 64, // Hop limit (similar to TTL)
     src_ip: [16]u8 = .{0} ** 16, // Source IPv6 address
@@ -88,11 +88,11 @@ pub const IPv6Header = extern struct {
     /// returns the payload length set in the header (can be inaccurate due to malformed packet / incomplete layers etc)
     /// first extension to payload length
     pub fn get_payload_length(self: *const IPv6Header) u16 {
-        return @byteSwap(self.payload_length);
+        return std.mem.readInt(u16, &self.payload_length, .big);
     }
 
     pub fn set_payload_length(self: *IPv6Header, len: u16) void {
-        self.payload_length = @byteSwap(len);
+        std.mem.writeInt(u16, &self.payload_length, len, .big);
     }
 
     pub fn get_next_header(self: *const IPv6Header) NextHeader {
@@ -122,7 +122,7 @@ pub const IPv6Header = extern struct {
     pub fn init_default() IPv6Header {
         return IPv6Header{
             .version_traffic_flow = .{ 0x60, 0x0, 0x0, 0x0 },
-            .payload_length = 0,
+            .payload_length = .{ 0x00, 0x00 },
             .next_header = @intFromEnum(NextHeader.NoNext),
             .hop_limit = 64,
             .src_ip = .{0} ** 16,

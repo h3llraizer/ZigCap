@@ -88,23 +88,23 @@ pub const ICMPCode = union(enum) {
 
 /// ICMP Echo (Request/Response)
 pub const Echo = extern struct {
-    identifier: u16,
-    sequence: u16,
+    identifier: [2]u8,
+    sequence: [2]u8,
 
     pub fn set_identifier(self: *Echo, id: u16) void {
-        self.identifier = @byteSwap(id);
+        std.mem.writeInt(u16, &self.identifier, id, .big);
     }
 
     pub fn get_identifier(self: *const Echo) u16 {
-        return @byteSwap(self.identifier);
+        return std.mem.readInt(u16, &self.identifier, .big);
     }
 
     pub fn set_seq_num(self: *Echo, seq: u16) void {
-        self.sequence = @byteSwap(seq);
+        std.mem.writeInt(u16, &self.sequence, seq, .big);
     }
 
     pub fn get_seq_num(self: *const Echo) u16 {
-        return @byteSwap(self.sequence);
+        return std.mem.readInt(u16, &self.sequence, .big);
     }
 };
 
@@ -145,7 +145,7 @@ pub const ParameterProblem = extern struct {
 pub const RouterAdvertisement = extern struct {
     num_addresses: u8,
     addr_entry_size: u8,
-    lifetime: u16,
+    lifetime: [2]u8,
 
     pub fn get_num_addresses(self: *RouterAdvertisement) u8 {
         return self.num_addresses;
@@ -164,11 +164,11 @@ pub const RouterAdvertisement = extern struct {
     }
 
     pub fn get_lifetime(self: *RouterAdvertisement) u16 {
-        return @byteSwap(self.lifetime);
+        return std.mem.readInt(u16, &self.lifetime, .big);
     }
 
     pub fn set_lifetime(self: *RouterAdvertisement, lifetime: u16) void {
-        self.lifetime = @byteSwap(lifetime);
+        std.mem.writeInt(u16, &self.lifetime, lifetime, .big);
     }
 };
 
@@ -180,9 +180,9 @@ pub const RouterSolicitation = extern struct {
 ///  Timestamp Request/Reply message header.
 pub const Timestamp = extern struct {
     /// Used to match requests with replies (like a port number)
-    identifier: u16,
+    identifier: [2]u8,
     /// Incremented per request to match replies
-    sequence_number: u16,
+    sequence_number: [2]u8,
     /// Time (ms since midnight UTC) when sender last touched the message before sending
     originate_timestamp: [4]u8,
     /// Time (ms since midnight UTC) when receiver first received the request
@@ -191,19 +191,19 @@ pub const Timestamp = extern struct {
     transmit_timestamp: [4]u8,
 
     pub fn get_identifier(self: *Timestamp) u16 {
-        return @byteSwap(self.identifier);
+        return std.mem.readInt(u16, &self.identifier, .big);
     }
 
     pub fn set_identifier(self: *Timestamp, id: u16) void {
-        self.identifier = @byteSwap(id);
+        std.mem.writeInt(u16, &self.identifier, id, .big);
     }
 
     pub fn get_seq_num(self: *Timestamp) u16 {
-        return @byteSwap(self.sequence_number);
+        return std.mem.readInt(u16, &self.sequence_number, .big);
     }
 
     pub fn set_seq_num(self: *Timestamp, seq_num: u16) void {
-        self.sequence_number = @byteSwap(seq_num);
+        std.mem.writeInt(u16, &self.sequence_number, seq_num, .big);
     }
 
     pub fn get_original_timestamp(self: *Timestamp) u32 {
@@ -239,46 +239,46 @@ pub const Timestamp = extern struct {
 
 ///  Info (Request/Response)
 pub const Info = extern struct {
-    identifier: u16,
-    sequence: u16,
+    identifier: [2]u8,
+    sequence: [2]u8,
 
     pub fn set_identifier(self: *Info, id: u16) void {
-        self.identifier = @byteSwap(id);
+        std.mem.writeInt(u16, &self.identifier, id, .big);
     }
 
     pub fn get_identifier(self: *const Info) u16 {
-        return @byteSwap(self.identifier);
+        return std.mem.readInt(u16, &self.identifier, .big);
     }
 
     pub fn set_seq_num(self: *Info, seq: u16) void {
-        self.sequence = @byteSwap(seq);
+        std.mem.writeInt(u16, &self.sequence, seq, .big);
     }
 
     pub fn get_seq_num(self: *const Info) u16 {
-        return @byteSwap(self.sequence);
+        return std.mem.readInt(u16, &self.sequence, .big);
     }
 };
 
 ///  AddressMask (Request/Response)
 pub const AddressMask = extern struct {
-    identifier: u16,
-    sequence: u16,
+    identifier: [2]u8,
+    sequence: [2]u8,
     address_mask: [4]u8,
 
     pub fn set_identifier(self: *AddressMask, id: u16) void {
-        self.identifier = @byteSwap(id);
+        std.mem.writeInt(u16, &self.identifier, id, .big);
     }
 
     pub fn get_identifier(self: *const AddressMask) u16 {
-        return @byteSwap(self.identifier);
+        return std.mem.readInt(u16, &self.identifier, .big);
     }
 
     pub fn set_seq_num(self: *AddressMask, seq: u16) void {
-        self.sequence = @byteSwap(seq);
+        std.mem.writeInt(u16, &self.sequence, seq, .big);
     }
 
     pub fn get_seq_num(self: *const AddressMask) u16 {
-        return @byteSwap(self.sequence);
+        return std.mem.readInt(u16, &self.sequence, .big);
     }
 
     pub fn get_address_mask(self: *const AddressMask) IPv4.IPv4Address {

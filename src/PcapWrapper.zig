@@ -157,7 +157,7 @@ pub const Interface = struct {
         }
     }
 
-    pub fn capture_one_raw(self: Interface, allocator: Allocator) Allocator.Error!?[]align(2) u8 {
+    pub fn capture_one_raw(self: Interface, allocator: Allocator) Allocator.Error!?[]u8 {
         var header: [*c]pcap.struct_pcap_pkthdr = null;
         var pkt_ptr: [*c]const u8 = null;
 
@@ -170,7 +170,7 @@ pub const Interface = struct {
         }
 
         if (header) |h| {
-            const captured: []align(2) u8 = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", h.*.len);
+            const captured: []u8 = try allocator.alloc(u8, h.*.len);
             @memmove(captured, pkt_ptr);
             return captured;
         }

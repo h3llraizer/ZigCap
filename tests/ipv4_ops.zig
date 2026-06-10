@@ -686,7 +686,7 @@ test "build timestamp option" {
 
     const allocator = debug_allocator.allocator();
 
-    const buf = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", 4);
+    const buf = try allocator.alloc(u8, 4);
     @memset(buf, 0);
 
     buf[0] = @intFromEnum(IPv4.IPv4_Options.IPOptionType.Timestamp);

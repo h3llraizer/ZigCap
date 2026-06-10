@@ -9,7 +9,7 @@ pub const BufferError = error{
 
 /// Wrapper around 2-byte aligned std.ArrayList(u8) with public methods to faciliate easier work on Packet and Layer data
 pub const Buffer = struct {
-    buffer: std.array_list.Aligned(u8, std.mem.Alignment.@"2"),
+    buffer: std.ArrayList(u8),
     allocator: Allocator,
 
     /// creates an empty buffer.
@@ -19,7 +19,7 @@ pub const Buffer = struct {
 
     /// creates a buffer by taking and existing slice and takes ownership of that slice
     /// do not free the slice you provide - you will likely get a seg fault
-    pub fn init(raw: []align(2) u8, allocator: Allocator) !Buffer {
+    pub fn init(raw: []u8, allocator: Allocator) !Buffer {
         const self = Buffer{ .buffer = .fromOwnedSlice(raw), .allocator = allocator };
 
         return self;

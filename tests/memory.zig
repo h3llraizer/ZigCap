@@ -24,7 +24,7 @@ test "packet buffer" {
 
     const allocator = debug_allocator.allocator();
 
-    var raw_packet_buffer: std.array_list.Aligned(u8, std.mem.Alignment.@"2") = .empty;
+    var raw_packet_buffer: std.ArrayList(u8) = .empty;
 
     try raw_packet_buffer.appendSlice(allocator, &raw);
     raw_packet_buffer.deinit(allocator);

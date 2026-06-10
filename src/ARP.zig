@@ -45,25 +45,15 @@ pub const HWTYPE = enum(u16) {
     Eth = 1,
 };
 
-const default_hdr = ARPHeader{
-    .hardware_type = @byteSwap(@intFromEnum(HWTYPE.Eth)),
-    .protocol_type = @byteSwap(@intFromEnum(PTYPE.IP)),
-    .hardware_size = 6,
-    .protocol_size = 4,
-    .opcode = 0,
-    .sender_mac = [_]u8{0} ** 6,
-    .sender_ip = [_]u8{0} ** 4,
-    .target_mac = [_]u8{0} ** 6,
-    .target_ip = [_]u8{0} ** 4,
-};
+const default_hdr = ARPHeader.init_default();
 
 // Use extern struct for exact 28-byte layout (standard ARP header)
 pub const ARPHeader = extern struct {
-    hardware_type: u16, // Hardware type (1 = Ethernet)
-    protocol_type: u16, // Protocol type (0x0800 = IPv4)
+    hardware_type: [2]u8, // Hardware type (1 = Ethernet)
+    protocol_type: [2]u8, // Protocol type (0x0800 = IPv4)
     hardware_size: u8, // Hardware address size (6 for MAC)
     protocol_size: u8, // Protocol address size (4 for IPv4)
-    opcode: u16, // Operation (1 = request, 2 = reply)
+    opcode: [2]u8, // Operation (1 = request, 2 = reply)
     sender_mac: [6]u8, // Sender hardware address
     sender_ip: [4]u8, // Sender protocol address
     target_mac: [6]u8, // Target hardware address
@@ -76,17 +66,22 @@ pub const ARPHeader = extern struct {
     }
 
     pub fn init_default() ARPHeader {
-        return .{
-            .hardware_type = @byteSwap(@intFromEnum(HWTYPE.Eth)),
-            .protocol_type = @byteSwap(@intFromEnum(PTYPE.IP)),
+        var arp_hdr: ARPHeader = .{
+            .hardware_type = .{0} ** 2,
+            .protocol_type = .{0} ** 2,
             .hardware_size = 6,
             .protocol_size = 4,
-            .opcode = 0,
+            .opcode = .{0} ** 2,
             .sender_mac = [_]u8{0} ** 6,
             .sender_ip = [_]u8{0} ** 4,
             .target_mac = [_]u8{0} ** 6,
             .target_ip = [_]u8{0} ** 4,
         };
+
+        arp_hdr.set_hardware_type(HWTYPE.Eth);
+        arp_hdr.set_protocol_type(PTYPE.IP);
+
+        return arp_hdr;
     }
 
     pub fn init_request(sender_mac: Eth.MacAddress, sender_ip: IPv4.IPv4Address, target_ip: IPv4.IPv4Address) ARPHeader {
@@ -118,19 +113,21 @@ pub const ARPHeader = extern struct {
     }
 
     pub fn set_hardware_type(self: *ARPHeader, hw_type: HWTYPE) void {
-        self.hardware_type = @byteSwap(@intFromEnum(hw_type));
+        const hw_t: u16 = @intFromEnum(hw_type);
+
+        std.mem.writeInt(u16, &self.hardware_type, hw_t, .big);
     }
 
     pub fn get_hardware_type(self: *const ARPHeader) HWTYPE {
-        return @enumFromInt(@byteSwap(self.hardware_type));
+        return @enumFromInt(std.mem.readInt(u16, &self.hardware_type, .big));
     }
 
     pub fn set_protocol_type(self: *ARPHeader, proto_type: PTYPE) void {
-        self.protocol_type = @byteSwap(@intFromEnum(proto_type));
+        std.mem.writeInt(u16, &self.protocol_type, @intFromEnum(proto_type), .big);
     }
 
     pub fn get_protocol_type(self: *const ARPHeader) PTYPE {
-        return @enumFromInt(@byteSwap(self.protocol_type));
+        return @enumFromInt(std.mem.readInt(u16, &self.protocol_type, .big));
     }
 
     pub fn set_hardware_size(self: *ARPHeader, size: u8) void {
@@ -150,11 +147,11 @@ pub const ARPHeader = extern struct {
     }
 
     pub fn set_opcode(self: *ARPHeader, opcode: ARPOpcode) void {
-        self.opcode = opcode.to_network();
+        std.mem.writeInt(u16, &self.opcode, @intFromEnum(opcode), .big);
     }
 
     pub fn get_opcode(self: *const ARPHeader) ARPOpcode {
-        return ARPOpcode.from_network(self.opcode);
+        return @enumFromInt(std.mem.readInt(u16, &self.opcode, .big));
     }
 
     pub fn set_sender_mac(self: *ARPHeader, mac: Eth.MacAddress) void {

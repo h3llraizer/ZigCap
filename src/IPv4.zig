@@ -30,12 +30,12 @@ pub const HeaderAlignment = 4;
 pub const default_hdr = IPv4Header{
     .version_ihl = 0x45,
     .dscp_ecn = 0,
-    .total_length = std.mem.nativeToBig(u16, MinHeaderLength),
-    .identification = 0,
-    .flags_fragment = 0,
+    .total_length = [_]u8{0} ** 2,
+    .identification = [_]u8{0} ** 2,
+    .flags_fragment = [_]u8{0} ** 2,
     .ttl = 64,
     .protocol = 0,
-    .checksum = 0,
+    .checksum = [_]u8{0} ** 2,
     .src_ip = [_]u8{0} ** 4,
     .dst_ip = [_]u8{0} ** 4,
 };
@@ -44,12 +44,12 @@ pub const default_hdr = IPv4Header{
 pub const IPv4Header = extern struct {
     version_ihl: u8 = 0x45, // Default to version 4, IHL 5
     dscp_ecn: u8 = 0,
-    total_length: u16 = 0,
-    identification: u16 = 0,
-    flags_fragment: u16 = 0,
-    ttl: u8 = 64, // Default TTL
+    total_length: [2]u8,
+    identification: [2]u8,
+    flags_fragment: [2]u8,
+    ttl: u8 = 0, // Default TTL
     protocol: u8 = 0,
-    checksum: u16 = 0,
+    checksum: [2]u8,
     src_ip: [4]u8,
     dst_ip: [4]u8,
 
@@ -97,12 +97,13 @@ pub const IPv4Header = extern struct {
     /// gets length from the IPv4 header - not gaurenteed to be accurate (malformed packet / incomplete layers etc)
     /// if unsure, call the IPv4Layer's calculate_length method which will set the correct length in the header
     pub fn get_length(self: *const IPv4Header) u16 {
-        const total_length = self.total_length;
-        return std.mem.nativeToBig(u16, @as(u16, @intCast(total_length)));
+        return std.mem.readInt(u16, &self.total_length, .big);
+        //return std.mem.nativeToBig(u16, @as(u16, @intCast(total_length)));
     }
 
     pub fn set_length(self: *IPv4Header, length: u16) void {
-        self.total_length = @byteSwap(length);
+        return std.mem.writeInt(u16, &self.total_length, length, .big);
+        //self.total_length = @byteSwap(length);
     }
 
     pub fn get_ttl(self: *const IPv4Header) u8 {
@@ -115,54 +116,52 @@ pub const IPv4Header = extern struct {
 
     /// returns the checksum of the IPv4 header in native endian.
     pub fn get_checksum(self: *const IPv4Header) u16 {
-        return std.mem.bigToNative(u16, self.checksum);
+        return std.mem.readInt(u16, &self.checksum, .big);
     }
 
-    /// the ipv4 header should be provided as a const slice and must ensure aligned to 2 bytes
     pub fn calculate_checksum(self: *IPv4Header, full_header: []const u8) void {
-        // Save the original checksum field
-        const old_checksum = self.checksum;
-        self.checksum = 0;
+        self.checksum = .{ 0x00, 0x00 };
 
         var sum: u32 = 0;
-        const words = @as([*]const u16, @ptrCast(@alignCast(full_header.ptr)));
-
-        const word_count = full_header.len / 2;
-
-        for (0..word_count) |i| {
-            sum += std.mem.bigToNative(u16, words[i]);
+        var i: usize = 0;
+        while (i + 1 < full_header.len) {
+            const word = (@as(u16, full_header[i]) << 8) | @as(u16, full_header[i + 1]);
+            sum += word;
+            i += 2;
         }
 
-        // Fold the sum to 16 bits
+        // Handle odd byte if present (shouldn't happen for IPv4 header)
+        if (i < full_header.len) {
+            sum += (@as(u16, full_header[i]) << 8);
+        }
+
+        // Fold the sum
         while (sum > 0xFFFF) {
             sum = (sum & 0xFFFF) + (sum >> 16);
         }
 
-        // Take one's complement and store
-        self.checksum = @byteSwap(~@as(u16, @intCast(sum)));
+        const checksum = ~@as(u16, @intCast(sum));
 
-        // If the checksum calculation resulted in 0, the RFC says to use 0xFFFF
-        if (self.checksum == 0) {
-            self.checksum = 0xFFFF;
-        }
-
-        _ = old_checksum;
+        std.mem.writeInt(u16, &self.checksum, if (checksum == 0) 0xFFFF else checksum, .big);
     }
 
     pub fn get_identification(self: *const IPv4Header) u16 {
-        return @byteSwap(self.identification);
+        return std.mem.readInt(u16, &self.identification, .big);
+        //return @byteSwap(self.identification);
     }
 
     pub fn set_identification(self: *IPv4Header, id: u16) void {
-        self.identification = @byteSwap(id);
+        std.mem.writeInt(u16, &self.id, id, .big);
+        //self.identification = @byteSwap(id);
     }
 
     pub fn get_flags_fragment(self: *const IPv4Header) u16 {
-        return @byteSwap(self.flags_fragment);
+        return std.mem.readInt(u16, &self.flags_fragment, .big);
     }
 
     pub fn set_flags_fragment(self: *IPv4Header, flags_frag: u16) void {
-        self.flags_fragment = @byteSwap(flags_frag);
+        return std.mem.writeInt(u16, &self.flags_fragment, flags_frag, .big);
+        //self.flags_fragment = @byteSwap(flags_frag);
     }
 
     pub fn get_protocol(self: *const IPv4Header) u8 {
@@ -480,10 +479,6 @@ pub const IPv4Layer = struct {
 
         self.calculate_length();
 
-        const new_hdr = self.get_mutable_header();
-
-        new_hdr.calculate_checksum(self.get_data()[0..hdr_len]);
-
         if (self.owner.is_packet_owned()) {
             if (self.owner.packet_layer.next_layer) |next_layer| {
                 const protocol = next_layer.layer_iface.get_protocol();
@@ -497,6 +492,9 @@ pub const IPv4Layer = struct {
                 }
             }
         }
+
+        const new_hdr = self.get_mutable_header();
+        new_hdr.calculate_checksum(self.get_data()[0..hdr_len]);
     }
 
     /// takes total data (hdr+payload) length and sets the IPv4 header's total length field to that result
@@ -528,8 +526,8 @@ pub const IPv4Layer = struct {
             panic("IPv4 data len ({}) less than IPv4HeaderSize", .{data.len});
         }
 
-        const aligned_ptr: [*]align(@alignOf(IPv4Header)) u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
+        //const aligned_ptr: [*]align(@alignOf(IPv4Header)) u8 = @alignCast(data.ptr);
+        return @ptrCast(data.ptr);
     }
 
     pub fn get_immutable_header(self: *const IPv4Layer) *const IPv4Header {
@@ -539,8 +537,8 @@ pub const IPv4Layer = struct {
             panic("IPv4 data len ({}) less than IPv4HeaderSize", .{data.len});
         }
 
-        const aligned_ptr: [*]align(@alignOf(IPv4Header)) const u8 = @alignCast(data.ptr);
-        return @ptrCast(aligned_ptr);
+        //const aligned_ptr: [*]align(@alignOf(IPv4Header)) const u8 = @alignCast(data.ptr);
+        return @ptrCast(data.ptr);
     }
 
     pub fn get_next_layer_type(self: *const IPv4Layer, layer: *Packet.Layer) LayerError!?LayerIface {

@@ -87,7 +87,7 @@ pub const Packet = struct {
     pub fn from_raw(
         self: *Packet,
         allocator: Allocator,
-        buffer: *std.array_list.Aligned(u8, .@"2"),
+        buffer: *std.ArrayList(u8),
         link_type: link_layer_type,
         parse_until: ?tcp_ip_protocol,
     ) (InitError || LayerError || Allocator.Error)!void {
@@ -108,7 +108,7 @@ pub const Packet = struct {
         try self.accumulate_layers(parse_until);
     }
 
-    pub fn get_raw(self: *Packet) []align(2) const u8 {
+    pub fn get_raw(self: *Packet) []const u8 {
         return self.buffer.buffer.items;
     }
 
@@ -262,6 +262,12 @@ pub const Packet = struct {
 
         return null;
     }
+
+    //   pub fn get_layer_as(self: *Packet, comptime T: type) ?*T {
+    //       const layer = self.search_layers(T.protocol) orelse return null;
+    //       if (layer.layer_iface.ptr() != @as(*anyopaque, @ptrCast(layer))) return null;
+    //       return @fieldParentPtr("layer_iface", layer);
+    //   }
 
     /// example: has_protocol_layer(.eth) in a packet which has EthLayer->IPv4Layer->UDPLayer->DNSLayer returns true
     pub fn has_protocol_layer(self: *Packet, layer_proto: tcp_ip_protocol) bool {

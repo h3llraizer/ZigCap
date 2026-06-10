@@ -161,7 +161,7 @@ pub const LayerIface = union(enum) {
 
     /// return the payload (data[hdr_len..]) from the layer.
     /// depending on if the layer is owned by a Packet then the Packet will get the layers payload using it's offset+length in the packet buffer
-    /// if the layer is standalone (with owned_buffer owner) then it will always return null
+    /// if the layer is standalone (with owned_buffer owner) then it will always return an empty slice
     pub fn get_payload(self: *LayerIface) []const u8 {
         return switch (self.*) {
             inline else => |*layer| layer.get_payload(),

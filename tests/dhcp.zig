@@ -128,7 +128,7 @@ test "parse dhcp layer" {
 
     const allocator = debug_allocator.allocator();
 
-    const dhcp_buf = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", dhcp_req_raw.len);
+    const dhcp_buf = try allocator.alloc(u8, dhcp_req_raw.len);
     @memmove(dhcp_buf, dhcp_req_raw[0..]);
 
     const dhcp_owner: LayerOwner = LayerOwner{ .owned_buffer = try .init(dhcp_buf, allocator) };
@@ -159,7 +159,7 @@ test "parse dhcp req packet" {
 
     const allocator = debug_allocator.allocator();
 
-    var raw_packet_buffer: std.array_list.Aligned(u8, std.mem.Alignment.@"2") = .empty;
+    var raw_packet_buffer: std.ArrayList(u8) = .empty;
     //    defer raw_packet_buffer.deinit(allocator); - doesn't need to be called because Packet takes ownership but it is still safe to do so
 
     try raw_packet_buffer.appendSlice(allocator, &dhcp_req_raw);

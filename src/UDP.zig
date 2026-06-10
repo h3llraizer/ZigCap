@@ -20,19 +20,14 @@ const LayerError = ProtocolEnums.LayerError;
 
 pub const UDPHeaderSize = 8;
 
-const default_hdr = UDPHeader{
-    .src_port = 0,
-    .dst_port = 0,
-    .length = std.mem.nativeToBig(u16, 8),
-    .checksum = 0,
-};
+const default_hdr = UDPHeader.init_default();
 
 // UDP Header structure (extern struct for exact layout)
 pub const UDPHeader = extern struct {
-    src_port: u16 = 0, // Source port (network byte order)
-    dst_port: u16 = 0, // Destination port (network byte order)
-    length: u16 = 0, // UDP length (header + payload) in network byte order
-    checksum: u16 = 0, // UDP checksum (optional, 0 means not used in IPv4)
+    src_port: [2]u8 = .{0x00} ** 2, // Source port (network byte order)
+    dst_port: [2]u8 = .{0x00} ** 2, // Destination port (network byte order)
+    length: [2]u8 = .{ 0x00, 0x08 }, // UDP length (header + payload) in network byte order
+    checksum: [2]u8 = .{0x00} ** 2, // UDP checksum (optional, 0 means not used in IPv4)
 
     comptime {
         if (@sizeOf(UDPHeader) != UDPHeaderSize) {
@@ -41,50 +36,54 @@ pub const UDPHeader = extern struct {
     }
 
     pub fn init_default() UDPHeader {
-        return .{
-            .src_port = 0,
-            .dst_port = 0,
-            .length = std.mem.nativeToBig(u16, 8),
-            .checksum = 0,
+        var hdr: UDPHeader = .{
+            .src_port = .{0x00} ** 2, // Source port (network byte order)
+            .dst_port = .{0x00} ** 2, // Destination port (network byte order)
+            .length = .{ 0x00, 0x00 }, // UDP length (header + payload) in network byte order
+            .checksum = .{0x00} ** 2, // UDP checksum (optional, 0 means not used in IPv4)
         };
+
+        hdr.set_length(8);
+
+        return hdr;
     }
 
     /// sets as big endian
     pub fn set_src_port(self: *UDPHeader, port: u16) void {
-        self.src_port = @byteSwap(port); // Network byte order
+        std.mem.writeInt(u16, &self.src_port, port, .big); // Network byte order
     }
 
     /// returns little endian
     pub fn get_src_port(self: *const UDPHeader) u16 {
-        return @byteSwap(self.src_port);
+        return std.mem.readInt(u16, &self.src_port, .big);
     }
 
     /// sets as big endian
     pub fn set_dst_port(self: *UDPHeader, port: u16) void {
-        self.dst_port = @byteSwap(port);
+        std.mem.writeInt(u16, &self.dst_port, port, .big);
     }
 
     /// returns little endian
     pub fn get_dst_port(self: *const UDPHeader) u16 {
-        return @byteSwap(self.dst_port);
+        return std.mem.readInt(u16, &self.dst_port, .big);
     }
 
     pub fn set_length(self: *UDPHeader, len: u16) void {
-        self.length = @byteSwap(len);
+        std.mem.writeInt(u16, &self.length, len, .big);
     }
 
     pub fn get_length(self: *const UDPHeader) u16 {
-        return @byteSwap(self.length);
+        return std.mem.readInt(u16, &self.length, .big);
     }
 
     pub fn get_checksum(self: *const UDPHeader) u16 {
-        return @byteSwap(self.checksum);
+        return std.mem.readInt(u16, &self.checksum, .big);
     }
 
     /// Calculate UDP checksum (requires pseudo-header and payload)
     /// For IPv4, the pseudo-header includes: source IP, dest IP, protocol, UDP length
     pub fn calculate_checksum(self: *UDPHeader, src_ip: [4]u8, dst_ip: [4]u8, payload: []const u8) void {
-        self.checksum = 0;
+        self.checksum = .{ 0x00, 0x00 };
 
         var sum: u32 = 0;
 
@@ -130,15 +129,13 @@ pub const UDPHeader = extern struct {
             sum = (sum & 0xFFFF) + (sum >> 16);
         }
 
-        self.checksum = @byteSwap(~@as(u16, @intCast(sum)));
+        const checksum = ~@as(u16, @intCast(sum));
 
-        if (self.checksum == 0) {
-            self.checksum = 0xFFFF;
-        }
+        std.mem.writeInt(u16, &self.checksum, if (checksum == 0) 0xFFFF else checksum, .big);
     }
 
     /// Validate UDP checksum
-    pub fn validate_checksum(self: *const UDPHeader, src_ip: u32, dst_ip: u32, payload: []const u8) bool {
+    fn validate_checksum(self: *const UDPHeader, src_ip: u32, dst_ip: u32, payload: []const u8) bool {
         var sum: u32 = 0;
 
         // Add pseudo-header (IPv4)

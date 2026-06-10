@@ -23,14 +23,11 @@ const IPv4Header = IPv4.IPv4Header;
 
 const VLANHeaderSize = 4;
 
-const default_hdr = VLANHeader{
-    .tci = 0,
-    .tpi = 0,
-};
+const default_hdr = VLANHeader.init_default();
 
 pub const VLANHeader = extern struct {
-    tci: u16, // Tag Control Information
-    tpi: u16, // Tag Protocol Identifier
+    tci: [2]u8, // Tag Control Information
+    tpi: [2]u8, // Tag Protocol Identifier
 
     comptime {
         if (@sizeOf(VLANHeader) != 4) {
@@ -40,31 +37,30 @@ pub const VLANHeader = extern struct {
 
     pub fn init_default() VLANHeader {
         return .{
-            .tci = 0,
-            .tpi = 0,
+            .tci = .{0} ** 2,
+            .tpi = .{0} ** 2,
         };
     }
 
     pub fn set_tpi(self: *VLANHeader, tpi: EthType) void {
-        self.tpi = @byteSwap(@intFromEnum(tpi));
+        std.mem.writeInt(u16, &self.tpi, @intFromEnum(tpi), .big);
     }
 
     pub fn get_tpi(self: *const VLANHeader) EthType {
-        return @enumFromInt(@byteSwap(self.tpi));
+        return @enumFromInt(std.mem.readInt(u16, &self.tpi, .big));
     }
 
     pub fn set_tci(self: *VLANHeader, tci: u16) void {
-        self.tci = tci;
+        std.mem.writeInt(u16, &self.tci, tci, .big);
     }
 
     pub fn get_tci(self: *const VLANHeader) u16 {
-        return self.tci;
+        return std.mem.readInt(u16, &self.tci, .big);
     }
 };
 
 pub const VLANLayer = struct {
     owner: LayerOwner,
-    const Protocol = tcp_ip_protocol.vlan;
 
     pub fn init(owner: LayerOwner) LayerError!VLANLayer {
         return try init_layer(VLANLayer, owner, VLANHeader, default_hdr);
@@ -104,7 +100,7 @@ pub const VLANLayer = struct {
         const result = std.fmt.allocPrint(
             allocator,
             "VLANLayer: VLANType: {s}, tci: {}\n",
-            .{ eth_type_str, hdr.tci },
+            .{ eth_type_str, hdr.get_tci() },
         ) catch |err| {
             std.debug.print("allocPrint failed: {s}\n", .{@errorName(err)});
             return "";
@@ -130,7 +126,21 @@ pub const VLANLayer = struct {
     }
 
     pub fn validate_layer(self: *VLANLayer) void {
-        _ = self;
+        if (self.owner.is_packet_owned()) {
+            if (self.owner.packet_layer.next_layer) |next_layer| {
+                const protocol = next_layer.layer_iface.get_protocol();
+
+                const hdr = self.get_mutable_header();
+
+                switch (protocol) {
+                    .ipv4 => hdr.set_tpi(.IP),
+                    .ipv6 => hdr.set_tpi(.IPV6),
+                    .arp => hdr.set_tpi(.ARP),
+                    .loopback => hdr.set_tpi(.LOOPBACK),
+                    else => {},
+                }
+            }
+        }
     }
 
     /// return the next layer protocol type
@@ -180,7 +190,7 @@ pub const VLANLayer = struct {
 
     pub fn get_protocol(self: *VLANLayer) tcp_ip_protocol {
         _ = self;
-        return VLANLayer.Protocol;
+        return tcp_ip_protocol.vlan;
     }
 
     pub fn deinit(self: *VLANLayer) void {

@@ -9,14 +9,14 @@ const LayerIface = zigcap.LayerIface;
 const TCP = zigcap.TCP;
 
 test "parse tcp layer" {
-    const tcp_syn_req: [40]u8 align(2) = [40]u8{ 0x30, 0x39, 0x0, 0x50, 0x0, 0x0, 0x3, 0xe8, 0x0, 0x0, 0x0, 0x0, 0xa0, 0x2, 0x20, 0x0, 0x2c, 0x3d, 0x0, 0x0, 0x2, 0x4, 0x5, 0xb4, 0x3, 0x3, 0x7, 0x8, 0xa, 0x6a, 0x18, 0xc3, 0x25, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
+    const tcp_syn_req: [40]u8  = [40]u8{ 0x30, 0x39, 0x0, 0x50, 0x0, 0x0, 0x3, 0xe8, 0x0, 0x0, 0x0, 0x0, 0xa0, 0x2, 0x20, 0x0, 0x2c, 0x3d, 0x0, 0x0, 0x2, 0x4, 0x5, 0xb4, 0x3, 0x3, 0x7, 0x8, 0xa, 0x6a, 0x18, 0xc3, 0x25, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
 
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.detectLeaks();
 
     const allocator = debug_allocator.allocator();
 
-    var tcp_buf = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", tcp_syn_req.len);
+    var tcp_buf = try allocator.alloc(u8, tcp_syn_req.len);
     @memmove(tcp_buf[0..], tcp_syn_req[0..]);
 
     const tcp_owner: LayerOwner = LayerOwner{ .owned_buffer = try .init(tcp_buf, allocator) };
@@ -114,6 +114,18 @@ test "build tcp layer independant" {
     //    print("window: {}\n", .{tcp_hdr.get_window()});
 
     tcp_hdr.set_urgent_ptr(5);
+
+    try expect(tcp_hdr.get_dst_port() == 1024);
+
+    try expect(tcp_hdr.get_src_port() == 5005);
+
+    //try expect(tcp_hdr.get_seq_num() == 1234);
+
+    try expect(tcp_hdr.get_window() == 8989);
+
+    try expect(tcp_hdr.get_urgent_ptr() == 5);
+
+    print("tcp hdr len: {}\n", .{tcp_hdr.get_hdr_length()});
 
     //    print("urgent_ptr: {}\n", .{tcp_hdr.get_urgent_ptr()});
 }

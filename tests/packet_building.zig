@@ -149,7 +149,7 @@ test "IPv4 Packet Router Alert option" {
 
     ipv4_hdr.set_ttl(1);
 
-    var router_alert_op: [2]u8 align(2) = [_]u8{ 0x00, 0x00 };
+    var router_alert_op: [2]u8  = [_]u8{ 0x00, 0x00 };
 
     const op = try IPv4.IPOption.init(IPv4.IPOptionType.RouterAlert, &router_alert_op);
 
@@ -256,7 +256,7 @@ test "build ipv4 packet with Record Route option" {
 
     ipv4_hdr.set_ttl(64);
 
-    var record_route_op: [15]u8 align(2) = [_]u8{
+    var record_route_op: [15]u8  = [_]u8{
         0x04, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00,

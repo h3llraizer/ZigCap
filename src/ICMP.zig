@@ -31,23 +31,19 @@ const LayerError = ProtocolEnums.LayerError;
 pub const ICMPHeaderSize = 8; // TODO: Rename - this is minimum size because any ICMP type extends from 4 to 8 minimum
 const BaseHeaderSize = 4; // absolute base header
 
-const default_hdr = ICMPHeader{
-    .type = 0,
-    .code = 0,
-    .checksum = 0,
-};
+const default_hdr = ICMPHeader.init_default();
 
 /// Acts as the base header for ICMP
 pub const ICMPHeader = extern struct {
     type: u8,
     code: u8,
-    checksum: u16,
+    checksum: [2]u8,
 
     pub fn init_default() ICMPHeader {
         return .{
             .type = 0,
             .code = 0,
-            .checksum = 0,
+            .checksum = .{0x00} ** 2,
         };
     }
 
@@ -67,7 +63,7 @@ pub const ICMPHeader = extern struct {
     // Calculate ICMP checksum (covers header + payload)
     pub fn calculate_checksum(self: *ICMPHeader, payload: []const u8) void {
         const old_checksum = self.checksum;
-        self.checksum = 0;
+        self.checksum = .{0x00} ** 2;
 
         var sum: u32 = 0;
 
@@ -102,7 +98,7 @@ pub const ICMPHeader = extern struct {
         }
 
         // Take one's complement
-        self.checksum = @byteSwap(~@as(u16, @intCast(sum)));
+        std.mem.writeInt(u16, &self.checksum, ~@as(u16, @intCast(sum)), .big);
 
         _ = old_checksum;
     }
@@ -144,6 +140,7 @@ pub const ICMPHeader = extern struct {
 
 pub const ICMPLayer = struct {
     owner: LayerOwner,
+    pub const protocol = tcp_ip_protocol.icmp;
 
     pub fn init(owner: LayerOwner) LayerError!ICMPLayer {
         switch (owner) {

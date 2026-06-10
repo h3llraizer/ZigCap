@@ -61,7 +61,7 @@ test "build ipv4 layer with Router Alert option" {
     //
     //   ipv4_hdr.set_ttl(1);
     //
-    //   var router_alert_op: [2]u8 align(2) = [_]u8{ 0x00, 0x00 };
+    //   var router_alert_op: [2]u8  = [_]u8{ 0x00, 0x00 };
     //
     //   const op = try IPv4.IPOption.init(IPv4.IPOptionType.RouterAlert, &router_alert_op);
     //
@@ -108,7 +108,7 @@ test "build ipv4 layer with Record Route option" {
 
     ipv4_hdr.set_ttl(64);
 
-    var record_route_op: [12]u8 align(2) = [_]u8{
+    var record_route_op: [12]u8  = [_]u8{
         0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00,
@@ -118,7 +118,7 @@ test "build ipv4 layer with Record Route option" {
 
     try ipv4_layer_iface.ipv4Layer.add_option(rr_op, allocator);
 
-    var router_alert_op: [2]u8 align(2) = [_]u8{ 0x00, 0x00 };
+    var router_alert_op: [2]u8  = [_]u8{ 0x00, 0x00 };
 
     const ra_op = try IPv4.IPOption.init(IPv4.IPOptionType.RouterAlert, &router_alert_op);
 
@@ -141,7 +141,7 @@ test "parse icmp request with ipv4 rr set" {
 
     const allocator = debug_allocator.allocator();
 
-    var raw_packet_buffer: std.array_list.Aligned(u8, std.mem.Alignment.@"2") = .empty;
+    var raw_packet_buffer: std.ArrayList(u8) = .empty;
 
     try raw_packet_buffer.appendSlice(allocator, &raw);
 
@@ -189,7 +189,7 @@ test "parse icmp reply with ipv4 rr populated" {
 
     const allocator = debug_allocator.allocator();
 
-    var raw_packet_buffer: std.array_list.Aligned(u8, std.mem.Alignment.@"2") = .empty;
+    var raw_packet_buffer: std.ArrayList(u8) = .empty;
 
     try raw_packet_buffer.appendSlice(allocator, &raw);
 

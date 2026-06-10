@@ -87,12 +87,12 @@ pub const DNSHeaderFlags = packed struct {
 pub const DNSHeaderSize: usize = 12;
 
 const default_hdr = DNSHeader{
-    .id = 0,
-    .flags = 0,
-    .qdcount = 0,
-    .ancount = 0,
-    .nscount = 0,
-    .arcount = 0,
+    .id = .{0x00} ** 2,
+    .flags = .{0x00} ** 2,
+    .qdcount = .{0x00} ** 2,
+    .ancount = .{0x00} ** 2,
+    .nscount = .{0x00} ** 2,
+    .arcount = .{0x00} ** 2,
 };
 
 /// Standard DNS Header.
@@ -100,17 +100,17 @@ const default_hdr = DNSHeader{
 /// Getters return byteswapped values
 pub const DNSHeader = extern struct {
     /// Identification / Transaction ID
-    id: u16,
+    id: [2]u8 = .{0x00} ** 2,
     /// QR, Opcode, AA, TC, RD, RA, Z, RCODE packed - see DNSHeaderFlags
-    flags: u16,
+    flags: [2]u8 = .{0x00} ** 2,
     /// Number of questions
-    qdcount: u16,
+    qdcount: [2]u8 = .{0x00} ** 2,
     /// Number of answer ResponseRecords
-    ancount: u16,
+    ancount: [2]u8 = .{0x00} ** 2,
     /// Number of authority ResponseRecords
-    nscount: u16,
+    nscount: [2]u8 = .{0x00} ** 2,
     /// Number of additional ResponseRecords
-    arcount: u16,
+    arcount: [2]u8 = .{0x00} ** 2,
 
     comptime {
         if (@bitSizeOf(DNSHeader) != 96)
@@ -118,57 +118,180 @@ pub const DNSHeader = extern struct {
     }
 
     pub fn set_id(self: *DNSHeader, id: u16) void {
-        self.id = @byteSwap(id);
+        std.mem.writeInt(u16, &self.id, id, .big);
     }
 
     pub fn get_id(self: *const DNSHeader) u16 {
-        return @byteSwap(self.id);
+        return std.mem.readInt(u16, &self.id, .big);
     }
 
     /// sets qdcount to the value provided as BE
     pub fn set_qdcount(self: *DNSHeader, qdcount: u16) void {
-        self.qdcount = @byteSwap(qdcount);
+        std.mem.writeInt(u16, &self.qdcount, qdcount, .big);
     }
 
     /// returns the qdcount as LE
     pub fn get_qdcount(self: *const DNSHeader) u16 {
-        return @byteSwap(self.qdcount);
+        return std.mem.readInt(u16, &self.qdcount, .big);
     }
 
     pub fn set_ancount(self: *DNSHeader, ancount: u16) void {
-        self.ancount = @byteSwap(ancount);
+        std.mem.writeInt(u16, &self.ancount, ancount, .big);
     }
 
     pub fn get_ancount(self: *const DNSHeader) u16 {
-        return @byteSwap(self.ancount);
+        return std.mem.readInt(u16, &self.ancount, .big);
     }
 
     pub fn set_nscount(self: *DNSHeader, nscount: u16) void {
-        self.nscount = @byteSwap(nscount);
+        std.mem.writeInt(u16, &self.nscount, nscount, .big);
     }
 
     pub fn get_nscount(self: *const DNSHeader) u16 {
-        return @byteSwap(self.nscount);
+        return std.mem.readInt(u16, &self.nscount, .big);
     }
 
     pub fn set_arcount(self: *DNSHeader, arcount: u16) void {
-        self.arcount = @byteSwap(arcount);
+        std.mem.writeInt(u16, &self.arcount, arcount, .big);
     }
 
     pub fn get_arcount(self: *const DNSHeader) u16 {
-        return @byteSwap(self.arcount);
+        return std.mem.readInt(u16, &self.arcount, .big);
     }
 
-    //TODO: implement get_flags_mutable
-    pub fn get_flags(self: *DNSHeader) *DNSHeaderFlags {
-        self.flags = @byteSwap(self.flags);
-        return @ptrCast(&self.flags);
+    /// Get the raw flags as a u16 (big-endian)
+    pub fn get_flags_raw(self: *const DNSHeader) u16 {
+        return std.mem.readInt(u16, &self.flags, .big);
     }
 
-    pub fn get_flags_immutable(self: *DNSHeader) *const DNSHeaderFlags {
-        self.flags = @byteSwap(self.flags);
-        const flags: *const DNSHeaderFlags = @ptrCast(&self.flags);
-        return flags;
+    /// Set the raw flags from a u16 (big-endian)
+    pub fn set_flags_raw(self: *DNSHeader, value: u16) void {
+        std.mem.writeInt(u16, &self.flags, value, .big);
+    }
+
+    // Individual flag getters/setters
+
+    /// QR - Query/Response (bit 15)
+    /// 0 = query, 1 = response
+    pub fn get_qr(self: *const DNSHeader) bool {
+        const flags = self.get_flags_raw();
+        return (flags >> 15) & 1 == 1;
+    }
+
+    pub fn set_qr(self: *DNSHeader, is_response: bool) void {
+        var flags = self.get_flags_raw();
+        if (is_response) {
+            flags |= (1 << 15);
+        } else {
+            flags &= ~(@as(u16, 1) << 15);
+        }
+        self.set_flags_raw(flags);
+    }
+
+    /// OPCODE - Operation Code (bits 11-14)
+    /// 0 = standard query, 1 = inverse query, 2 = server status, etc.
+    pub fn get_opcode(self: *const DNSHeader) u4 {
+        const flags = self.get_flags_raw();
+        return @as(u4, @truncate((flags >> 11) & 0xF));
+    }
+
+    pub fn set_opcode(self: *DNSHeader, opcode: u4) void {
+        var flags = self.get_flags_raw();
+        flags &= ~(@as(u16, 0xF) << 11); // Clear bits 11-14
+        flags |= (@as(u16, opcode) << 11);
+        self.set_flags_raw(flags);
+    }
+
+    /// AA - Authoritative Answer (bit 10)
+    pub fn get_aa(self: *const DNSHeader) bool {
+        const flags = self.get_flags_raw();
+        return (flags >> 10) & 1 == 1;
+    }
+
+    pub fn set_aa(self: *DNSHeader, authoritative: bool) void {
+        var flags = self.get_flags_raw();
+        if (authoritative) {
+            flags |= (1 << 10);
+        } else {
+            flags &= ~(@as(u16, 1) << 10);
+        }
+        self.set_flags_raw(flags);
+    }
+
+    /// TC - Truncation (bit 9)
+    pub fn get_tc(self: *const DNSHeader) bool {
+        const flags = self.get_flags_raw();
+        return (flags >> 9) & 1 == 1;
+    }
+
+    pub fn set_tc(self: *DNSHeader, truncated: bool) void {
+        var flags = self.get_flags_raw();
+        if (truncated) {
+            flags |= (1 << 9);
+        } else {
+            flags &= ~(@as(u16, 1) << 9);
+        }
+        self.set_flags_raw(flags);
+    }
+
+    /// RD - Recursion Desired (bit 8)
+    pub fn get_rd(self: *const DNSHeader) bool {
+        const flags = self.get_flags_raw();
+        return (flags >> 8) & 1 == 1;
+    }
+
+    pub fn set_rd(self: *DNSHeader, recursion_desired: bool) void {
+        var flags = self.get_flags_raw();
+        if (recursion_desired) {
+            flags |= (1 << 8);
+        } else {
+            flags &= ~(@as(u16, 1) << 8);
+        }
+        self.set_flags_raw(flags);
+    }
+
+    /// RA - Recursion Available (bit 7)
+    pub fn get_ra(self: *const DNSHeader) bool {
+        const flags = self.get_flags_raw();
+        return (flags >> 7) & 1 == 1;
+    }
+
+    pub fn set_ra(self: *DNSHeader, recursion_available: bool) void {
+        var flags = self.get_flags_raw();
+        if (recursion_available) {
+            flags |= (1 << 7);
+        } else {
+            flags &= ~(@as(u16, 1) << 7);
+        }
+        self.set_flags_raw(flags);
+    }
+
+    /// Z - Reserved (bits 4-6) - Must be zero
+    pub fn get_z(self: *const DNSHeader) u3 {
+        const flags = self.get_flags_raw();
+        return @as(u3, @truncate((flags >> 4) & 0x7));
+    }
+
+    pub fn set_z(self: *DNSHeader, z: u3) void {
+        std.debug.assert(z == 0); // Z field must be zero according to DNS spec
+        var flags = self.get_flags_raw();
+        flags &= ~(@as(u16, 0x7) << 4); // Clear bits 4-6
+        flags |= (@as(u16, z) << 4);
+        self.set_flags_raw(flags);
+    }
+
+    /// RCODE - Response Code (bits 0-3)
+    /// 0 = no error, 1 = format error, 2 = server failure, 3 = name error, etc.
+    pub fn get_rcode(self: *const DNSHeader) u4 {
+        const flags = self.get_flags_raw();
+        return @as(u4, @truncate(flags & 0xF));
+    }
+
+    pub fn set_rcode(self: *DNSHeader, rcode: u4) void {
+        var flags = self.get_flags_raw();
+        flags &= ~(@as(u16, 0xF)); // Clear bits 0-3
+        flags |= rcode;
+        self.set_flags_raw(flags);
     }
 };
 
@@ -474,8 +597,9 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
     /// Sets DNS Header values to reflect Query and Answer count and perform byte swap for NBE order.
     /// Call this if you intend to send dns packet over the network or you need to undertake further analysis of the DNSHeader post modification
     pub fn validate_layer(self: *DNSLayer) void {
-        var hdr = self.get_mutable_header();
-        hdr.flags = @byteSwap(hdr.flags);
+        //var hdr = self.get_mutable_header();
+        //hdr.flags = @byteSwap(hdr.flags);
+        _ = self;
     }
 
     /// Append a DNS Query to the Queries section of the DNSLayer.
@@ -1112,34 +1236,26 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
 
     pub fn to_string(self: *DNSLayer, allocator: Allocator) []const u8 {
         const hdr = self.get_mutable_header();
-        const flags = hdr.get_flags();
 
-        const id: u16 = std.mem.bigToNative(u16, hdr.id);
+        const id = hdr.get_id();
+        const qr = hdr.get_qr();
+        const opcode = hdr.get_opcode();
+        const aa = hdr.get_aa();
+        const tc = hdr.get_tc();
+        const rd = hdr.get_rd();
+        const ra = hdr.get_ra();
+        const z = hdr.get_z();
+        const rcode = hdr.get_rcode();
+        const qdcount = hdr.get_qdcount();
+        const ancount = hdr.get_ancount();
+        const nscount = hdr.get_nscount();
+        const arcount = hdr.get_arcount();
 
-        const qr = flags.qr;
-        const opcode = flags.opcode;
-        const aa = flags.aa;
-        const tc = flags.tc;
-        const rd = flags.rd;
-        const ra = flags.ra;
-        const z = flags.z;
-        const rcode = flags.rcode;
-
-        const qdcount: u16 = std.mem.bigToNative(u16, hdr.qdcount);
-        const ancount: u16 = std.mem.bigToNative(u16, hdr.ancount);
-        const nscount: u16 = std.mem.bigToNative(u16, hdr.nscount);
-        const arcount: u16 = std.mem.bigToNative(u16, hdr.arcount);
-
-        const result = std.fmt.allocPrint(
+        return std.fmt.allocPrint(
             allocator,
-            "DNS Layer: id: {} qr: {} opcode: {}  aa: {} tc: {} rd: {} ra: {} z: {} rcode: {} qdcount: {} ancount: {} nscount: {} arcount: {}",
+            "DNS Layer: id={} qr={} opcode={} aa={} tc={} rd={} ra={} z={} rcode={} qdcount={} ancount={} nscount={} arcount={}",
             .{ id, qr, opcode, aa, tc, rd, ra, z, rcode, qdcount, ancount, nscount, arcount },
-        ) catch |err| {
-            std.debug.print("DNS allocPrint failed: {s}\n", .{@errorName(err)});
-            return "";
-        };
-
-        return result;
+        ) catch return "Error.";
     }
 
     pub fn get_protocol(self: *DNSLayer) tcp_ip_protocol {

@@ -20,16 +20,18 @@ pub const TCPHeaderMinSize = 20;
 pub const TCPHeaderMaxSize = 40;
 const HeaderAlignment = 4;
 
-const default_hdr = TCPHeader{
-    .src_port = 0,
-    .dst_port = 0,
-    .seq_num = [_]u8{0} ** 4,
-    .ack_num = [_]u8{0} ** 4,
-    .data_offset_reserved_flags = [_]u8{0} ** 2,
-    .window = 0,
-    .checksum = 0,
-    .urgent_ptr = 0,
-};
+//   const default_hdr = TCPHeader{
+//       .src_port = .{ 0x00, 0x00 },
+//       .dst_port = .{ 0x00, 0x00 },
+//       .seq_num = [_]u8{0} ** 4,
+//       .ack_num = [_]u8{0} ** 4,
+//       .data_offset_reserved_flags = [_]u8{0} ** 2,
+//       .window = .{ 0x00, 0x00 },
+//       .checksum = .{ 0x00, 0x00 },
+//       .urgent_ptr = .{ 0x00, 0x00 },
+//   };
+
+const default_hdr = TCPHeader.init_default();
 
 const TCPFlags = packed struct {
     fin: u1,
@@ -45,25 +47,25 @@ const TCPFlags = packed struct {
 /// Standard TCPHeader (20 bytes)
 /// seq and ack num are specified as 4 byte u8 arrays for alignment purposes
 pub const TCPHeader = extern struct {
-    src_port: u16,
-    dst_port: u16,
+    src_port: [2]u8,
+    dst_port: [2]u8,
     seq_num: [4]u8,
     ack_num: [4]u8,
     data_offset_reserved_flags: [2]u8, // high bit is offset + reserved. low bit is TCPFlags
-    window: u16,
-    checksum: u16,
-    urgent_ptr: u16,
+    window: [2]u8,
+    checksum: [2]u8,
+    urgent_ptr: [2]u8,
 
     pub fn init_default() TCPHeader {
         var tcp_hdr = TCPHeader{
-            .src_port = 0,
-            .dst_port = 0,
+            .src_port = .{ 0x00, 0x00 },
+            .dst_port = .{ 0x00, 0x00 },
             .seq_num = [_]u8{0} ** 4,
             .ack_num = [_]u8{0} ** 4,
             .data_offset_reserved_flags = [_]u8{0} ** 2,
-            .window = 0,
-            .checksum = 0,
-            .urgent_ptr = 0,
+            .window = .{ 0x00, 0x00 },
+            .checksum = .{ 0x00, 0x00 },
+            .urgent_ptr = .{ 0x00, 0x00 },
         };
 
         tcp_hdr.set_hdr_length(20);
@@ -73,24 +75,22 @@ pub const TCPHeader = extern struct {
 
     /// Get Source Port of the TCPHeader - converts u16 value from Big to Native and returns
     pub fn get_src_port(self: *const TCPHeader) u16 {
-        const src_port = self.src_port;
-        return @byteSwap(src_port);
+        return std.mem.readInt(u16, &self.src_port, .big);
     }
 
     /// Get Destination Port of the TCPHeader - converts u16 value from Big to Native and returns
     pub fn get_dst_port(self: *const TCPHeader) u16 {
-        const dst_port = self.dst_port;
-        return @byteSwap(dst_port);
+        return std.mem.readInt(u16, &self.dst_port, .big);
     }
 
     /// Get Source Port of the TCPHeader - converts u16 value from Big to Native and returns
     pub fn set_src_port(self: *TCPHeader, port: u16) void {
-        self.src_port = std.mem.nativeToBig(u16, port);
+        std.mem.writeInt(u16, &self.src_port, port, .big);
     }
 
     /// Get Destination Port of the TCPHeader - converts u16 value from Big to Native and returns
     pub fn set_dst_port(self: *TCPHeader, port: u16) void {
-        self.dst_port = std.mem.nativeToBig(u16, port);
+        std.mem.writeInt(u16, &self.dst_port, port, .big);
     }
 
     /// returns sequence number in little endian
@@ -120,22 +120,21 @@ pub const TCPHeader = extern struct {
     }
 
     pub fn get_window(self: *const TCPHeader) u16 {
-        const window = self.window;
-        return @byteSwap(window);
+        return std.mem.readInt(u16, &self.window, .big);
     }
 
     pub fn set_window(self: *TCPHeader, window: u16) void {
-        self.window = @byteSwap(window);
+        std.mem.writeInt(u16, &self.window, window, .big);
     }
 
     pub fn get_checksum(self: *const TCPHeader) u16 {
-        return @byteSwap(self.checksum);
+        return std.mem.readInt(u16, &self.checksum, .big);
     }
 
     /// Calculate TCP checksum (requires pseudo-header and payload)
     /// For IPv4, the pseudo-header includes: source IP, dest IP, protocol, TCP length
     pub fn calculate_checksum(self: *TCPHeader, src_ip: [4]u8, dst_ip: [4]u8, payload: []const u8) void {
-        self.checksum = 0;
+        self.checksum = .{ 0, 0 };
         var sum: u32 = 0;
 
         const src_w1 = (@as(u16, src_ip[0]) << 8) | src_ip[1];
@@ -154,11 +153,11 @@ pub const TCPHeader = extern struct {
 
         sum += total_length;
 
-        const h_src = @byteSwap(self.src_port);
-        const h_dst = @byteSwap(self.dst_port);
+        const h_src = self.get_src_port();
+        const h_dst = self.get_dst_port();
         const h_off = (@as(u16, self.data_offset_reserved_flags[0]) << 8) | self.data_offset_reserved_flags[1];
-        const h_win = @byteSwap(self.window);
-        const h_urg = @byteSwap(self.urgent_ptr);
+        const h_win = self.get_window();
+        const h_urg = self.get_urgent_ptr();
 
         sum += h_src;
         sum += h_dst;
@@ -205,19 +204,21 @@ pub const TCPHeader = extern struct {
             sum = (sum & 0xFFFF) + (sum >> 16);
         }
 
-        self.checksum = @byteSwap(~@as(u16, @intCast(sum)));
+        std.mem.writeInt(u16, &self.checksum, ~@as(u16, @intCast(sum)), .big);
 
-        if (self.checksum == 0) {
-            self.checksum = 0xFFFF;
+        //self.checksum = @byteSwap(~@as(u16, @intCast(sum)));
+
+        if (std.mem.readInt(u16, &self.checksum, .big) == 0) {
+            std.mem.writeInt(u16, &self.checksum, 0xFFFF, .big);
         }
     }
 
     pub fn get_urgent_ptr(self: *const TCPHeader) u16 {
-        return @byteSwap(self.urgent_ptr);
+        return std.mem.readInt(u16, &self.urgent_ptr, .big);
     }
 
     pub fn set_urgent_ptr(self: *TCPHeader, urgent_ptr: u16) void {
-        self.urgent_ptr = @byteSwap(urgent_ptr);
+        std.mem.writeInt(u16, &self.urgent_ptr, urgent_ptr, .big);
     }
 
     pub fn set_hdr_length(self: *TCPHeader, length: u8) void {
@@ -676,8 +677,8 @@ pub const TCPLayer = struct {
     pub fn to_string(self: *TCPLayer, allocator: Allocator) []const u8 {
         const hdr = self.get_immutable_header();
 
-        const src_port: u16 = std.mem.bigToNative(u16, hdr.src_port);
-        const dst_port: u16 = std.mem.bigToNative(u16, hdr.dst_port);
+        const src_port: u16 = hdr.get_src_port();
+        const dst_port: u16 = hdr.get_dst_port();
 
         // TODO: add [syn] [syn-ack] [ack] [rst] etc
         const result = std.fmt.allocPrint(allocator, "TCP Layer: src_port: {} dst_port: {}", .{ src_port, dst_port }) catch |err| {

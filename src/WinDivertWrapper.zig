@@ -49,7 +49,7 @@ const CaptureModeCombo = enum(u64) {
 };
 
 pub const WDPacket = struct {
-    raw: []align(2) u8,
+    raw: []u8,
     wd_addr: *WINDIVERT_ADDRESS,
 };
 
@@ -77,7 +77,7 @@ pub const WinDivert = struct {
     }
 
     pub fn capture_one_raw(self: WinDivert, max_pkt_size: usize, allocator: Allocator) Allocator.Error!?WDPacket {
-        const pkt_buf: []align(2) u8 = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", max_pkt_size);
+        const pkt_buf: []u8 = try allocator.alloc(u8, max_pkt_size);
 
         const windivert_addr: *WINDIVERT_ADDRESS = try allocator.create(WINDIVERT_ADDRESS);
 

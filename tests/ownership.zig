@@ -15,14 +15,14 @@ const DNS = zigcap.DNS;
 const IPProtocol = zigcap.ProtocolEnums.IPProtocol;
 
 test "owned_slice" {
-    const ipv4_header: [20]u8 align(2) = [_]u8{ 0x45, 0x0, 0x0, 0x54, 0xa3, 0xef, 0x40, 0x0, 0x40, 0x1, 0xbb, 0xff, 0xc0, 0xa8, 0xa, 0x2, 0x8, 0x8, 0x8, 0x8 };
+    const ipv4_header: [20]u8 = [_]u8{ 0x45, 0x0, 0x0, 0x54, 0xa3, 0xef, 0x40, 0x0, 0x40, 0x1, 0xbb, 0xff, 0xc0, 0xa8, 0xa, 0x2, 0x8, 0x8, 0x8, 0x8 };
 
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.detectLeaks();
 
     const allocator = debug_allocator.allocator();
 
-    const ipv4_slice: []align(2) u8 = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", ipv4_header.len);
+    const ipv4_slice: []u8 = try allocator.alloc(u8, ipv4_header.len);
 
     @memmove(ipv4_slice[0..], &ipv4_header);
 
@@ -49,7 +49,7 @@ test "packet ownership" {
 
     const allocator = debug_allocator.allocator();
 
-    var raw_packet_buffer: std.array_list.Aligned(u8, std.mem.Alignment.@"2") = .empty;
+    var raw_packet_buffer: std.ArrayList(u8) = .empty;
 
     try raw_packet_buffer.appendSlice(allocator, &raw);
 

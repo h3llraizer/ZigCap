@@ -314,23 +314,7 @@ pub const DHCPError = error{
     ServerNameTooLong,
 };
 
-const default_hdr = DHCPHeader{
-    .op = @intFromEnum(OPCode.BootRequest),
-    .htype = 1, // Ethernet
-    .hlen = 6, // MAC address length
-    .hops = 0,
-    .xid = [_]u8{0} ** 4,
-    .secs = 0,
-    .flags = 0,
-    .ciaddr = [_]u8{0} ** 4,
-    .yiaddr = [_]u8{0} ** 4,
-    .siaddr = [_]u8{0} ** 4,
-    .giaddr = [_]u8{0} ** 4,
-    .chaddr = [_]u8{0} ** 16,
-    .sname = [_]u8{0} ** 64,
-    .file = [_]u8{0} ** 128,
-    .magic_cookie = std.mem.toBytes(@byteSwap(@as(u32, 0x63825363))),
-};
+const default_hdr = DHCPHeader.init_default();
 
 pub const DHCPHeader = extern struct {
     op: u8, // Message op code / message type
@@ -339,8 +323,8 @@ pub const DHCPHeader = extern struct {
     hops: u8, // Client sets to zero, optionally used by relay agents
 
     xid: [4]u8, // Transaction ID
-    secs: u16, // Seconds elapsed
-    flags: u16, // Flags
+    secs: [2]u8 = .{0x00} ** 2, // Seconds elapsed
+    flags: [2]u8 = .{0x00} ** 2, // Flags
 
     ciaddr: [4]u8, // Client IP address - the IP the client already has
     yiaddr: [4]u8, // 'your' (client) IP address - the IP address given by the server in responses
@@ -360,8 +344,8 @@ pub const DHCPHeader = extern struct {
             .hlen = 6, // MAC address length
             .hops = 0,
             .xid = [_]u8{0} ** 4,
-            .secs = 0,
-            .flags = 0,
+            .secs = .{0x00} ** 2,
+            .flags = .{0x00} ** 2,
             .ciaddr = [_]u8{0} ** 4,
             .yiaddr = [_]u8{0} ** 4,
             .siaddr = [_]u8{0} ** 4,
@@ -422,20 +406,20 @@ pub const DHCPHeader = extern struct {
 
     // Set seconds - sets a BE
     pub fn set_secs(self: *DHCPHeader, secs: u16) void {
-        self.secs = @byteSwap(secs);
+        std.mem.writeInt(u16, &self.secs, secs, .big);
     }
 
     pub fn get_secs(self: *const DHCPHeader) u16 {
-        return @byteSwap(self.secs);
+        return std.mem.readInt(u16, &self.secs, .big);
     }
 
     // Flags getters/setters
     pub fn set_flags(self: *DHCPHeader, flags: u16) void {
-        self.flags = @byteSwap(flags);
+        std.mem.writeInt(u16, &self.flags, flags, .big);
     }
 
     pub fn get_flags(self: *const DHCPHeader) u16 {
-        return @byteSwap(self.flags);
+        return std.mem.readInt(u16, &self.flags, .big);
     }
 
     // Client IP getters/setters

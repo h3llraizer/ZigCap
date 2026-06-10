@@ -323,7 +323,7 @@ test "ipv6 esp" {
 
     const allocator = debug_allocator.allocator();
 
-    const raw_layer_buffer: []align(2) u8 = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", ipv6_hdr.len);
+    const raw_layer_buffer: []u8 = try allocator.alloc(u8, ipv6_hdr.len);
 
     @memmove(raw_layer_buffer, &ipv6_hdr);
 

@@ -22,7 +22,7 @@ test "parse ipv6 with hop-by-hop ext and ICMPv6 listen report" {
 
     const allocator = debug_allocator.allocator();
 
-    const raw_layer_buffer: []align(2) u8 = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", ipv6_hbh_icmpv6.len);
+    const raw_layer_buffer: []u8 = try allocator.alloc(u8, ipv6_hbh_icmpv6.len);
 
     @memmove(raw_layer_buffer, &ipv6_hbh_icmpv6);
 
@@ -84,7 +84,7 @@ test "parse ipv6 packet" {
 
     const allocator = debug_allocator.allocator();
 
-    var raw_packet_buffer: std.array_list.Aligned(u8, std.mem.Alignment.@"2") = .empty;
+    var raw_packet_buffer: std.ArrayList(u8) = .empty;
 
     try raw_packet_buffer.appendSlice(allocator, &ipv6_dns_req);
 
@@ -108,7 +108,7 @@ test "parse ipv6 layer" {
 
     const allocator = debug_allocator.allocator();
 
-    const ipv6_bytes = try allocator.alignedAlloc(u8, std.mem.Alignment.@"2", ipv6_raw_layer.len);
+    const ipv6_bytes = try allocator.alloc(u8, ipv6_raw_layer.len);
     @memmove(ipv6_bytes, ipv6_raw_layer[0..]);
 
     const buf: LayerOwner = LayerOwner{ .owned_buffer = try .init(ipv6_bytes, allocator) };
