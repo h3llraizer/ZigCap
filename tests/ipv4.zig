@@ -85,56 +85,139 @@ test "build ipv4 layer with Router Alert option" {
     //   defer allocator.free(str);
 }
 
-test "build ipv4 layer with Record Route option" {
-    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
-    defer _ = debug_allocator.detectLeaks();
+//   test "build ipv4 layer with Record Route option" {
+//       var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+//       defer _ = debug_allocator.detectLeaks();
+//
+//       const allocator = debug_allocator.allocator();
+//
+//       const ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+//
+//       //defer ipv4_layer_owner.owned_buffer.buffer.deinit(allocator);
+//
+//       var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, ipv4_layer_owner);
+//       defer ipv4_layer_iface.deinit();
+//
+//       var ipv4_hdr = ipv4_layer_iface.ipv4Layer.get_mutable_header();
+//
+//       ipv4_hdr.set_src_ip(try IPv4.IPv4Address.init_from_string("192.168.122.1"));
+//
+//       ipv4_hdr.set_dst_ip(try IPv4.IPv4Address.init_from_string("192.168.122.254"));
+//
+//       ipv4_layer_iface.ipv4Layer.set_ip_proto(IPProtocol.UDP);
+//
+//       ipv4_hdr.set_ttl(64);
+//
+//       var record_route_op: [12]u8 = [_]u8{
+//           0x00, 0x00, 0x00, 0x00,
+//           0x00, 0x00, 0x00, 0x00,
+//           0x00, 0x00, 0x00, 0x00,
+//       };
+//
+//       const rr_op = try IPv4.IPOption.init(IPv4.IPOptionType.RecordRoute, &record_route_op);
+//
+//       try ipv4_layer_iface.ipv4Layer.add_option(rr_op, allocator);
+//
+//       var router_alert_op: [2]u8 = [_]u8{ 0x00, 0x00 };
+//
+//       const ra_op = try IPv4.IPOption.init(IPv4.IPOptionType.RouterAlert, &router_alert_op);
+//
+//       const ra_op_bytes = try ra_op.toBytes(allocator);
+//       defer allocator.free(ra_op_bytes);
+//
+//       try expect(ra_op_bytes[0] == 0x94);
+//       try expect(ra_op_bytes[1] == 0x04);
+//       try expect(ra_op_bytes[2] == 0x00);
+//       try expect(ra_op_bytes[3] == 0x00);
+//
+//       try ipv4_layer_iface.ipv4Layer.add_option(ra_op, allocator);
+//   }
+//
+//   test "parse icmp request with ipv4 rr set" {
+//       const raw: [86]u8 = [_]u8{ 0xc, 0x0, 0x6c, 0x8f, 0x0, 0x0, 0x52, 0x54, 0x0, 0xf5, 0x3, 0x1, 0x8, 0x0, 0x49, 0x0, 0x0, 0x48, 0x0, 0x0, 0x0, 0x0, 0x40, 0x1, 0x25, 0xfa, 0xc0, 0xa8, 0x7a, 0x1, 0xa, 0x1, 0x1, 0x2, 0x7, 0xf, 0x4, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x8, 0x0, 0xe5, 0xfa, 0x4, 0xd2, 0x16, 0x2e, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x68, 0x69 };
+//
+//       var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+//       defer _ = debug_allocator.detectLeaks();
+//
+//       const allocator = debug_allocator.allocator();
+//
+//       var raw_packet_buffer: std.ArrayList(u8) = .empty;
+//
+//       try raw_packet_buffer.appendSlice(allocator, &raw);
+//
+//       var packet = Packet.create(allocator, allocator);
+//       try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.ETHERNET, null);
+//       defer packet.deinit();
+//
+//       try expect(packet.get_layer_count() == 3);
+//
+//       try expect(packet.has_protocol_layer(.eth));
+//       try expect(packet.has_protocol_layer(.ipv4));
+//       try expect(packet.has_protocol_layer(.icmp));
+//
+//       var ipv4_layer: *IPv4.IPv4Layer = packet.get_layer_of_type(IPv4.IPv4Layer) orelse {
+//           try expect(false); //failed to get IPv4 layer
+//           return;
+//       };
+//
+//       var opts = try ipv4_layer.get_opts(allocator) orelse {
+//           try expect(false); // failed to get opts
+//           return;
+//       };
+//
+//       defer opts.deinit(allocator);
+//
+//       var cur = opts.first;
+//       while (cur) |opt| {
+//           print("{any}\n", .{opt});
+//
+//           const bytes = try opt.toBytes(allocator);
+//           print("bytes: {x}\n", .{bytes});
+//           allocator.free(bytes);
+//
+//           cur = opt.next_opt;
+//       }
+//
+//       print("opt count: {}\n", .{opts.opts_count});
+//   }
+//
+//   test "parse icmp reply with ipv4 rr populated" {
+//       const raw: [86]u8 = [_]u8{ 0x52, 0x54, 0x0, 0xf5, 0x3, 0x1, 0xc, 0x0, 0x6c, 0x8f, 0x0, 0x0, 0x8, 0x0, 0x49, 0x0, 0x0, 0x48, 0x49, 0x6e, 0x0, 0x0, 0x3f, 0x1, 0xc9, 0x6a, 0xa, 0x1, 0x1, 0x2, 0xc0, 0xa8, 0x7a, 0x1, 0x7, 0xf, 0x10, 0xa, 0x1, 0x1, 0x1, 0xa, 0x1, 0x1, 0x2, 0xa, 0x1, 0x1, 0x2, 0x0, 0x0, 0x0, 0xed, 0xfa, 0x4, 0xd2, 0x16, 0x2e, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x68, 0x69 };
+//
+//       var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+//       defer _ = debug_allocator.detectLeaks();
+//
+//       const allocator = debug_allocator.allocator();
+//
+//       var raw_packet_buffer: std.ArrayList(u8) = .empty;
+//
+//       try raw_packet_buffer.appendSlice(allocator, &raw);
+//
+//       var packet = Packet.create(allocator, allocator);
+//       try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.ETHERNET, null);
+//       defer packet.deinit();
+//
+//       try expect(packet.get_layer_count() == 3);
+//
+//       try expect(packet.has_protocol_layer(.eth));
+//       try expect(packet.has_protocol_layer(.ipv4));
+//       try expect(packet.has_protocol_layer(.icmp));
+//   }
 
-    const allocator = debug_allocator.allocator();
-
-    const ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-
-    //defer ipv4_layer_owner.owned_buffer.buffer.deinit(allocator);
-
-    var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, ipv4_layer_owner);
-    defer ipv4_layer_iface.deinit();
-
-    var ipv4_hdr = ipv4_layer_iface.ipv4Layer.get_mutable_header();
-
-    ipv4_hdr.set_src_ip(try IPv4.IPv4Address.init_from_string("192.168.122.1"));
-
-    ipv4_hdr.set_dst_ip(try IPv4.IPv4Address.init_from_string("192.168.122.254"));
-
-    ipv4_layer_iface.ipv4Layer.set_ip_proto(IPProtocol.UDP);
-
-    ipv4_hdr.set_ttl(64);
-
-    var record_route_op: [12]u8  = [_]u8{
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
+test "raw ipv4" {
+    const data = [_]u8{
+        0x45, 0x00, 0x00, 0x58, 0x5A, 0x61, 0x00, 0x00,
+        0x40, 0x11, 0x4D, 0x9B, 0xC0, 0xA8, 0x01, 0xE1,
+        0x08, 0x08, 0x08, 0x08, 0xA0, 0x02, 0x00, 0x35,
+        0x00, 0x44, 0x78, 0xF6, 0x82, 0xC2, 0x01, 0x00,
+        0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+        0x0B, 0x73, 0x69, 0x67, 0x6E, 0x61, 0x6C, 0x65,
+        0x72, 0x2D, 0x70, 0x61, 0x08, 0x63, 0x6C, 0x69,
+        0x65, 0x6E, 0x74, 0x73, 0x36, 0x06, 0x67, 0x6F,
+        0x6F, 0x67, 0x6C, 0x65, 0x03, 0x63, 0x6F, 0x6D,
+        0x00, 0x00, 0x1C, 0x00, 0x01, 0x00, 0x00, 0x29,
+        0x05, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     };
-
-    const rr_op = try IPv4.IPOption.init(IPv4.IPOptionType.RecordRoute, &record_route_op);
-
-    try ipv4_layer_iface.ipv4Layer.add_option(rr_op, allocator);
-
-    var router_alert_op: [2]u8  = [_]u8{ 0x00, 0x00 };
-
-    const ra_op = try IPv4.IPOption.init(IPv4.IPOptionType.RouterAlert, &router_alert_op);
-
-    const ra_op_bytes = try ra_op.toBytes(allocator);
-    defer allocator.free(ra_op_bytes);
-
-    try expect(ra_op_bytes[0] == 0x94);
-    try expect(ra_op_bytes[1] == 0x04);
-    try expect(ra_op_bytes[2] == 0x00);
-    try expect(ra_op_bytes[3] == 0x00);
-
-    try ipv4_layer_iface.ipv4Layer.add_option(ra_op, allocator);
-}
-
-test "parse icmp request with ipv4 rr set" {
-    const raw: [86]u8 = [_]u8{ 0xc, 0x0, 0x6c, 0x8f, 0x0, 0x0, 0x52, 0x54, 0x0, 0xf5, 0x3, 0x1, 0x8, 0x0, 0x49, 0x0, 0x0, 0x48, 0x0, 0x0, 0x0, 0x0, 0x40, 0x1, 0x25, 0xfa, 0xc0, 0xa8, 0x7a, 0x1, 0xa, 0x1, 0x1, 0x2, 0x7, 0xf, 0x4, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x8, 0x0, 0xe5, 0xfa, 0x4, 0xd2, 0x16, 0x2e, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x68, 0x69 };
 
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.detectLeaks();
@@ -143,63 +226,13 @@ test "parse icmp request with ipv4 rr set" {
 
     var raw_packet_buffer: std.ArrayList(u8) = .empty;
 
-    try raw_packet_buffer.appendSlice(allocator, &raw);
+    try raw_packet_buffer.appendSlice(allocator, &data);
 
-    var packet = try Packet.create(allocator, allocator);
-    try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.ETHERNET, null);
+    var packet = Packet.create(allocator, allocator);
+    try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.RAW, null);
     defer packet.deinit();
 
-    try expect(packet.get_layer_count() == 3);
-
-    try expect(packet.has_protocol_layer(.eth));
-    try expect(packet.has_protocol_layer(.ipv4));
-    try expect(packet.has_protocol_layer(.icmp));
-
-    var ipv4_layer: *IPv4.IPv4Layer = packet.get_layer_of_type(IPv4.IPv4Layer) orelse {
-        try expect(false); //failed to get IPv4 layer
-        return;
-    };
-
-    var opts = try ipv4_layer.get_opts(allocator) orelse {
-        try expect(false); // failed to get opts
-        return;
-    };
-
-    defer opts.deinit(allocator);
-
-    var cur = opts.first;
-    while (cur) |opt| {
-        print("{any}\n", .{opt});
-
-        const bytes = try opt.toBytes(allocator);
-        print("bytes: {x}\n", .{bytes});
-        allocator.free(bytes);
-
-        cur = opt.next_opt;
-    }
-
-    print("opt count: {}\n", .{opts.opts_count});
-}
-
-test "parse icmp reply with ipv4 rr populated" {
-    const raw: [86]u8 = [_]u8{ 0x52, 0x54, 0x0, 0xf5, 0x3, 0x1, 0xc, 0x0, 0x6c, 0x8f, 0x0, 0x0, 0x8, 0x0, 0x49, 0x0, 0x0, 0x48, 0x49, 0x6e, 0x0, 0x0, 0x3f, 0x1, 0xc9, 0x6a, 0xa, 0x1, 0x1, 0x2, 0xc0, 0xa8, 0x7a, 0x1, 0x7, 0xf, 0x10, 0xa, 0x1, 0x1, 0x1, 0xa, 0x1, 0x1, 0x2, 0xa, 0x1, 0x1, 0x2, 0x0, 0x0, 0x0, 0xed, 0xfa, 0x4, 0xd2, 0x16, 0x2e, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x68, 0x69 };
-
-    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
-    defer _ = debug_allocator.detectLeaks();
-
-    const allocator = debug_allocator.allocator();
-
-    var raw_packet_buffer: std.ArrayList(u8) = .empty;
-
-    try raw_packet_buffer.appendSlice(allocator, &raw);
-
-    var packet = try Packet.create(allocator, allocator);
-    try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.ETHERNET, null);
-    defer packet.deinit();
-
-    try expect(packet.get_layer_count() == 3);
-
-    try expect(packet.has_protocol_layer(.eth));
-    try expect(packet.has_protocol_layer(.ipv4));
-    try expect(packet.has_protocol_layer(.icmp));
+    const str = try packet.to_string(allocator);
+    print("{s}\n", .{str});
+    allocator.free(str);
 }

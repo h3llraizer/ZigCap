@@ -276,7 +276,6 @@ pub const IGMPv3Layer = struct {
             panic("IGMP data len ({}) less than IGMPHeaderSize", .{data.len});
         }
 
-        //const aligned_ptr: [*]align(@alignOf(IGMPv3Header)) u8 = @alignCast(data.ptr);
         return @ptrCast(data.ptr);
     }
 
@@ -287,7 +286,6 @@ pub const IGMPv3Layer = struct {
             panic("IGMP data len ({}) less than IGMPHeaderSize", .{data.len});
         }
 
-        //const aligned_ptr: [*]align(@alignOf(IGMPv3Header)) const u8 = @alignCast(data.ptr);
         return @ptrCast(data.ptr);
     }
 
@@ -300,12 +298,10 @@ pub const IGMPv3Layer = struct {
 
         switch (igmp_type) {
             .membership_query => {
-                //const aligned_ptr: [*]align(@alignOf(IGMPv3QueryExtension)) u8 = @alignCast(data.ptr);
                 const igmp_header: *IGMPv3QueryExtension = @ptrCast(data.ptr);
                 return IGMP_type{ .igmpv3_gry_ext = igmp_header };
             },
             .v3_membership_report => {
-                //const aligned_ptr: [*]align(@alignOf(IGMPv3GroupRecord)) u8 = @alignCast(data.ptr);
                 const igmp_header: *IGMPv3GroupRecord = @ptrCast(data.ptr);
                 return IGMP_type{ .igmpv3_grp_rec = igmp_header };
             },
@@ -426,22 +422,18 @@ pub const IGMPv3Layer = struct {
 //               switch (igmp_type) {
 //                   .v1_membership_report, .v2_membership_report, .leave_group => {
 //                       if (data[1] == 0) {
-//                           const aligned_ptr: [*]align(@alignOf(IGMPv1Header)) u8 = @alignCast(data.ptr);
 //                           const igmp_header: *IGMPv1Header = @ptrCast(aligned_ptr);
 //                           return IGMP_type{ .igmpv1 = igmp_header };
 //                       }
 //
-//                       const aligned_ptr: [*]align(@alignOf(IGMPv2Header)) u8 = @alignCast(data.ptr);
 //                       const igmp_header: *IGMPv2Header = @ptrCast(aligned_ptr);
 //                       return IGMP_type{ .igmpv2 = igmp_header };
 //                   },
 //                   .v3_membership_report => {
-//                       const aligned_ptr: [*]align(@alignOf(IGMPv3GroupRecord)) u8 = @alignCast(data.ptr);
 //                       const igmp_header: *IGMPv3GroupRecord = @ptrCast(aligned_ptr);
 //                       return IGMP_type{ .igmpv3_grp_rec = igmp_header };
 //                   },
 //                   .membership_query => {
-//                       const aligned_ptr: [*]align(@alignOf(IGMPv3QueryExtension)) u8 = @alignCast(data.ptr);
 //                       const igmp_header: *IGMPv3QueryExtension = @ptrCast(aligned_ptr);
 //                       return IGMP_type{ .igmpv3_gry_ext = igmp_header };
 //                   },

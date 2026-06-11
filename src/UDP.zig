@@ -197,7 +197,6 @@ pub const UDPLayer = struct {
             panic("UDP data len ({}) less than UDPHeaderSize", .{data.len});
         }
 
-        //const aligned_ptr: [*]align(@alignOf(UDPHeader)) u8 = @alignCast(data.ptr);
         return @ptrCast(data.ptr);
     }
 
@@ -208,7 +207,6 @@ pub const UDPLayer = struct {
             panic("UDP data len ({}) less than UDPHeaderSize", .{data.len});
         }
 
-        //const aligned_ptr: [*]align(@alignOf(UDPHeader)) const u8 = @alignCast(data.ptr);
         return @ptrCast(data.ptr);
     }
 

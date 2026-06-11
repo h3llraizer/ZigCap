@@ -609,7 +609,7 @@ test "parse dns packet" {
     //  const pkt_data = try allocator.alloc(u8, cname_resp_pkt.len);
     //  @memmove(pkt_data, cname_resp_pkt[0..]);
 
-    //  var packet = try Packet.create(allocator, allocator);
+    //  var packet = Packet.create(allocator, allocator);
     //  defer packet.deinit();
     //  try packet.from_raw(pkt_data, link_layer_type.ETHERNET);
 }

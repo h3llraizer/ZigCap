@@ -84,7 +84,7 @@ test "parse icmp ttl exceeded packet" {
 
     try raw_packet_buffer.appendSlice(allocator, &icmp_ttl_exceeded);
 
-    var packet = try Packet.create(allocator, allocator);
+    var packet = Packet.create(allocator, allocator);
     try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.ETHERNET, null);
     defer packet.deinit();
 
@@ -165,7 +165,7 @@ test "build icmp request with redirect" {
 
     icmp_type_hdr.redirect.gateway = (try IPv4.IPv4Address.init_from_string("192.168.1.254")).array;
 
-    var packet = try Packet.create(allocator, allocator);
+    var packet = Packet.create(allocator, allocator);
     defer packet.deinit();
 
     _ = try packet.add_layer(&eth_layer_iface);

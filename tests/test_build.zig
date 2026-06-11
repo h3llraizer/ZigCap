@@ -24,7 +24,7 @@ test "build" {
 
     const allocator = debug_allocator.allocator();
 
-    var packet = try Packet.create(allocator, allocator);
+    var packet = Packet.create(allocator, allocator);
     defer packet.deinit();
 
     const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };

@@ -546,7 +546,6 @@ pub const DHCPLayer = struct {
             std.debug.panic("DHCP data len ({}) less than DHCPHeaderSize", .{data.len});
         }
 
-        //const aligned_ptr: [*]align(@alignOf(DHCPHeader)) u8 = @alignCast(data.ptr);
         return @ptrCast(data.ptr);
     }
 
@@ -557,7 +556,6 @@ pub const DHCPLayer = struct {
             std.debug.panic("DHCP data len ({}) less than DHCPHeaderSize", .{data.len});
         }
 
-        //const aligned_ptr: [*]align(@alignOf(DHCPHeader)) const u8 = @alignCast(data.ptr);
         return @ptrCast(data.ptr);
     }
 

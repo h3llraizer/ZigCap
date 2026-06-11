@@ -554,7 +554,7 @@ test "build timestamp opt in packet" {
 
     try ipv4_opt.timestamp.remove_ts_record(rec);
 
-    var packet = try Packet.create(allocator, allocator);
+    var packet = Packet.create(allocator, allocator);
     defer packet.deinit();
 
     var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, ipv4_layer.owner);
@@ -1083,7 +1083,7 @@ test "build rr opt for packet" {
 
     //print("udp data: {x}\n", .{udp_layer_face.get_data()});
 
-    var packet = try Packet.create(allocator, allocator);
+    var packet = Packet.create(allocator, allocator);
     defer packet.deinit();
 
     try packet.add_layer(&eth_layer_iface);

@@ -551,7 +551,6 @@ fn get_mutable_hdr(owner: *TLVOwner) *IPv4.IPv4Header {
         panic("IPv4 data len ({}) less than IPv4HeaderSize", .{data.len});
     }
 
-    //const aligned_ptr: [*]align(@alignOf(IPv4.IPv4Header)) u8 = @alignCast(data.ptr);
     return @ptrCast(data.ptr);
 }
 

@@ -176,19 +176,16 @@ pub const ICMPLayer = struct {
         switch (base_hdr.get_type()) {
             .EchoReply, .EchoRequest => {
                 const echo_hdr_start = data[BaseHeaderSize..];
-                //const aligned_ptr: [*]align(@alignOf(ICMPEcho)) u8 = @alignCast(echo_hdr_start.ptr);
                 const icmp_echo_hdr: *ICMPEcho = @ptrCast(echo_hdr_start.ptr);
                 return ICMP_type{ .echo = icmp_echo_hdr };
             },
             .DestinationUnreachable, .TimeExceeded => {
                 const te_hdr_start = data[BaseHeaderSize..];
-                //const aligned_ptr: [*]align(@alignOf(ICMPDestUnr)) u8 = @alignCast(te_hdr_start.ptr);
                 const icmp_te_hdr: *ICMPDestUnr = @ptrCast(te_hdr_start.ptr);
                 return ICMP_type{ .dest_unreachable = icmp_te_hdr };
             },
             .Redirect => {
                 const rd_hdr_start = data[BaseHeaderSize..];
-                //const aligned_ptr: [*]align(@alignOf(ICMPRedirect)) u8 = @alignCast(rd_hdr_start.ptr);
                 const icmp_rd_hdr: *ICMPRedirect = @ptrCast(rd_hdr_start.ptr);
                 return ICMP_type{ .redirect = icmp_rd_hdr };
             },
@@ -230,7 +227,6 @@ pub const ICMPLayer = struct {
             panic("ICMP data len ({}) less than ICMPHeaderSize", .{data.len});
         }
 
-        //const aligned_ptr: [*]align(@alignOf(ICMPHeader)) u8 = @alignCast(data.ptr);
         return @ptrCast(data.ptr);
     }
 
@@ -241,7 +237,6 @@ pub const ICMPLayer = struct {
             panic("ICMP data len ({}) less than ICMPHeaderSize", .{data.len});
         }
 
-        //const aligned_ptr: [*]align(@alignOf(ICMPHeader)) const u8 = @alignCast(data.ptr);
         return @ptrCast(data.ptr);
     }
 

@@ -526,7 +526,6 @@ pub const IPv4Layer = struct {
             panic("IPv4 data len ({}) less than IPv4HeaderSize", .{data.len});
         }
 
-        //const aligned_ptr: [*]align(@alignOf(IPv4Header)) u8 = @alignCast(data.ptr);
         return @ptrCast(data.ptr);
     }
 
@@ -537,7 +536,6 @@ pub const IPv4Layer = struct {
             panic("IPv4 data len ({}) less than IPv4HeaderSize", .{data.len});
         }
 
-        //const aligned_ptr: [*]align(@alignOf(IPv4Header)) const u8 = @alignCast(data.ptr);
         return @ptrCast(data.ptr);
     }
 

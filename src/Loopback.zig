@@ -49,7 +49,6 @@ pub const LoopbackLayer = struct {
 
     fn get_mutable_header(self: *const LoopbackLayer) *LoopbackHeader {
         const data = self.get_data();
-        //const aligned_ptr: [*]align(@alignOf(LoopbackHeader)) u8 = @alignCast(data.ptr);
         return @ptrCast(data.ptr);
     }
 
@@ -60,7 +59,6 @@ pub const LoopbackLayer = struct {
             panic("Loopback Raw Data len ({}) less than LoopbackHeaderSize", .{data.len});
         }
 
-        //const aligned_ptr: [*]align(@alignOf(LoopbackHeader)) const u8 = @alignCast(data.ptr);
         return @ptrCast(data.ptr);
     }
 

@@ -40,7 +40,7 @@ const default_hdr = IPv6Header{
 // IPv6 Header
 pub const IPv6Header = extern struct {
     version_traffic_flow: [4]u8, // Version 6, Traffic Class 0, Flow Label 0
-    payload_length: [2]u8 = .{0} ** 2, // Payload length (excluding IPv6 header)
+    payload_length: [2]u8 = .{0} ** 2, // Payload length (excluding IPv6 header, including IPv6 extensions)
     next_header: u8 = 0x3B, // Next header type
     hop_limit: u8 = 64, // Hop limit (similar to TTL)
     src_ip: [16]u8 = .{0} ** 16, // Source IPv6 address
@@ -148,7 +148,6 @@ pub const IPv6Layer = struct {
 
     pub fn get_mutable_header(self: *IPv6Layer) *IPv6Header {
         const data = self.get_data();
-        //const aligned_ptr: [*]align(@alignOf(IPv6Header)) u8 = @alignCast(data.ptr);
         return @ptrCast(data.ptr);
     }
 
@@ -159,7 +158,6 @@ pub const IPv6Layer = struct {
             panic("IPv6 Raw Data len ({}) less than IPv6HeaderSize", .{data.len});
         }
 
-        //const aligned_ptr: [*]align(@alignOf(IPv6Header)) const u8 = @alignCast(data.ptr);
         return @ptrCast(data.ptr);
     }
 

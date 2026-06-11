@@ -57,7 +57,7 @@ test "build arp request packet" {
 
     eth_hdr.set_src_mac(try Eth.MacAddress.init_from_string("14:4F:8A:A4:15:7D"));
 
-    var packet = try Packet.create(allocator, allocator);
+    var packet = Packet.create(allocator, allocator);
     defer packet.deinit();
 
     _ = try packet.add_layer(&eth_layer_iface);
@@ -108,7 +108,7 @@ test "build arp reply packet" {
 
     eth_hdr.set_src_mac(try Eth.MacAddress.init_from_string("14:4F:8A:A4:15:7D"));
 
-    var packet = try Packet.create(allocator, allocator);
+    var packet = Packet.create(allocator, allocator);
     defer packet.deinit();
 
     _ = try packet.add_layer(&eth_layer_iface);
@@ -160,7 +160,7 @@ test "IPv4 Packet Router Alert option" {
     try expect(op_bytes[2] == 0x00);
     try expect(op_bytes[3] == 0x00);
 
-    var packet = try Packet.create(allocator, allocator);
+    var packet = Packet.create(allocator, allocator);
 
     const eth_layer_owner = LayerOwner{ .owned_buffer = .init_empty(std.heap.page_allocator) };
 
@@ -267,7 +267,7 @@ test "build ipv4 packet with Record Route option" {
 
     op.set_len(15);
 
-    var packet = try Packet.create(allocator, allocator);
+    var packet = Packet.create(allocator, allocator);
 
     const eth_layer_owner = LayerOwner{ .owned_buffer = .init_empty(std.heap.page_allocator) };
 
@@ -410,7 +410,7 @@ test "build eth,ipv4,udp,generic_app packet" {
 
     try app_layer_iface.genericAppLayer.delete_payload_data();
 
-    var packet = try Packet.create(allocator, allocator);
+    var packet = Packet.create(allocator, allocator);
     defer packet.deinit();
 
     try expect(try packet.add_layer(&eth_layer_iface));

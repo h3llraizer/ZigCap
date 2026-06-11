@@ -642,7 +642,6 @@ pub const TCPLayer = struct {
             panic("TCP Raw Data len ({}) less than TCPHeaderSize", .{data.len});
         }
 
-        //const aligned_ptr: [*]align(@alignOf(TCPHeader)) u8 = @alignCast(data.ptr);
         return @ptrCast(data.ptr);
     }
 
@@ -653,7 +652,6 @@ pub const TCPLayer = struct {
             panic("TCP Raw Data len ({}) less than TCPHeaderSize", .{data.len});
         }
 
-        //const aligned_ptr: [*]align(@alignOf(TCPHeader)) const u8 = @alignCast(data.ptr);
         return @ptrCast(data.ptr);
     }
 

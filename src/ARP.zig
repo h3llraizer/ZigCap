@@ -215,7 +215,6 @@ pub const ARPLayer = struct {
             panic("ARP data len ({}) less than ARPHeaderSize", .{data.len});
         }
 
-        //const aligned_ptr: [*]align(@alignOf(ARPHeader)) u8 = @alignCast(data.ptr);
         return @ptrCast(data.ptr);
     }
 
@@ -226,7 +225,6 @@ pub const ARPLayer = struct {
             panic("ARP data len ({}) less than ARPHeaderSize", .{data.len});
         }
 
-        //const aligned_ptr: [*]align(@alignOf(ARPHeader)) const u8 = @alignCast(data.ptr);
         return @ptrCast(data.ptr);
     }
 

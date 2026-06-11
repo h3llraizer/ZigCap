@@ -88,7 +88,7 @@ test "parse ipv6 packet" {
 
     try raw_packet_buffer.appendSlice(allocator, &ipv6_dns_req);
 
-    var packet = try Packet.create(allocator, allocator);
+    var packet = Packet.create(allocator, allocator);
     try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.ETHERNET, null);
     defer packet.deinit();
 

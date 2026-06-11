@@ -30,7 +30,7 @@ test "parse tcp syn packet" {
 
     //const original_raw_packet_buffer_len = raw_packet_buffer.items.len;
 
-    var packet = try Packet.create(allocator, allocator);
+    var packet = Packet.create(allocator, allocator);
     try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.ETHERNET, null);
     defer packet.deinit();
 

@@ -75,7 +75,6 @@ pub const VLANLayer = struct {
 
     pub fn get_mutable_header(self: *const VLANLayer) *VLANHeader {
         const data = self.get_data();
-        //const aligned_ptr: [*]align(@alignOf(VLANHeader)) u8 = @alignCast(data.ptr);
         return @ptrCast(data.ptr);
     }
 
@@ -86,7 +85,6 @@ pub const VLANLayer = struct {
             panic("VLAN Raw Data len ({}) less than VLANHeaderSize", .{data.len});
         }
 
-        //const aligned_ptr: [*]align(@alignOf(VLANHeader)) const u8 = @alignCast(data.ptr);
         return @ptrCast(data.ptr);
     }
 

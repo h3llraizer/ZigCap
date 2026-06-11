@@ -72,7 +72,7 @@ pub const Packet = struct {
 
     /// Creates an empty Packet by creating it's internal buffer using the first (buffer allocator) passed
     /// the second allocator is used to create the layer structs (you can pass the same allocator if you want)
-    pub fn create(buffer_allocator: Allocator, layer_allocator: Allocator) !Packet { // TODO: This does not need an error return
+    pub fn create(buffer_allocator: Allocator, layer_allocator: Allocator) Packet {
         return Packet{
             .layer_allocator = layer_allocator,
             .buffer = Buffer.init_empty(buffer_allocator),
@@ -108,6 +108,31 @@ pub const Packet = struct {
         try self.accumulate_layers(parse_until);
     }
 
+    pub fn from_slice(
+        self: *Packet,
+        allocator: Allocator,
+        buffer: []u8,
+        link_type: link_layer_type,
+        parse_until: ?tcp_ip_protocol,
+    ) (InitError || LayerError || Allocator.Error)!void {
+        if (self.buffer.buffer.items.len > 0) {
+            return InitError.PacketBufferNotEmpty;
+        }
+        self.buffer = Buffer.init_empty(allocator);
+
+        self.buffer.buffer.items = buffer;
+
+        const first_layer = try self.layer_allocator.create(Layer);
+        const link_layer = try create_first_layer(self.buffer.buffer.items, link_type, first_layer) orelse {
+            return InitError.LinkLayerCreationFailed;
+        };
+
+        first_layer.* = Layer.init(0, self.buffer.buffer.items.len, link_layer, self);
+        self.first_layer = first_layer;
+
+        try self.accumulate_layers(parse_until);
+    }
+
     pub fn get_raw(self: *Packet) []const u8 {
         return self.buffer.buffer.items;
     }
@@ -125,7 +150,7 @@ pub const Packet = struct {
                 return try LayerIface.init(GenericLayer.ApplicationLayer, LayerOwner{ .packet_layer = layer });
             }
 
-            layer.length = IPv4.MinHeaderLength; // TODO: use actual header length
+            layer.length = IPv4.MinHeaderLength;
             return try LayerIface.init(IPv4.IPv4Layer, LayerOwner{ .packet_layer = layer });
         }
 

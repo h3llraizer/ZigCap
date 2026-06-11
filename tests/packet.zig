@@ -34,7 +34,7 @@ test "packet layer extract" {
 
     try expect(raw_hash == buffer_hash);
 
-    var packet = try Packet.create(allocator, allocator);
+    var packet = Packet.create(allocator, allocator);
     try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.ETHERNET, null);
     defer packet.deinit();
 
@@ -116,7 +116,7 @@ test "packet dissection" {
 
     try expect(raw_hash == buffer_hash);
 
-    var packet = try Packet.create(allocator, allocator);
+    var packet = Packet.create(allocator, allocator);
     try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.ETHERNET, null);
     defer packet.deinit();
 
@@ -198,7 +198,7 @@ test "packet extract layers" {
 
     try expect(raw_hash == buffer_hash);
 
-    var packet = try Packet.create(allocator, allocator);
+    var packet = Packet.create(allocator, allocator);
     try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.ETHERNET, null);
     defer packet.deinit();
 
@@ -250,7 +250,7 @@ test "packet delete layers" {
 
     try expect(raw_hash == buffer_hash);
 
-    var packet = try Packet.create(allocator, allocator);
+    var packet = Packet.create(allocator, allocator);
     try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.ETHERNET, null);
     defer packet.deinit();
 

@@ -50,7 +50,7 @@ test "build dhcp packet" {
 
     const allocator = debug_allocator.allocator();
 
-    var packet = try Packet.create(allocator, allocator);
+    var packet = Packet.create(allocator, allocator);
 
     const tmp_buf: LayerOwner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
 
@@ -164,7 +164,7 @@ test "parse dhcp req packet" {
 
     try raw_packet_buffer.appendSlice(allocator, &dhcp_req_raw);
 
-    var packet = try Packet.create(allocator, allocator);
+    var packet = Packet.create(allocator, allocator);
     try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.ETHERNET, null);
     defer packet.deinit();
 
