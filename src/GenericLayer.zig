@@ -99,7 +99,7 @@ pub const ApplicationLayer = struct {
         const data = self.get_data();
 
         const str = return_raw(data, allocator) catch {
-            return "Error executing to_string.\n";
+            return "Error executing to_string\n";
         };
 
         return str;

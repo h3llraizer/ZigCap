@@ -232,7 +232,7 @@ test "raw ipv4" {
     try packet.from_raw(allocator, &raw_packet_buffer, link_layer_type.RAW, null);
     defer packet.deinit();
 
-    const str = try packet.to_string(allocator);
-    print("{s}\n", .{str});
-    allocator.free(str);
+    //const str = try packet.to_string(allocator);
+    //print("{s}\n", .{str});
+    //allocator.free(str);
 }

@@ -27,63 +27,6 @@ const PTRRecord = DNSRecordTypes.PTRRecord;
 const NSRecord = DNSRecordTypes.NSRecord;
 const SOARecord = DNSRecordTypes.SOARecord;
 
-pub const DNSHeaderFlags = packed struct {
-    /// Response Code
-    rcode: u4 = 0,
-    /// Reserved (must be 0)
-    z: u3 = 0,
-    /// Recursion Available
-    ra: u1 = 0,
-    /// Recursion Desired
-    rd: u1 = 0,
-    /// Truncation
-    tc: u1 = 0,
-    /// Authoritative Answer
-    aa: u1 = 0,
-    /// Operaiton Code
-    opcode: u4 = 0,
-    // Query/Response
-    qr: u1 = 0,
-
-    /// Set the Response Code of the DNSHeader
-    /// Common resonse codes can be found in DNS.DNSRcode
-    /// the enum isn't explicitly required here but @intFromEnum can be used for convenience
-    pub fn set_rcode(self: *DNSHeaderFlags, rcode: u4) void {
-        self.rcode = rcode;
-    }
-
-    /// Set Recursion Available
-    /// can be either 1 for "true"/yes and 0 for "false"/no
-    pub fn set_ra(self: *DNSHeaderFlags, ra: u1) void {
-        self.ra = ra;
-    }
-
-    /// Set Recursion Desired
-    /// can be either 1 for "true"/yes and 0 for "false"/no
-    pub fn set_rd(self: *DNSHeaderFlags, rd: u1) void {
-        self.rd = rd;
-    }
-
-    /// Set Truncation
-    /// can be either 1 for "true"/yes and 0 for "false"/no
-    pub fn set_tc(self: *DNSHeaderFlags, rc: u1) void {
-        self.rc = rc;
-    }
-
-    /// Set Authoritative Answer
-    /// can be either 1 for "true"/yes and 0 for "false"/no
-    pub fn set_aa(self: *DNSHeaderFlags, aa: u1) void {
-        self.aa = aa;
-    }
-
-    /// Set Operation Code
-    /// Common operation codes can be found in DNS.DNSOpcode
-    /// the enum isn't explicitly required here but @intFromEnum can be used for convenience
-    pub fn set_opcode(self: *DNSHeaderFlags, opcode: u4) void {
-        self.opcode = opcode;
-    }
-};
-
 pub const DNSHeaderSize: usize = 12;
 
 const default_hdr = DNSHeader{
@@ -295,7 +238,7 @@ pub const DNSHeader = extern struct {
     }
 };
 
-/// Query struct stores offset and length of the raw query so the DNSLayer can manage it (similar to Packet.Layer)
+// Query struct stores offset and length of the raw query so the DNSLayer can manage it (similar to Packet.Layer)
 pub const Query = struct {
     offset: usize,
     length: usize,
