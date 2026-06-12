@@ -1,13 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-pub const BufferError = error{
-    OutOfMemory,
-    BufferTooSmall,
-    MisalignedBuffer,
-};
-
-/// Wrapper around 2-byte aligned std.ArrayList(u8) with public methods to faciliate easier work on Packet and Layer data
+/// Wrapper around std.ArrayList(u8) with public methods to faciliate easier work on Packet and Layer bytes
 pub const Buffer = struct {
     buffer: std.ArrayList(u8),
     allocator: Allocator,

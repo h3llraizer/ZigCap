@@ -102,45 +102,56 @@ test "parse dns packet" {
     try expect(hdr.get_qdcount() == 1);
     try expect(hdr.get_id() == 23282);
 
+    var queries = try dns_layer.get_queries(allocator) orelse {
+        try expect(false); // failed to get queries
+        return;
+    };
+
+    defer queries.deinit(allocator);
+
     //    try dns_layer.get_queries(); // doesn't need to be called when get_answers() is called
-    try dns_layer.get_answers();
+    var answers = try dns_layer.get_answers(allocator) orelse {
+        try expect(false);
+        return;
+    };
 
-    try expect(dns_layer.get_query_count() == 1);
-    try expect(dns_layer.get_answer_count() == 1);
+    defer answers.deinit(allocator);
 
-    try expect(dns_layer.first_query != null);
-    if (dns_layer.first_query) |query| {
-        const qname = try query.decode_qname(allocator);
-        defer allocator.free(qname);
-        try expect(std.mem.eql(u8, qname, "ziggit.dev"));
+    var query = queries.first orelse {
+        try expect(false);
+        return;
+    };
 
-        try expect(query.qtype == DNS.QueryType.A);
-        try expect(query.qclass == DNS.DnsClass.IN);
-    }
+    const qname = try query.decode_qname(allocator);
+    defer allocator.free(qname);
+    try expect(std.mem.eql(u8, qname, "ziggit.dev"));
 
-    try expect(dns_layer.first_answer != null);
-    if (dns_layer.first_answer) |answer| {
-        const name = try answer.get_name(allocator);
-        defer allocator.free(name);
+    try expect(query.qtype == DNS.QueryType.A);
+    try expect(query.qclass == DNS.DnsClass.IN);
 
-        try expect(std.mem.eql(u8, name, "ziggit.dev"));
+    var answer = answers.first orelse {
+        try expect(false);
+        return;
+    };
 
-        try expect(answer.get_class_type() == DNS.DnsClass.IN);
-        try expect(answer.get_rr_type() == DNS.QueryType.A);
+    const name = try answer.get_name(allocator);
+    defer allocator.free(name);
 
-        try expect(answer.get_ttl() == 854);
+    try expect(std.mem.eql(u8, name, "ziggit.dev"));
 
-        const ip = answer.a.get_ip() orelse {
-            try expect(false); // A record contains no IP
-            return;
-        };
+    try expect(answer.get_class_type() == DNS.DnsClass.IN);
+    try expect(answer.get_rr_type() == DNS.QueryType.A);
 
-        const ip_str = try ip.to_string(allocator);
-        defer allocator.free(ip_str);
-        try expect(std.mem.eql(u8, ip_str, "170.187.203.77"));
-    } else {
-        try expect(false); // first answer null
-    }
+    try expect(answer.get_ttl() == 854);
+
+    const ip = answer.a.get_ip() orelse {
+        try expect(false); // A record contains no IP
+        return;
+    };
+
+    const ip_str = try ip.to_string(allocator);
+    defer allocator.free(ip_str);
+    try expect(std.mem.eql(u8, ip_str, "170.187.203.77"));
 
     try expect(original_raw_packet_buffer_len == 97);
 
