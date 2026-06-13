@@ -17,8 +17,14 @@ const Allocator = std.mem.Allocator;
 pub const QueryType = DNSEnums.QueryType;
 pub const DnsClass = DNSEnums.DnsClass;
 
+pub const AnswerRecord = DNSRecordTypes.AnswerRecord;
+pub const AnswerRecords = DNSRecordTypes.AnswerRecords;
+
+pub const Query = DNSRecordTypes.Query;
+pub const Queries = DNSRecordTypes.Queries;
+
 const GenericRecord = DNSRecordTypes.GenericRecord;
-const ARecord = DNSRecordTypes.ARecord;
+pub const ARecord = DNSRecordTypes.ARecord;
 const AAAARecord = DNSRecordTypes.AAAARecord;
 const CNAMERecord = DNSRecordTypes.CNAMERecord;
 const TXTRecord = DNSRecordTypes.TXTRecord;
@@ -235,256 +241,6 @@ pub const DNSHeader = extern struct {
         flags &= ~(@as(u16, 0xF)); // Clear bits 0-3
         flags |= rcode;
         self.set_flags_raw(flags);
-    }
-};
-
-// Query struct stores offset and length of the raw query so the DNSLayer can manage it (similar to Packet.Layer)
-pub const Query = struct {
-    offset: usize,
-    length: usize,
-    qtype: QueryType,
-    qclass: DnsClass,
-    layer: *DNSLayer,
-    next_query: ?*Query = null,
-
-    pub fn init(offset: usize, length: usize, qtype: QueryType, qclass: DnsClass, layer: *DNSLayer) Query {
-        return Query{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer };
-    }
-
-    pub fn get_data(self: *Query) []const u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
-    }
-
-    pub fn decode_qname(self: *Query, allocator: Allocator) ![]const u8 {
-        return try decodeQname(allocator, self.get_data());
-    }
-};
-
-/// This tagged union is an interface over the concrete Answer Record Types.
-/// currently implemented record types are:
-///     A,
-///     AAAA,
-///     CNAME,
-///     TXT,
-///     MX,
-///     PTR,
-///     NS,
-///     SOA,
-///     Generic,
-pub const AnswerRecord = union(enum) {
-    a: ARecord,
-    aaaa: AAAARecord,
-    cname: CNAMERecord,
-    txt: TXTRecord,
-    mx: MXRecord,
-    ptr: PTRRecord,
-    ns: NSRecord,
-    soa: SOARecord,
-    generic: GenericRecord,
-
-    pub fn init(offset: usize, length: usize, qtype: QueryType, qclass: DnsClass, layer: *DNSLayer) AnswerRecord {
-        switch (qtype) {
-            // TODO: reduce repeating code
-            .A => {
-                return .{ .a = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
-            },
-
-            .AAAA => {
-                return .{ .aaaa = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
-            },
-
-            .CNAME => {
-                return .{ .cname = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
-            },
-
-            .TXT => {
-                return .{ .txt = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
-            },
-
-            .MX => {
-                return .{ .mx = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
-            },
-
-            .PTR => {
-                return .{ .ptr = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
-            },
-
-            .NS => {
-                return .{ .ns = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
-            },
-
-            .SOA => {
-                return .{ .soa = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
-            },
-
-            .GENERIC => {
-                return .{ .generic = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
-            },
-
-            else => return .{ .generic = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } },
-        }
-    }
-
-    pub fn get_name(self: *AnswerRecord, allocator: Allocator) ![]u8 {
-        const data = self.get_data();
-        // the length of the name is not known so just take use the offset of this RR
-        const layer = self.get_layer();
-        return try DNSRecordTypes.decode_name(layer.get_data(), data, allocator);
-    }
-
-    pub fn get_name_raw(self: *AnswerRecord) []const u8 {
-        const data = self.get_data();
-        return data;
-    }
-
-    pub fn get_layer(self: *AnswerRecord) *DNSLayer {
-        return switch (self.*) {
-            inline else => |*rr| rr.layer,
-        };
-    }
-
-    pub fn get_offset(self: *AnswerRecord) usize {
-        return switch (self.*) {
-            inline else => |*rr| rr.offset,
-        };
-    }
-
-    pub fn get_length(self: *AnswerRecord) usize {
-        return switch (self.*) {
-            inline else => |*rr| rr.length,
-        };
-    }
-
-    pub fn set_offset(self: *AnswerRecord, offset: usize) void {
-        return switch (self.*) {
-            inline else => |*rr| rr.offset = offset,
-        };
-    }
-
-    pub fn set_length(self: *AnswerRecord, length: usize) void {
-        return switch (self.*) {
-            inline else => |*rr| rr.length = length,
-        };
-    }
-
-    pub fn get_data(self: *AnswerRecord) []const u8 {
-        return switch (self.*) {
-            inline else => |*rr| rr.get_data(),
-        };
-    }
-
-    pub fn get_data_mut(self: *AnswerRecord) []u8 {
-        return switch (self.*) {
-            inline else => |*rr| rr.get_data_mut(),
-        };
-    }
-
-    pub fn set_next_record(self: *AnswerRecord, next: *AnswerRecord) void {
-        return switch (self.*) {
-            inline else => |*rr| rr.next_answer = next,
-        };
-    }
-
-    pub fn set_prev_record(self: *AnswerRecord, prev: *AnswerRecord) void {
-        return switch (self.*) {
-            inline else => |*rr| rr.prev_answer = prev,
-        };
-    }
-
-    pub fn get_next_record(self: *AnswerRecord) ?*AnswerRecord {
-        return switch (self.*) {
-            inline else => |*rr| rr.next_answer,
-        };
-    }
-
-    pub fn get_prev_record(self: *AnswerRecord) ?*AnswerRecord {
-        return switch (self.*) {
-            inline else => |*rr| rr.prev_answer,
-        };
-    }
-
-    pub fn get_ttl(self: *AnswerRecord) u32 {
-        const data = self.get_data();
-
-        var offset: usize = 0;
-
-        _ = DNSLayer.advance_past_name(self.get_data(), &offset) catch {
-            print("error decoding name.\n", .{});
-            return 0;
-        };
-
-        offset += 4; //  rrtype (2 bytes), class (2bytes)
-
-        const ttl: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
-
-        return @byteSwap(ttl);
-    }
-
-    pub fn set_ttl(self: *AnswerRecord, ttl: u32) void {
-        const data = self.get_data_mut();
-
-        var offset: usize = 0;
-
-        _ = DNSLayer.advance_past_name(self.get_data(), &offset) catch {
-            print("error decoding name.\n", .{});
-            return;
-        };
-
-        offset += 4; //  rrtype (2 bytes), class (2bytes)
-
-        const ttl_ptr = std.mem.bytesAsValue(u32, data[offset .. offset + @sizeOf(u32)]);
-
-        ttl_ptr.* = @byteSwap(ttl);
-    }
-
-    pub fn get_rr_type(self: *AnswerRecord) QueryType {
-        return switch (self.*) {
-            inline else => |*rr| rr.get_rr_type(),
-        };
-    }
-
-    pub fn get_class_type(self: *AnswerRecord) DnsClass {
-        return switch (self.*) {
-            inline else => |*rr| rr.qclass,
-        };
-    }
-};
-
-/// A doubly linked list containing RR-Records
-/// Calling deinit does not free any data in the DNSLayer - Only the structs are destroyed
-pub const AnswerRecords = struct {
-    first: ?*AnswerRecord = null,
-    last: ?*AnswerRecord = null,
-    answer_count: usize = 0,
-
-    pub fn deinit(self: *AnswerRecords, allocator: Allocator) void {
-        var cur = self.last;
-        while (cur) |ansrec| {
-            const prev = ansrec.get_prev_record();
-            allocator.destroy(ansrec);
-            cur = prev;
-        }
-
-        self.first = null;
-        self.last = null;
-        self.answer_count = 0;
-    }
-};
-
-pub const Queries = struct {
-    first: ?*Query = null,
-    query_count: usize = 0,
-
-    pub fn deinit(self: *Queries, allocator: Allocator) void {
-        var cur = self.first;
-        while (cur) |query| {
-            const next = query.next_query;
-            allocator.destroy(query);
-            cur = next;
-        }
-
-        self.first = null;
-        self.query_count = 0;
     }
 };
 
@@ -773,7 +529,8 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             }
             offset.* += 1 + byte; // Skip length byte and label
         }
-        return error.InvalidPacket;
+
+        return DNSParseError.InvalidPacket;
     }
 
     /// Returns AnswerRecords (doubly linkedlist)
@@ -1009,7 +766,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         hdr.set_ancount(ancount);
     }
 
-    pub fn find_last_a_ans_offset(self: *DNSLayer) DNSParseError!?usize {
+    fn find_last_a_ans_offset(self: *DNSLayer) DNSParseError!?usize {
         const data = self.get_data();
         var offset = DNSHeaderSize;
 

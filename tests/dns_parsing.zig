@@ -412,8 +412,6 @@ test "build dns query soa layer" {
 
     defer q_list.deinit(allocator);
 
-    print("query count: {}\n", .{q_list.query_count});
-
     var q = q_list.first;
     while (q) |query| {
         const qname = try query.decode_qname(allocator);
@@ -437,4 +435,6 @@ test "build dns query soa layer" {
     };
 
     try expect(answer.get_rr_type() == .SOA);
+
+    try expect(answer.get_ttl() == 128);
 }

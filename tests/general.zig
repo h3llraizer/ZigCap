@@ -6,6 +6,7 @@ const LayerIface = zigcap.LayerIface;
 const Eth = zigcap.Eth;
 const IPv4 = zigcap.IPv4;
 const ICMP = zigcap.ICMP;
+const DNS = zigcap.DNS;
 const Packet = zigcap.Packet.Packet;
 const Layer = zigcap.Packet.Layer;
 const IPProtocol = zigcap.ProtocolEnums.IPProtocol;
@@ -33,4 +34,6 @@ test "sizes" {
 
     const layer = @sizeOf(Layer);
     print("layer: {}\n", .{layer});
+
+    print("ARecord: {}\n", .{@sizeOf(DNS.ARecord)});
 }
