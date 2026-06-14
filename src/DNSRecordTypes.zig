@@ -1,16 +1,18 @@
 const std = @import("std");
 const DNS = @import("DNS.zig");
-
 const IPv4Address = @import("IPv4.zig").IPv4Address;
 const IPv6Address = @import("IPv6.zig").IPv6Address;
-
 const TLVOwner = @import("Owner.zig").TLVOwner;
+const LayerError = @import("ProtocolEnums.zig").LayerError;
 
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 const QueryType = DNS.QueryType;
 const DnsClass = DNS.DnsClass;
 const DNSLayer = DNS.DNSLayer;
+
+pub const Query = DNS.Query;
+pub const Queries = DNS.Queries;
 
 /// This tagged union is an interface over the concrete Answer Record Types.
 /// currently implemented record types are:
@@ -38,42 +40,94 @@ pub const AnswerRecord = union(enum) {
         switch (qtype) {
             // TODO: reduce repeating code
             .A => {
-                return .{ .a = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
+                return .{ .a = .{
+                    .offset = offset,
+                    .length = length,
+                    .qclass = qclass,
+                    .layer = layer,
+                } };
             },
 
             .AAAA => {
-                return .{ .aaaa = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
+                return .{ .aaaa = .{
+                    .offset = offset,
+                    .length = length,
+                    .qclass = qclass,
+                    .layer = layer,
+                } };
             },
 
             .CNAME => {
-                return .{ .cname = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
+                return .{ .cname = .{
+                    .offset = offset,
+                    .length = length,
+                    .qclass = qclass,
+                    .layer = layer,
+                } };
             },
 
             .TXT => {
-                return .{ .txt = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
+                return .{ .txt = .{
+                    .offset = offset,
+                    .length = length,
+                    .qclass = qclass,
+                    .layer = layer,
+                } };
             },
 
             .MX => {
-                return .{ .mx = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
+                return .{ .mx = .{
+                    .offset = offset,
+                    .length = length,
+                    .qclass = qclass,
+                    .layer = layer,
+                } };
             },
 
             .PTR => {
-                return .{ .ptr = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
+                return .{ .ptr = .{
+                    .offset = offset,
+                    .length = length,
+                    .qclass = qclass,
+                    .layer = layer,
+                } };
             },
 
             .NS => {
-                return .{ .ns = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
+                return .{ .ns = .{
+                    .offset = offset,
+                    .length = length,
+                    .qclass = qclass,
+                    .layer = layer,
+                } };
             },
 
             .SOA => {
-                return .{ .soa = .{ .offset = offset, .length = length, .qclass = qclass, .layer = layer } };
+                return .{ .soa = .{
+                    .offset = offset,
+                    .length = length,
+                    .qclass = qclass,
+                    .layer = layer,
+                } };
             },
 
             .GENERIC => {
-                return .{ .generic = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } };
+                return .{ .generic = .{
+                    .offset = offset,
+                    .length = length,
+                    .qtype = qtype,
+                    .qclass = qclass,
+                    .layer = layer,
+                } };
             },
 
-            else => return .{ .generic = .{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer } },
+            else => return .{ .generic = .{
+                .offset = offset,
+                .length = length,
+                .qtype = qtype,
+                .qclass = qclass,
+                .layer = layer,
+            } },
         }
     }
 
@@ -205,9 +259,117 @@ pub const AnswerRecord = union(enum) {
 /// A doubly linked list containing RR-Records
 /// Calling deinit does not free any data in the DNSLayer - Only the structs are destroyed
 pub const AnswerRecords = struct {
+    owner: TLVOwner,
     first: ?*AnswerRecord = null,
     last: ?*AnswerRecord = null,
     answer_count: usize = 0,
+
+    /// Do not use
+    pub fn add_answer( // TODO: add compress bool arg - use a compressed name
+        self: *AnswerRecords,
+        qname_record: ?*Query,
+        answer_record: *AnswerRecord,
+        allocator: Allocator,
+    ) (LayerError || Allocator.Error)!void {
+        _ = qname_record;
+
+        const extend_len = answer_record.get_data().len;
+
+        var extend_offset = if (self.owner.is_layer_owned()) DNS.DNSHeaderSize else 0;
+
+        var cur: ?*AnswerRecord = self.first;
+        var last: ?*AnswerRecord = null;
+
+        while (cur) |a| {
+            if (a.get_next_record() == null) {
+                extend_offset = a.get_offset() + a.get_length();
+                last = a;
+                break;
+            } else {
+                last = a.get_next_record();
+            }
+
+            cur = a.get_next_record();
+        }
+
+        const answer_buf = try self.owner.extend_buffer(extend_offset, extend_len);
+
+        @memmove(answer_buf, answer_record.get_data());
+
+        const added_answer = try allocator.create(AnswerRecord);
+
+        added_answer.* = AnswerRecord.init(
+            extend_offset,
+            extend_len,
+            answer_record.get_rr_type(),
+            answer_record.get_class_type(),
+            self.owner,
+        );
+
+        if (last) |last_answer| {
+            last_answer.next_answer = added_answer;
+            added_answer.prev_answer = last_answer;
+        } else {
+            self.first = added_answer;
+        }
+
+        self.answer_count += 1;
+
+        if (self.owner.is_layer_owned()) {
+            var hdr: *DNS.DNSHeader = @ptrCast(self.owner.get_data()[0..12]);
+            var ancount = hdr.get_ancount();
+
+            ancount += 1;
+            hdr.set_ancount(ancount);
+        }
+    }
+
+    /// Do not use
+    pub fn remove_answer(self: *AnswerRecords, answer: *AnswerRecord, allocator: Allocator) !void {
+        var cur: ?*AnswerRecord = if (self.first != null) self.first else return error.AnswerRecordListEmpty;
+
+        while (cur) |a| {
+            if (a == answer) {
+                const shorten_offset = answer.offset;
+
+                try self.owner.shorten_buffer(shorten_offset, answer.length);
+
+                var next_answer = answer.get_next_record();
+                while (next_answer) |next| {
+                    next.offset -= answer.get_length();
+                    next_answer = next.get_next_record();
+                }
+
+                self.answer_count -= 1;
+
+                if (self.owner.is_layer_owned()) {
+                    const hdr: *DNS.DNSHeader = @ptrCast(self.owner.get_data()[0..12]);
+                    var ancount = hdr.get_ancount();
+                    ancount -= 1;
+                    hdr.set_ancount(ancount);
+                }
+
+                // Update the list pointers BEFORE destroying
+                // Update first pointer if necessary
+                if (self.first == a) {
+                    self.first = a.get_next_record();
+                }
+
+                if (a.get_next_record()) |next| {
+                    next.set_prev_record(a.get_prev_record());
+                }
+
+                if (a.get_prev_record()) |prev| {
+                    prev.set_next_record(a.get_next_record());
+                }
+
+                allocator.destroy(answer);
+                return;
+            }
+            cur = a.get_next_record();
+        }
+        return error.AnswerRecordNotFound;
+    }
 
     pub fn deinit(self: *AnswerRecords, allocator: Allocator) void {
         var cur = self.last;
@@ -220,45 +382,6 @@ pub const AnswerRecords = struct {
         self.first = null;
         self.last = null;
         self.answer_count = 0;
-    }
-};
-
-// Query struct stores offset and length of the raw query so the DNSLayer can manage it (similar to Packet.Layer)
-pub const Query = struct {
-    offset: usize,
-    length: usize,
-    qtype: QueryType,
-    qclass: DnsClass,
-    layer: *DNSLayer,
-    next_query: ?*Query = null,
-
-    pub fn init(offset: usize, length: usize, qtype: QueryType, qclass: DnsClass, layer: *DNSLayer) Query {
-        return Query{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .layer = layer };
-    }
-
-    pub fn get_data(self: *Query) []const u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
-    }
-
-    pub fn decode_qname(self: *Query, allocator: Allocator) ![]const u8 {
-        return try DNS.decodeQname(allocator, self.get_data());
-    }
-};
-
-pub const Queries = struct {
-    first: ?*Query = null,
-    query_count: usize = 0,
-
-    pub fn deinit(self: *Queries, allocator: Allocator) void {
-        var cur = self.first;
-        while (cur) |query| {
-            const next = query.next_query;
-            allocator.destroy(query);
-            cur = next;
-        }
-
-        self.first = null;
-        self.query_count = 0;
     }
 };
 
@@ -496,7 +619,7 @@ pub const NSRecord = struct {
             const extend_len = new_len - old_len;
             const cname_offset = self.offset + 12;
 
-            print("extend len: {}\n", .{extend_len});
+            //print("extend len: {}\n", .{extend_len});
 
             // Extend the payload
             _ = try self.layer.extend_layer(cname_offset, extend_len);
@@ -519,36 +642,36 @@ pub const NSRecord = struct {
             const new_data = self.get_data_mut();
             @memcpy(new_data[12..], new_cname_wire);
         } else if (new_len < old_len) {
-            print("new cname len is less than current. current: {} new: {}\n", .{ old_len, new_len });
+            //print("new cname len is less than current. current: {} new: {}\n", .{ old_len, new_len });
             const shrink_len: isize = @as(isize, @intCast(old_len)) - @as(isize, @intCast(new_len));
-            print("shrink len: {}\n", .{shrink_len});
+            //print("shrink len: {}\n", .{shrink_len});
             const cname_offset = self.offset + 12;
 
             // Shrink the records RR
             _ = try self.layer.shorten_layer(cname_offset, @intCast(shrink_len));
-            print("shortened.\n", .{});
+            //print("shortened.\n", .{});
 
             // Update this record's length
             self.length -= @intCast(shrink_len); // int cast required here because shrink_len is isize
 
             // Update subsequent records' offsets and lengths
-            print("Update subsequent records' offsets and lengths:\n", .{});
+            //print("Update subsequent records' offsets and lengths:\n", .{});
             var next_record: ?*AnswerRecord = self.next_answer;
             while (next_record) |next| {
                 const cur_offset = next.get_offset();
-                print("cur record offset: {}\n", .{cur_offset});
+                //print("cur record offset: {}\n", .{cur_offset});
                 next.set_offset(cur_offset - @as(usize, @intCast(shrink_len)));
-                print("cur record new offset: {}\n", .{next.get_offset()});
+                //print("cur record new offset: {}\n", .{next.get_offset()});
                 next_record = next.get_next_record();
             }
 
-            print("shrink len: {}\n", .{-shrink_len});
+            //print("shrink len: {}\n", .{-shrink_len});
 
             // Update compression pointers
             self.update_proceeding_records(-shrink_len);
-            print("proceeding records updated.\n", .{});
+            //print("proceeding records updated.\n", .{});
             try self.update_rest_ptrs(ptr); // needs to be called now
-            print("rest of ptrs updated.\n", .{});
+            //print("rest of ptrs updated.\n", .{});
 
             // Write new NS
             const new_data = self.get_data_mut();

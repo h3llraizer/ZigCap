@@ -2,6 +2,8 @@ const std = @import("std");
 const expect = std.testing.expect;
 const zigcap = @import("zigcap");
 
+const print = std.debug.print;
+
 const DNS = zigcap.DNS;
 const Packet = zigcap.Packet.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
@@ -54,7 +56,14 @@ test "dns build" {
 }
 
 test "parse dns query raw" {
-    const ziggit_dev_a_q: [51]u8 = [_]u8{ 0x33, 0x72, 0x1, 0x20, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x6, 0x7a, 0x69, 0x67, 0x67, 0x69, 0x74, 0x3, 0x64, 0x65, 0x76, 0x0, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x29, 0x4, 0xd0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xc, 0x0, 0xa, 0x0, 0x8, 0x7e, 0xa2, 0x7f, 0xc7, 0xf8, 0xde, 0x4a, 0x38 };
+    const ziggit_dev_a_q: [51]u8 = [_]u8{
+        0x33, 0x72, 0x1,  0x20, 0x0,  0x1,  0x0,  0x0,  0x0,  0x0,  0x0,  0x1, // header
+
+        0x6,  0x7a, 0x69, 0x67, 0x67, 0x69, 0x74, 0x3,  0x64, 0x65, 0x76, 0x0,
+        0x0,  0x1,  0x0,  0x1,  0x0,  0x0,  0x29, 0x4,  0xd0, 0x0,  0x0,  0x0,
+        0x0,  0x0,  0xc,  0x0,  0xa,  0x0,  0x8,  0x7e, 0xa2, 0x7f, 0xc7, 0xf8,
+        0xde, 0x4a, 0x38,
+    };
 
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.deinit();
@@ -80,15 +89,11 @@ test "parse dns query raw" {
 
     defer queries.deinit(allocator);
 
-    var query = queries.first;
+    try queries.add_query("someother.com", DNS.QueryType.SOA, DNS.DnsClass.IN, allocator);
 
-    if (query) |q| {
-        const data = dns_layer.get_data();
-        const slice = data[q.offset .. q.offset + q.length];
-        _ = slice;
-        const q_data = q.get_data();
-        _ = q_data;
-    }
+    try expect(queries.query_count == 2);
+
+    var query = queries.first;
 
     while (query) |q| {
         const q_data = q.get_data();
@@ -97,7 +102,43 @@ test "parse dns query raw" {
         defer allocator.free(qname);
 
         query = q.next_query;
+
+        try queries.remove_query(q, allocator);
     }
+
+    if (queries.first != null) {
+        print("first query not null.\n", .{});
+    }
+
+    try expect(queries.query_count == 0);
+    try expect(dns_layer.dnsLayer.get_immutable_header().get_qdcount() == 0);
+
+    try queries.add_query("ziggit.dev", DNS.QueryType.A, DNS.DnsClass.IN, allocator);
+
+    query = queries.first;
+
+    while (query) |q| {
+        const str = try q.decode_qname(allocator);
+        //print("{s} {any} {any} \n", .{ str, q.qtype, q.qclass });
+        allocator.free(str);
+        query = q.next_query;
+    }
+
+    try expect(queries.query_count == 1);
+    try expect(dns_layer.dnsLayer.get_immutable_header().get_qdcount() == 1);
+
+    try expect(dns_layer.get_data().len == ziggit_dev_a_q.len);
+
+    var answers = try dns_layer.dnsLayer.get_answers(allocator) orelse {
+        try expect(false);
+        return;
+    };
+
+    defer answers.deinit(allocator);
+
+    try answers.add_answer(
+        queries.first,
+    );
 }
 
 test "parse dns A response raw" {

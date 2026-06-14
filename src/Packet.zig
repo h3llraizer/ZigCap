@@ -418,7 +418,7 @@ pub const Packet = struct {
     pub fn extract_layer(self: *Packet, layer: *Layer, owner: *LayerOwner) (LayerError || Allocator.Error)!?LayerIface {
         try self.buffer.cutRange(&owner.owned_buffer, layer.offset, layer.length);
 
-        layer.layer_iface.deinit(); // destroy structs which view over variable data - not the raw data itself
+        layer.layer_iface.deinit();
 
         try layer.layer_iface.reinit(owner.*); // transfers ownership of the packets data to the new owner
 

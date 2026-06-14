@@ -1,7 +1,9 @@
 const std = @import("std");
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerError = @import("ProtocolEnums.zig").LayerError;
-const LayerOwner = @import("Owner.zig").LayerOwner;
+const Owner = @import("Owner.zig");
+const LayerOwner = Owner.LayerOwner;
+const TLVOwner = Owner.TLVOwner;
 const Layer = @import("Packet.zig").Layer;
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const init_layer = @import("LayerIface.zig").init_layer;
@@ -19,9 +21,6 @@ pub const DnsClass = DNSEnums.DnsClass;
 
 pub const AnswerRecord = DNSRecordTypes.AnswerRecord;
 pub const AnswerRecords = DNSRecordTypes.AnswerRecords;
-
-pub const Query = DNSRecordTypes.Query;
-pub const Queries = DNSRecordTypes.Queries;
 
 const GenericRecord = DNSRecordTypes.GenericRecord;
 pub const ARecord = DNSRecordTypes.ARecord;
@@ -287,8 +286,8 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
     }
 
     pub fn is_response(self: *DNSLayer) bool {
-        const hdr = self.get_mutable_header();
-        return hdr.get_flags().rcode == 1;
+        const hdr = self.get_immutable_header();
+        return hdr.get_qr();
     }
 
     /// Sets DNS Header values to reflect Query and Answer count and perform byte swap for NBE order.
@@ -307,7 +306,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
 
         var start_offset = DNSHeaderSize;
 
-        if (try self.find_last_q_offset()) |last_q_offset| {
+        if (try self.get_last_query_offset()) |last_q_offset| {
             start_offset = last_q_offset;
         }
 
@@ -398,7 +397,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         }
     }
 
-    fn find_last_q_offset(self: *DNSLayer) (LayerError || Allocator.Error)!?usize {
+    fn get_last_query_offset(self: *DNSLayer) LayerError!?usize {
         const data = self.get_data();
         if (data.len < DNSHeaderSize) {
             return null;
@@ -455,7 +454,9 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             return null;
         }
 
-        var queries: Queries = (.{});
+        var queries: Queries = (.{
+            .owner = TLVOwner{ .layer = &self.owner },
+        });
 
         var cur: ?*Query = null;
 
@@ -495,7 +496,13 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             const qtype_e: QueryType = @enumFromInt(qtype);
 
             // Store the starting offset of this query
-            query.* = Query.init(qname_start, whole_record.len, qtype_e, qclass_e, self);
+            query.* = Query.init(
+                qname_start,
+                whole_record.len,
+                qtype_e,
+                qclass_e,
+                TLVOwner{ .layer = &self.owner },
+            );
 
             // Link queries together
             if (cur) |q| {
@@ -540,7 +547,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
 
         var offset: usize = DNSHeaderSize;
 
-        if (try self.find_last_q_offset()) |last_q_offset| {
+        if (try self.get_last_query_offset()) |last_q_offset| {
             offset = last_q_offset;
         }
 
@@ -548,11 +555,11 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
 
         const ancount = hdr.get_ancount();
 
-        if (ancount == 0) {
-            return null;
-        }
+        //       if (ancount == 0) {
+        //           return null;
+        //       }
 
-        var ansrecords: AnswerRecords = (.{});
+        var ansrecords: AnswerRecords = (.{ .owner = TLVOwner{ .layer = &self.owner } });
 
         var cur: ?*AnswerRecord = null;
 
@@ -621,11 +628,11 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         return ansrecords;
     }
 
-    fn find_last_ans_offset(self: *DNSLayer) (DNSParseError || LayerError)!?usize {
+    fn get_last_answer_offset(self: *DNSLayer) (DNSParseError || LayerError)!?usize {
         const data = self.get_data();
         var offset = DNSHeaderSize;
 
-        if (try self.find_last_q_offset()) |last_q_off| {
+        if (try self.get_last_query_offset()) |last_q_off| {
             offset = last_q_off;
         }
 
@@ -635,7 +642,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         var i: u32 = 0;
         while (i < ancount) : (i += 1) {
             if (offset + 12 > data.len) // minimum RR header size: NAME(2) + TYPE(2) + CLASS(2) + TTL(4) + RDLENGTH(2)
-                return error.InvalidPacket;
+                return LayerError.LayerInvalid;
 
             // Parse NAME
             _ = try advance_past_name(data, &offset); // advances the offset
@@ -654,7 +661,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             offset += 2;
 
             if (offset + rdlength > data.len) {
-                return error.InvalidPacket;
+                return LayerError.LayerInvalid;
             }
 
             offset += rdlength;
@@ -671,7 +678,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
     pub fn add_answer(self: *DNSLayer, name: []const u8, qtype: QueryType, qclass: DnsClass, ttl: u32, answer: []const u8) (LayerError || Allocator.Error || DNSParseError)!void {
         var start_offset: usize = DNSHeaderSize;
 
-        if (try self.find_last_ans_offset()) |off| {
+        if (try self.get_last_answer_offset()) |off| {
             start_offset = off;
         }
 
@@ -766,11 +773,11 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         hdr.set_ancount(ancount);
     }
 
-    fn find_last_a_ans_offset(self: *DNSLayer) DNSParseError!?usize {
+    fn get_last_auth_answer_offset(self: *DNSLayer) DNSParseError!?usize {
         const data = self.get_data();
         var offset = DNSHeaderSize;
 
-        if (try self.find_last_ans_offset()) |last_q_off| {
+        if (try self.get_last_answer_offset()) |last_q_off| {
             offset = last_q_off;
         }
 
@@ -815,7 +822,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
 
         var offset: usize = DNSHeaderSize;
 
-        if (try self.find_last_ans_offset()) |last_q_offset| {
+        if (try self.get_last_answer_offset()) |last_q_offset| {
             offset = last_q_offset;
         }
 
@@ -827,7 +834,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             return null;
         }
 
-        var ansrecords: AnswerRecords = (.{});
+        var ansrecords: AnswerRecords = (.{ .owner = TLVOwner{ .layer = &self.owner } });
 
         var cur: ?*AnswerRecord = null;
 
@@ -1002,3 +1009,170 @@ pub fn decodeQname(allocator: Allocator, dns_label: []const u8) (DNSLayer.DNSPar
 
     return list.toOwnedSlice(allocator);
 }
+
+// Query struct stores offset and length of the raw query so the DNSLayer can manage it (similar to Packet.Layer)
+pub const Query = struct {
+    offset: usize,
+    length: usize,
+    qtype: QueryType,
+    qclass: DnsClass,
+    owner: TLVOwner,
+    next_query: ?*Query = null,
+    prev_query: ?*Query = null,
+
+    pub fn init(offset: usize, length: usize, qtype: QueryType, qclass: DnsClass, owner: TLVOwner) Query {
+        return Query{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .owner = owner };
+    }
+
+    pub fn get_data(self: *Query) []const u8 {
+        return self.owner.get_data()[self.offset .. self.offset + self.length];
+    }
+
+    pub fn decode_qname(self: *Query, allocator: Allocator) ![]const u8 {
+        return try decodeQname(allocator, self.get_data());
+    }
+};
+
+pub const Queries = struct {
+    first: ?*Query = null,
+    owner: TLVOwner,
+    query_count: usize = 0,
+
+    pub fn add_query(
+        self: *Queries,
+        name: []const u8,
+        qtype: QueryType,
+        qclass: DnsClass,
+        allocator: Allocator,
+    ) (LayerError || Allocator.Error)!void {
+        // 2 byte qtype, 2 byte qclass, 1 byte first label, 1 byte null terminator
+        const extend_len = name.len + @sizeOf(QueryType) + @sizeOf(DnsClass) + (@sizeOf(u8) * 2);
+
+        var start_offset = if (self.owner.is_layer_owned()) DNSHeaderSize else 0;
+
+        var cur: ?*Query = self.first;
+        var last: ?*Query = null;
+
+        while (cur) |q| {
+            if (q.next_query == null) {
+                start_offset = q.offset + q.length;
+                last = q;
+                break;
+            } else {
+                last = q.next_query;
+            }
+
+            cur = q.next_query;
+        }
+
+        var query_buf = try self.owner.extend_buffer(start_offset, extend_len);
+
+        // Slice buffer starting at offset
+        var qbuffer = query_buf[0..];
+
+        // Write QNAME (labels)
+        var buf_offset: usize = 0;
+        var it = std.mem.splitScalar(u8, name, '.');
+        while (it.next()) |label| {
+            qbuffer[buf_offset] = @intCast(label.len);
+            buf_offset += 1;
+            @memmove(qbuffer[buf_offset .. buf_offset + label.len], label);
+            buf_offset += label.len;
+        }
+        qbuffer[buf_offset] = 0; // null terminator
+        buf_offset += 1;
+
+        // Write QTYPE
+        std.mem.writeInt(u16, @ptrCast(qbuffer[buf_offset .. buf_offset + 2]), @intCast(@intFromEnum(qtype)), .big);
+        buf_offset += 2;
+
+        // Write QCLASS
+        std.mem.writeInt(u16, @ptrCast(qbuffer[buf_offset .. buf_offset + 2]), @intCast(@intFromEnum(qclass)), .big);
+        buf_offset += 2;
+
+        const added_query = try allocator.create(Query);
+
+        added_query.* = Query.init(
+            start_offset,
+            extend_len,
+            qtype,
+            qclass,
+            self.owner,
+        );
+
+        if (last) |last_query| {
+            last_query.next_query = added_query;
+            added_query.prev_query = last_query;
+        } else {
+            self.first = added_query;
+        }
+
+        self.query_count += 1;
+
+        if (self.owner.is_layer_owned()) {
+            var hdr: *DNSHeader = @ptrCast(self.owner.get_data()[0..12]);
+            var qdcount = hdr.get_qdcount();
+
+            qdcount += 1;
+            hdr.set_qdcount(qdcount);
+        }
+    }
+
+    pub fn remove_query(self: *Queries, query: *Query, allocator: Allocator) !void {
+        var cur: ?*Query = if (self.first != null) self.first else return error.QueryListEmpty;
+
+        while (cur) |q| {
+            if (q == query) {
+                const start_offset = query.offset;
+
+                try self.owner.shorten_buffer(start_offset, query.length);
+
+                var next_query = query.next_query;
+                while (next_query) |next| {
+                    next.offset -= query.length;
+                    next_query = next.next_query;
+                }
+
+                self.query_count -= 1;
+
+                if (self.owner.is_layer_owned()) {
+                    const hdr: *DNSHeader = @ptrCast(self.owner.get_data()[0..12]);
+                    var qdcount = hdr.get_qdcount();
+                    qdcount -= 1;
+                    hdr.set_qdcount(qdcount);
+                }
+
+                // Update the list pointers BEFORE destroying
+                // Update first pointer if necessary
+                if (self.first == q) {
+                    self.first = q.next_query;
+                }
+
+                if (q.next_query) |next| {
+                    next.prev_query = q.prev_query;
+                }
+
+                if (q.prev_query) |prev| {
+                    prev.next_query = q.next_query;
+                }
+
+                allocator.destroy(query);
+                return;
+            }
+            cur = q.next_query;
+        }
+        return error.QueryNotFound;
+    }
+
+    pub fn deinit(self: *Queries, allocator: Allocator) void {
+        var cur = self.first;
+        while (cur) |query| {
+            const next = query.next_query;
+            allocator.destroy(query);
+            cur = next;
+        }
+
+        self.first = null;
+        self.query_count = 0;
+    }
+};
