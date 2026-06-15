@@ -868,18 +868,20 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
 
         const hdr = self.get_immutable_header();
 
-        const ancount = hdr.get_ancount();
+        const nscount = hdr.get_nscount();
 
-        if (ancount == 0) {
-            return null;
-        }
+        print("nscount: {}\n", .{nscount});
+
+        //    if (nscount == 0) {
+        //        return null;
+        //    }
 
         var ansrecords: AnswerRecords = (.{ .owner = TLVOwner{ .layer = &self.owner } });
 
         var cur: ?*AnswerRecord = null;
 
         var i: u32 = 0;
-        while (i < ancount) : (i += 1) {
+        while (i < nscount) : (i += 1) {
             if (offset + 12 > data.len) // minimum RR header size: NAME(2) + TYPE(2) + CLASS(2) + TTL(4) + RDLENGTH(2)
                 return error.InvalidPacket;
 
@@ -887,7 +889,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             const name_offset = offset;
             // This can be a pointer/offset compression (0xC0..) or raw labels
             // decode_name function to handle pointers and labels
-            _ = advance_past_name(data, &offset);
+            advance_past_name(data, &offset);
 
             // Parse TYPE
             const rtype = std.mem.readInt(u16, @ptrCast(data[offset .. offset + QUERY_TYPE_LENGTH].ptr), .big);

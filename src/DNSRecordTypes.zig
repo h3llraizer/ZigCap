@@ -22,6 +22,7 @@ pub const TTL_LENGTH = DNS.TTL_LENGTH;
 pub const RD_LENGTH = DNS.RD_LENGTH;
 
 const TXT_LENGTH = @sizeOf(u8);
+const MX_PREFERENCE_VALUE_LENGTH = @sizeOf(u16);
 
 /// This tagged union is an interface over the concrete Answer Record Types.
 /// currently implemented record types are:
@@ -325,7 +326,7 @@ pub const AnswerRecords = struct {
         self.answer_count += 1;
 
         if (self.owner.is_layer_owned()) {
-            var hdr: *DNS.DNSHeader = @ptrCast(self.owner.get_data()[0..12]);
+            var hdr: *DNS.DNSHeader = @ptrCast(self.owner.get_data()[0..DNS.DNSHeaderSize]);
             var ancount = hdr.get_ancount();
 
             ancount += 1;
@@ -352,7 +353,7 @@ pub const AnswerRecords = struct {
                 self.answer_count -= 1;
 
                 if (self.owner.is_layer_owned()) {
-                    const hdr: *DNS.DNSHeader = @ptrCast(self.owner.get_data()[0..12]);
+                    const hdr: *DNS.DNSHeader = @ptrCast(self.owner.get_data()[0..DNS.DNSHeaderSize]);
                     var ancount = hdr.get_ancount();
                     ancount -= 1;
                     hdr.set_ancount(ancount);
@@ -918,9 +919,10 @@ pub const MXRecord = struct {
 
         advance_past_name(data, &offset);
 
-        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH + RD_LENGTH);
+        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH + MX_PREFERENCE_VALUE_LENGTH);
 
-        const domain_start = self.get_data()[offset..]; // TODO: remove temp magic number
+        const domain_start = self.get_data()[offset..];
+
         return try decode_name(self.owner.get_data(), domain_start, allocator);
     }
 
@@ -971,7 +973,7 @@ pub const SOARecord = struct {
     }
 
     pub fn get_name(self: *SOARecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
-        return try decode_name(self.owner.get_data(), self.get_data()[12..], allocator);
+        return try decode_name(self.owner.get_data(), self.get_data()[0..], allocator);
     }
 
     /// Primary Name Server

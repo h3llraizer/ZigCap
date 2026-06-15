@@ -336,6 +336,35 @@ test "parse https w ar response" {
     var dns_layer = try LayerIface.init(DNS.DNSLayer, dns_owner);
     defer dns_layer.deinit();
 
+    const hdr = dns_layer.dnsLayer.get_immutable_header();
+
+    print("{any}\n", .{hdr});
+
+    const nrcount = hdr.get_nscount();
+
+    try expect(nrcount == 1);
+
+    var queries = try dns_layer.dnsLayer.get_queries(allocator) orelse {
+        try expect(false); // no dns queries
+        return;
+    };
+
+    defer queries.deinit(allocator);
+
+    var qcur: ?*DNS.Query = queries.first;
+
+    while (qcur) |query| {
+        const name = try query.decode_qname(allocator);
+        print("Query: {s}\n", .{name});
+        defer allocator.free(name);
+
+        try expect(std.mem.eql(u8, name, "gew1-spclient.spotify.com"));
+
+        print("{any}\n", .{query.qtype});
+
+        qcur = query.next_query;
+    }
+
     var ans_list = try dns_layer.dnsLayer.get_auth_answers(allocator) orelse {
         try expect(false); // no dns answers
         return;
@@ -347,22 +376,22 @@ test "parse https w ar response" {
 
     var cur: ?*DNS.AnswerRecord = ans_list.first;
     while (cur) |ans| {
+        print("SOA: \n", .{});
         if (ans.get_rr_type() == DNS.QueryType.SOA) {
             const name = try ans.get_name(allocator);
             defer allocator.free(name);
 
-            const mname = ans.soa.get_mname(allocator) catch {
-                cur = ans.get_next_record();
-                continue;
-            };
+            print("\tNAME: {s}\n", .{name});
+
+            const mname = try ans.soa.get_mname(allocator);
 
             defer allocator.free(mname);
 
-            const rname = ans.soa.get_rname(allocator) catch {
-                cur = ans.get_next_record();
-                print("\n", .{});
-                continue;
-            };
+            print("\tMNAME: {s}\n", .{mname});
+
+            const rname = try ans.soa.get_rname(allocator);
+
+            print("\tRNAME: {s}\n", .{rname});
 
             defer allocator.free(rname);
 
@@ -437,4 +466,113 @@ test "build dns query soa layer" {
     try expect(answer.get_rr_type() == .SOA);
 
     try expect(answer.get_ttl() == 128);
+}
+
+test "parse https spotify domain" {
+    const raw: [129]u8 = [_]u8{ 0x6, 0xea, 0x81, 0x80, 0x0, 0x1, 0x0, 0x0, 0x0, 0x1, 0x0, 0x1, 0xd, 0x65, 0x64, 0x67, 0x65, 0x2d, 0x77, 0x65, 0x62, 0x2d, 0x67, 0x65, 0x77, 0x31, 0x9, 0x64, 0x75, 0x61, 0x6c, 0x2d, 0x67, 0x73, 0x6c, 0x62, 0x7, 0x73, 0x70, 0x6f, 0x74, 0x69, 0x66, 0x79, 0x3, 0x63, 0x6f, 0x6d, 0x0, 0x0, 0x41, 0x0, 0x1, 0xc0, 0x1a, 0x0, 0x6, 0x0, 0x1, 0x0, 0x0, 0x3, 0x74, 0x0, 0x35, 0x4, 0x64, 0x6e, 0x73, 0x31, 0x3, 0x70, 0x30, 0x35, 0x5, 0x6e, 0x73, 0x6f, 0x6e, 0x65, 0x3, 0x6e, 0x65, 0x74, 0x0, 0xa, 0x68, 0x6f, 0x73, 0x74, 0x6d, 0x61, 0x73, 0x74, 0x65, 0x72, 0xc0, 0x4a, 0x62, 0x2b, 0x8b, 0x48, 0x0, 0x0, 0xa8, 0xc0, 0x0, 0x0, 0x1c, 0x20, 0x0, 0x12, 0x75, 0x0, 0x0, 0x0, 0xe, 0x10, 0x0, 0x0, 0x29, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
+
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+    defer _ = debug_allocator.detectLeaks();
+
+    const allocator = debug_allocator.allocator();
+
+    const dns_buf = try allocator.alloc(u8, raw.len);
+    @memmove(dns_buf, raw[0..]);
+
+    const dns_owner: LayerOwner = LayerOwner{ .owned_buffer = try .init(dns_buf, allocator) };
+
+    var dns_layer = try LayerIface.init(DNS.DNSLayer, dns_owner);
+    defer dns_layer.deinit();
+
+    var queries = try dns_layer.dnsLayer.get_queries(allocator) orelse {
+        try expect(false); // no dns queries
+        return;
+    };
+
+    defer queries.deinit(allocator);
+
+    var qcur: ?*DNS.Query = queries.first;
+
+    while (qcur) |query| {
+        const name = try query.decode_qname(allocator);
+        print("Query: {s}\n", .{name});
+        defer allocator.free(name);
+
+        //    try expect(std.mem.eql(u8, name, "gew1-spclient.spotify.com"));
+
+        print("{any}\n", .{query.qtype});
+
+        qcur = query.next_query;
+    }
+
+    const nscount = dns_layer.dnsLayer.get_immutable_header().get_nscount();
+
+    if (nscount == 0) {
+        try expect(false); // nscount is 0
+        return;
+    }
+
+    var ans_list = try dns_layer.dnsLayer.get_auth_answers(allocator) orelse {
+        try expect(false); // no dns answers
+        return;
+    };
+
+    defer ans_list.deinit(allocator);
+
+    try expect(ans_list.answer_count == 1);
+
+    var cur: ?*DNS.AnswerRecord = ans_list.first;
+    while (cur) |ans| {
+        print("SOA: \n", .{});
+        if (ans.get_rr_type() == DNS.QueryType.SOA) {
+            const name = try ans.get_name(allocator);
+            defer allocator.free(name);
+
+            print("\tNAME: {s}\n", .{name});
+
+            const mname = try ans.soa.get_mname(allocator);
+
+            defer allocator.free(mname);
+
+            print("\tMNAME: {s}\n", .{mname});
+
+            const rname = try ans.soa.get_rname(allocator);
+
+            print("\tRNAME: {s}\n", .{rname});
+
+            defer allocator.free(rname);
+
+            const serial = ans.soa.get_serial();
+
+            _ = serial;
+
+            //try expect(serial == 1647020872);
+
+            const ref_int = ans.soa.get_refresh_interval();
+
+            _ = ref_int;
+
+            //try expect(ref_int == 43200);
+
+            const retry_int = ans.soa.get_retry_interval();
+
+            _ = retry_int;
+
+            //try expect(r//try_int == 7200);
+
+            const expire_limit = ans.soa.get_expire_limit();
+
+            _ = expire_limit;
+
+            //try expect(expire_limit == 1209600);
+
+            const min_ttl = ans.soa.get_minimum_ttl();
+
+            _ = min_ttl;
+
+            //try expect(min_ttl == 3600);
+        }
+        cur = ans.get_next_record();
+    }
 }

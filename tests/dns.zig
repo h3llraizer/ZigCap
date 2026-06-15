@@ -106,10 +106,6 @@ test "parse dns query raw" {
         try queries.remove_query(q, allocator);
     }
 
-    if (queries.first != null) {
-        print("first query not null.\n", .{});
-    }
-
     try expect(queries.query_count == 0);
     try expect(dns_layer.dnsLayer.get_immutable_header().get_qdcount() == 0);
 
@@ -197,15 +193,15 @@ test "parse dns A response raw" {
     while (answer) |ans| {
         //        print("answer: offset={} length={} {any} {any}\n", .{ ans.get_offset(), ans.get_length(), ans.get_rr_type(), ans.get_class_type() });
 
-        print("{any} {any}\n", .{ ans.get_rr_type(), ans.get_class_type() });
+        //print("{any} {any}\n", .{ ans.get_rr_type(), ans.get_class_type() });
 
         if (ans.a.get_ip()) |ip| {
             const ip_str = try ip.to_string(allocator);
             defer allocator.free(ip_str);
-            print("original: {s}\n", .{ip_str});
+            //print("original: {s}\n", .{ip_str});
 
             ans.a.set_class(.ANY);
-            //print("class: {any}\n", .{try ans.a.get_class()});
+            ////print("class: {any}\n", .{try ans.a.get_class()});
 
             const new_ip = try IPv4.IPv4Address.init_from_string("1.2.3.4");
 
@@ -213,11 +209,11 @@ test "parse dns A response raw" {
             if (ans.a.get_ip()) |new_ipv4| {
                 const new_ip_str = try new_ipv4.to_string(allocator);
                 defer allocator.free(new_ip_str);
-                print("changed: {s}\n", .{new_ip_str});
+                //print("changed: {s}\n", .{new_ip_str});
             }
         }
 
-        print("{any} {any}\n", .{ ans.get_rr_type(), ans.get_class_type() });
+        //print("{any} {any}\n", .{ ans.get_rr_type(), ans.get_class_type() });
 
         const ttl = ans.get_ttl();
 
@@ -631,6 +627,8 @@ test "parse MX record response" {
         if (ans.get_rr_type() == DNS.QueryType.MX) {
             const mx_domain = try ans.mx.get_mx_domain(allocator);
             defer allocator.free(mx_domain);
+
+            //print("mx domain: {s}\n", .{mx_domain});
 
             try expect(std.mem.eql(u8, mx_domain, "smtp.google.com"));
 
