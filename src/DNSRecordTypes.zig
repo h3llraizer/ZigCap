@@ -14,6 +14,15 @@ const DNSLayer = DNS.DNSLayer;
 pub const Query = DNS.Query;
 pub const Queries = DNS.Queries;
 
+const advance_past_name = DNSLayer.advance_past_name;
+
+pub const QUERY_TYPE_LENGTH = DNS.QUERY_TYPE_LENGTH;
+pub const CLASS_TYPE_LENGTH = DNS.CLASS_TYPE_LENGTH;
+pub const TTL_LENGTH = DNS.TTL_LENGTH;
+pub const RD_LENGTH = DNS.RD_LENGTH;
+
+const TXT_LENGTH = @sizeOf(u8);
+
 /// This tagged union is an interface over the concrete Answer Record Types.
 /// currently implemented record types are:
 ///     A,
@@ -225,11 +234,11 @@ pub const AnswerRecord = union(enum) {
 
         var offset: usize = 0;
 
-        DNSLayer.advance_past_name(self.get_data(), &offset);
+        advance_past_name(self.get_data(), &offset);
 
-        offset += @sizeOf(QueryType) + @sizeOf(DnsClass); //  rrtype (2 bytes), class (2bytes)
+        offset += QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH; //  rrtype (2 bytes), class (2bytes)
 
-        const ttl: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
+        const ttl: u32 = std.mem.bytesToValue(u32, data[offset .. offset + TTL_LENGTH]);
 
         return @byteSwap(ttl);
     }
@@ -239,11 +248,11 @@ pub const AnswerRecord = union(enum) {
 
         var offset: usize = 0;
 
-        DNSLayer.advance_past_name(self.get_data(), &offset);
+        advance_past_name(self.get_data(), &offset);
 
-        offset += @sizeOf(QueryType) + @sizeOf(DnsClass); //  rrtype (2 bytes), class (2bytes)
+        offset += QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH; //  rrtype (2 bytes), class (2bytes)
 
-        const ttl_ptr = std.mem.bytesAsValue(u32, data[offset .. offset + @sizeOf(u32)]);
+        const ttl_ptr = std.mem.bytesAsValue(u32, data[offset .. offset + TTL_LENGTH]);
 
         ttl_ptr.* = @byteSwap(ttl);
     }
@@ -409,37 +418,37 @@ pub const AnswerRecords = struct {
 fn get_dns_class(data: []const u8) DnsClass {
     var offset: usize = 0;
 
-    DNSLayer.advance_past_name(data, &offset);
+    advance_past_name(data, &offset);
 
-    offset += @sizeOf(QueryType);
+    offset += QUERY_TYPE_LENGTH;
 
-    return @enumFromInt(std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big));
+    return @enumFromInt(std.mem.readInt(u16, @ptrCast(data[offset .. offset + RD_LENGTH].ptr), .big));
 }
 
 fn set_dns_class(data: []u8, class: DnsClass) void {
     var offset: usize = 0;
 
-    DNSLayer.advance_past_name(data, &offset);
+    advance_past_name(data, &offset);
 
-    offset += @sizeOf(QueryType);
+    offset += QUERY_TYPE_LENGTH;
 
-    return std.mem.writeInt(u16, @ptrCast(data[offset .. offset + 2].ptr), @intFromEnum(class), .big);
+    return std.mem.writeInt(u16, @ptrCast(data[offset .. offset + RD_LENGTH].ptr), @intFromEnum(class), .big);
 }
 
 fn get_q_type(data: []const u8) QueryType {
     var offset: usize = 0;
 
-    DNSLayer.advance_past_name(data, &offset);
+    advance_past_name(data, &offset);
 
-    return @enumFromInt(std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big));
+    return @enumFromInt(std.mem.readInt(u16, @ptrCast(data[offset .. offset + RD_LENGTH].ptr), .big));
 }
 
 fn set_q_type(data: []u8, qtype: QueryType) void {
     var offset: usize = 0;
 
-    DNSLayer.advance_past_name(data, &offset);
+    advance_past_name(data, &offset);
 
-    return std.mem.writeInt(u16, @ptrCast(data[offset .. offset + 2].ptr), @intFromEnum(qtype), .big);
+    return std.mem.writeInt(u16, @ptrCast(data[offset .. offset + RD_LENGTH].ptr), @intFromEnum(qtype), .big);
 }
 
 pub const GenericRecord = struct {
@@ -500,12 +509,12 @@ pub const ARecord = struct {
         if (data.len >= 16) {
             var offset: usize = 0;
 
-            DNSLayer.advance_past_name(self.get_data(), &offset);
+            advance_past_name(self.get_data(), &offset);
 
             //              rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
-            offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16));
+            offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
 
-            const ip_u32: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
+            const ip_u32: u32 = std.mem.bytesToValue(u32, data[offset .. offset + TTL_LENGTH]);
 
             const ip = IPv4Address.init_from_u32(@byteSwap(ip_u32));
             return ip;
@@ -519,11 +528,11 @@ pub const ARecord = struct {
         if (data.len >= 16) {
             var offset: usize = 0;
 
-            DNSLayer.advance_past_name(self.get_data(), &offset);
+            advance_past_name(self.get_data(), &offset);
             //              rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
-            offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16));
+            offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
 
-            const ip_ptr = std.mem.bytesAsValue(u32, data[offset .. offset + @sizeOf(u32)]);
+            const ip_ptr = std.mem.bytesAsValue(u32, data[offset .. offset + TTL_LENGTH]);
 
             ip_ptr.* = @byteSwap(ipv4.to_u32());
         }
@@ -582,9 +591,14 @@ pub const AAAARecord = struct {
     pub fn get_ipv6(self: *AAAARecord) ?IPv6Address {
         const data = self.get_data();
         if (data.len >= 28) {
-            //                const ip_u64: u64 = std.mem.readInt(u64, data[12..28], .big);
+            var offset: usize = 0;
+
+            advance_past_name(data, &offset);
+
+            offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
+
             var ipv6_arr: [16]u8 = undefined;
-            @memmove(ipv6_arr[0..], data[12..28]);
+            @memmove(ipv6_arr[0..], data[offset .. offset + @sizeOf(IPv6Address)]);
 
             const ip = IPv6Address.init_from_array(ipv6_arr);
             return ip;
@@ -598,8 +612,14 @@ pub const AAAARecord = struct {
     pub fn set_ipv6(self: *AAAARecord, ipv6: IPv6Address) void {
         const data = self.get_data_mut();
         if (data.len >= 28) {
+            var offset: usize = 0;
+
+            advance_past_name(data, &offset);
+
+            offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
+
             var ipv6_arr: [16]u8 = ipv6.array;
-            @memmove(data[12..28], ipv6_arr[0..]);
+            @memmove(data[offset .. offset + @sizeOf(IPv6Address)], ipv6_arr[0..]);
         }
     }
 
@@ -654,11 +674,17 @@ pub const NSRecord = struct { //TODO: remove magic numbers
         const new_cname_wire = try encodeQnameSimple(allocator, cname);
         defer allocator.free(new_cname_wire);
 
-        const current_rdata = data[12..];
+        var offset: usize = 0;
+
+        advance_past_name(data, &offset);
+
+        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
+
+        const current_rdata = data[offset..];
         const old_len = current_rdata.len;
         const new_len = new_cname_wire.len;
 
-        const cname_start = self.offset + 12;
+        const cname_start = self.offset + offset;
 
         var ptr: [2]u8 = undefined; // generate compression ptr for this cname record being changed
         ptr[0] = 0xC0 | @as(u8, @truncate((cname_start >> 8) & 0x3F));
@@ -666,7 +692,7 @@ pub const NSRecord = struct { //TODO: remove magic numbers
 
         if (new_len > old_len) {
             const extend_len = new_len - old_len;
-            const cname_offset = self.offset + 12;
+            const cname_offset = self.offset + offset;
 
             //print("extend len: {}\n", .{extend_len});
 
@@ -689,12 +715,12 @@ pub const NSRecord = struct { //TODO: remove magic numbers
 
             // Refresh data pointer and write new NS
             const new_data = self.get_data_mut();
-            @memcpy(new_data[12..], new_cname_wire);
+            @memcpy(new_data[offset..], new_cname_wire);
         } else if (new_len < old_len) {
             //print("new cname len is less than current. current: {} new: {}\n", .{ old_len, new_len });
             const shrink_len: isize = @as(isize, @intCast(old_len)) - @as(isize, @intCast(new_len));
             //print("shrink len: {}\n", .{shrink_len});
-            const cname_offset = self.offset + 12; // remove temp magic number
+            const cname_offset = self.offset + offset; // remove temp magic number
 
             // Shrink the records RR
             try self.owner.shorten_layer(cname_offset, @intCast(shrink_len));
@@ -724,10 +750,10 @@ pub const NSRecord = struct { //TODO: remove magic numbers
 
             // Write new NS
             const new_data = self.get_data_mut();
-            @memcpy(new_data[12..], new_cname_wire); // remove temp magic number
+            @memcpy(new_data[offset..], new_cname_wire); // remove temp magic number
         } else {
             // Same length, simple overwrite
-            @memcpy(data[12..], new_cname_wire); // remove temp magic number
+            @memcpy(data[offset..], new_cname_wire); // remove temp magic number
         }
     }
 
@@ -789,10 +815,10 @@ pub const CNAMERecord = struct {
 
         var offset: usize = 0;
 
-        DNSLayer.advance_past_name(self.get_data(), &offset);
+        advance_past_name(self.get_data(), &offset);
 
         //  rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
-        offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16));
+        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
 
         return try decode_name(self.owner.get_data(), self.get_data()[offset..], allocator);
     }
@@ -850,9 +876,9 @@ pub const TXTRecord = struct {
 
         var offset: usize = 0;
 
-        DNSLayer.advance_past_name(data, &offset);
+        advance_past_name(data, &offset);
 
-        offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16) + @sizeOf(u8));
+        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH + TXT_LENGTH);
 
         return self.get_data()[offset..];
     }
@@ -890,9 +916,9 @@ pub const MXRecord = struct {
 
         const data = self.get_data();
 
-        DNSLayer.advance_past_name(data, &offset);
+        advance_past_name(data, &offset);
 
-        offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16) + @sizeOf(u16));
+        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH + RD_LENGTH);
 
         const domain_start = self.get_data()[offset..]; // TODO: remove temp magic number
         return try decode_name(self.owner.get_data(), domain_start, allocator);
@@ -952,9 +978,9 @@ pub const SOARecord = struct {
     pub fn get_mname(self: *SOARecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         var offset: usize = 0;
 
-        DNS.DNSLayer.advance_past_name(self.get_data(), &offset);
+        advance_past_name(self.get_data(), &offset);
 
-        offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16));
+        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
 
         if (self.get_data().len < offset) {
             return "";
@@ -967,11 +993,11 @@ pub const SOARecord = struct {
     pub fn get_rname(self: *SOARecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         var offset: usize = 0;
 
-        DNSLayer.advance_past_name(self.get_data(), &offset);
+        advance_past_name(self.get_data(), &offset);
 
-        offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16));
+        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
 
-        DNSLayer.advance_past_name(self.get_data(), &offset);
+        advance_past_name(self.get_data(), &offset);
 
         if (self.get_data().len < offset) {
             return ""; // return error instead
@@ -985,26 +1011,26 @@ pub const SOARecord = struct {
         var offset: usize = 0;
 
         // advance offset past NAME
-        DNSLayer.advance_past_name(self.get_data(), &offset);
+        advance_past_name(self.get_data(), &offset);
 
         // At this point, offset points to the byte AFTER the last label's null terminator
         // So we're now at the TYPE field
 
         // Skip TYPE (2), CLASS (2), TTL (4), RDLENGTH (2)
 
-        offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16));
+        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
 
         // adance offset past MNAME
-        DNSLayer.advance_past_name(self.get_data(), &offset);
+        advance_past_name(self.get_data(), &offset);
 
         // advance offset past RNAME
-        DNSLayer.advance_past_name(self.get_data(), &offset);
+        advance_past_name(self.get_data(), &offset);
 
-        if (self.get_data().len < offset + @sizeOf(u32)) {
+        if (self.get_data().len < offset + TTL_LENGTH) {
             return 0;
         }
 
-        const serial_be: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
+        const serial_be: u32 = std.mem.bytesToValue(u32, data[offset .. offset + TTL_LENGTH]);
         return @byteSwap(serial_be);
     }
 
@@ -1013,28 +1039,28 @@ pub const SOARecord = struct {
         var offset: usize = 0;
 
         // advance offset past NAME
-        DNSLayer.advance_past_name(self.get_data(), &offset);
+        advance_past_name(self.get_data(), &offset);
 
         // At this point, offset points to the byte AFTER the last label's null terminator
         // So we're now at the TYPE field
 
         // Skip TYPE (2), CLASS (2), TTL (4), RDLENGTH (2)
 
-        offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16));
+        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
 
         // adance offset past MNAME
-        DNSLayer.advance_past_name(self.get_data(), &offset);
+        advance_past_name(self.get_data(), &offset);
         // advance offset past RNAME
-        DNSLayer.advance_past_name(self.get_data(), &offset);
+        advance_past_name(self.get_data(), &offset);
 
         // advance past serial
-        offset += @sizeOf(u32);
+        offset += TTL_LENGTH;
 
-        if (self.get_data().len < offset + @sizeOf(u32)) {
+        if (self.get_data().len < offset + TTL_LENGTH) {
             return 0;
         }
 
-        const re_be: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
+        const re_be: u32 = std.mem.bytesToValue(u32, data[offset .. offset + TTL_LENGTH]);
         return @byteSwap(re_be);
     }
 
@@ -1043,32 +1069,32 @@ pub const SOARecord = struct {
         var offset: usize = 0;
 
         // advance offset past NAME
-        DNSLayer.advance_past_name(self.get_data(), &offset);
+        advance_past_name(self.get_data(), &offset);
 
         // At this point, offset points to the byte AFTER the last label's null terminator
         // So we're now at the TYPE field
 
         // Skip TYPE (2), CLASS (2), TTL (4), RDLENGTH (2)
 
-        offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16));
+        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
 
         // adance offset past MNAME
-        DNSLayer.advance_past_name(self.get_data(), &offset);
+        advance_past_name(self.get_data(), &offset);
 
         // advance offset past RNAME
-        DNSLayer.advance_past_name(self.get_data(), &offset);
+        advance_past_name(self.get_data(), &offset);
 
         // advance past serial
-        offset += @sizeOf(u32);
+        offset += TTL_LENGTH;
 
         // advance past refresh interval
-        offset += @sizeOf(u32);
+        offset += TTL_LENGTH;
 
-        if (self.get_data().len < offset + @sizeOf(u32)) {
+        if (self.get_data().len < offset + TTL_LENGTH) {
             return 0;
         }
 
-        const exp_limit: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
+        const exp_limit: u32 = std.mem.bytesToValue(u32, data[offset .. offset + TTL_LENGTH]);
         return @byteSwap(exp_limit);
     }
 
@@ -1077,35 +1103,32 @@ pub const SOARecord = struct {
         var offset: usize = 0;
 
         // advance offset past NAME
-        DNSLayer.advance_past_name(self.get_data(), &offset);
-
-        // At this point, offset points to the byte AFTER the last label's null terminator
-        // So we're now at the TYPE field
+        advance_past_name(self.get_data(), &offset);
 
         // Skip TYPE (2), CLASS (2), TTL (4), RDLENGTH (2)
 
-        offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16));
+        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
 
         // adance offset past MNAME
-        DNSLayer.advance_past_name(self.get_data(), &offset);
+        advance_past_name(self.get_data(), &offset);
 
         // advance offset past RNAME
-        DNSLayer.advance_past_name(self.get_data(), &offset);
+        advance_past_name(self.get_data(), &offset);
 
         // advance past serial
-        offset += @sizeOf(u32);
+        offset += TTL_LENGTH;
 
         // advance past refresh interval
-        offset += @sizeOf(u32);
+        offset += TTL_LENGTH;
 
         // advance past retry interval
-        offset += @sizeOf(u32);
+        offset += TTL_LENGTH;
 
-        if (self.get_data().len < offset + @sizeOf(u32)) {
+        if (self.get_data().len < offset + TTL_LENGTH) {
             return 0;
         }
 
-        const exp_limit: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
+        const exp_limit: u32 = std.mem.bytesToValue(u32, data[offset .. offset + TTL_LENGTH]);
         return @byteSwap(exp_limit);
     }
 
@@ -1114,34 +1137,34 @@ pub const SOARecord = struct {
         var offset: usize = 0;
 
         // advance offset past NAME
-        DNSLayer.advance_past_name(self.get_data(), &offset);
+        advance_past_name(self.get_data(), &offset);
 
         //  Skip  TYPE (2),             CLASS (2),          TTL (4),        RDLENGTH (2)
-        offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16));
+        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
 
         // adance offset past MNAME
-        DNSLayer.advance_past_name(self.get_data(), &offset);
+        advance_past_name(self.get_data(), &offset);
 
         // advance offset past RNAME
-        DNSLayer.advance_past_name(self.get_data(), &offset);
+        advance_past_name(self.get_data(), &offset);
 
         // advance past serial
-        offset += @sizeOf(u32);
+        offset += TTL_LENGTH;
 
         // advance past refresh interval
-        offset += @sizeOf(u32);
+        offset += TTL_LENGTH;
 
         // advance past retry interval
-        offset += @sizeOf(u32);
+        offset += TTL_LENGTH;
 
         // advance past expire limit
-        offset += @sizeOf(u32);
+        offset += TTL_LENGTH;
 
-        if (self.get_data().len < offset + @sizeOf(u32)) {
+        if (self.get_data().len < offset + TTL_LENGTH) {
             return 0;
         }
 
-        const min_ttl: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
+        const min_ttl: u32 = std.mem.bytesToValue(u32, data[offset .. offset + TTL_LENGTH]);
         return @byteSwap(min_ttl);
     }
 

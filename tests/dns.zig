@@ -289,6 +289,8 @@ test "parse dns AAAA response raw" {
             const ip_str = try ipv6.to_string(allocator);
             defer allocator.free(ip_str);
 
+            //   print("{s}\n", .{ip_str});
+
             const new_ipv6 = IPv6.IPv6Address.init_from_array(.{ 0x26, 0x20, 0x1, 0xec, 0x0, 0x50, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x12 });
 
             ans.aaaa.set_ipv6(new_ipv6);

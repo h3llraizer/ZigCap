@@ -34,6 +34,11 @@ const SOARecord = DNSRecordTypes.SOARecord;
 
 pub const DNSHeaderSize: usize = 12;
 
+pub const QUERY_TYPE_LENGTH = @sizeOf(QueryType);
+pub const CLASS_TYPE_LENGTH = @sizeOf(DnsClass);
+pub const TTL_LENGTH = @sizeOf(u32);
+pub const RD_LENGTH = @sizeOf(u16);
+
 const default_hdr = DNSHeader{
     .id = .{0x00} ** 2,
     .flags = .{0x00} ** 2,
@@ -299,9 +304,15 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
     /// Append a DNS Query to the Queries section of the DNSLayer.
     /// Extends the layer, converts the name to DNS labels and copies the data at correct offset.
     /// Increases the qdcount value in the header by 1.
-    pub fn add_query(self: *DNSLayer, name: []const u8, qtype: QueryType, qclass: DnsClass) (LayerError || Allocator.Error)!void {
-        const extend_len = name.len + 6; // 2 byte qtype, 2 byte qclass, 1 byte first label, 1 byte null terminator
+    pub fn add_query(
+        self: *DNSLayer,
+        name: []const u8,
+        qtype: QueryType,
+        qclass: DnsClass,
+    ) (LayerError || Allocator.Error)!void {
 
+        // 2 byte qtype, 2 byte qclass, 1 byte first label, 1 byte null terminator
+        const extend_len = name.len + (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + (@sizeOf(u8) * 2));
         var start_offset = DNSHeaderSize;
 
         if (try self.get_last_query_offset()) |last_q_offset| {
@@ -326,12 +337,24 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         buf_offset += 1;
 
         // Write QTYPE
-        std.mem.writeInt(u16, @ptrCast(qbuffer[buf_offset .. buf_offset + 2]), @intCast(@intFromEnum(qtype)), .big);
-        buf_offset += 2;
+        std.mem.writeInt(
+            u16,
+            @ptrCast(qbuffer[buf_offset .. buf_offset + QUERY_TYPE_LENGTH]),
+            @intCast(@intFromEnum(qtype)),
+            .big,
+        );
+
+        buf_offset += QUERY_TYPE_LENGTH;
 
         // Write QCLASS
-        std.mem.writeInt(u16, @ptrCast(qbuffer[buf_offset .. buf_offset + 2]), @intCast(@intFromEnum(qclass)), .big);
-        buf_offset += 2;
+        std.mem.writeInt(
+            u16,
+            @ptrCast(qbuffer[buf_offset .. buf_offset + CLASS_TYPE_LENGTH]),
+            @intCast(@intFromEnum(qclass)),
+            .big,
+        );
+
+        buf_offset += CLASS_TYPE_LENGTH;
 
         var hdr = self.get_mutable_header();
         var qdcount = hdr.get_qdcount();
@@ -424,10 +447,10 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             offset += 1; // skip null terminator
 
             // Skip QTYPE + QCLASS (4 bytes)
-            if (offset + 4 > data.len)
+            if (offset + (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH) > data.len)
                 return LayerError.LayerInvalid;
 
-            const whole_record_end = offset + 4;
+            const whole_record_end = offset + (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH);
             offset = whole_record_end; // Move to next query position
         }
 
@@ -481,13 +504,26 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             offset += 1; // skip null terminator
 
             // Skip QTYPE + QCLASS (4 bytes)
-            if (offset + 4 > data.len)
+            if (offset + (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH) > data.len)
                 return LayerError.LayerInvalid;
 
-            const qtype = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2]), .big);
-            const qclass = std.mem.readInt(u16, @ptrCast(data[offset + 2 .. offset + 4]), .big);
+            const qtype = std.mem.readInt(
+                u16,
+                @ptrCast(data[offset .. offset + QUERY_TYPE_LENGTH]),
+                .big,
+            );
 
-            const whole_record_end = offset + 4;
+            offset += QUERY_TYPE_LENGTH;
+
+            const qclass = std.mem.readInt(
+                u16,
+                @ptrCast(data[offset .. offset + CLASS_TYPE_LENGTH]),
+                .big,
+            );
+
+            offset += CLASS_TYPE_LENGTH;
+
+            const whole_record_end = offset;
             const whole_record = data[qname_start..whole_record_end];
 
             const query = try allocator.create(Query);
@@ -577,22 +613,22 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             _ = advance_past_name(data, &offset);
 
             // Parse TYPE
-            const rtype = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
-            offset += 2;
+            const rtype = std.mem.readInt(u16, @ptrCast(data[offset .. offset + QUERY_TYPE_LENGTH].ptr), .big);
+            offset += QUERY_TYPE_LENGTH;
 
             // Parse CLASS
-            const rclass = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
-            offset += 2;
+            const rclass = std.mem.readInt(u16, @ptrCast(data[offset .. offset + CLASS_TYPE_LENGTH].ptr), .big);
+            offset += CLASS_TYPE_LENGTH;
 
             // Parse TTL
-            const ttl = std.mem.readInt(u32, @ptrCast(data[offset .. offset + 4].ptr), .big);
-            offset += 4;
+            const ttl = std.mem.readInt(u32, @ptrCast(data[offset .. offset + TTL_LENGTH].ptr), .big);
+            offset += TTL_LENGTH;
 
             _ = ttl;
 
             // Parse RDLENGTH
-            const rdlength = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
-            offset += 2;
+            const rdlength = std.mem.readInt(u16, @ptrCast(data[offset .. offset + RD_LENGTH].ptr), .big);
+            offset += RD_LENGTH;
 
             if (offset + rdlength > data.len) {
                 return error.InvalidPacket;
@@ -652,17 +688,17 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             _ = advance_past_name(data, &offset); // advances the offset
 
             // QTYPE
-            offset += 2;
+            offset += QUERY_TYPE_LENGTH;
 
             // QCLASS
-            offset += 2;
+            offset += CLASS_TYPE_LENGTH;
 
             // TTL
-            offset += 4;
+            offset += TTL_LENGTH;
 
             // RDLENGTH
-            const rdlength = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
-            offset += 2;
+            const rdlength = std.mem.readInt(u16, @ptrCast(data[offset .. offset + RD_LENGTH].ptr), .big);
+            offset += RD_LENGTH;
 
             if (offset + rdlength > data.len) {
                 return LayerError.LayerInvalid;
@@ -711,10 +747,10 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             },
         }
 
-        const qtype_len = @sizeOf(QueryType);
-        const class_len = @sizeOf(DnsClass);
-        const ttl_len = @sizeOf(u32);
-        const rd_len = @sizeOf(u16);
+        const qtype_len = QUERY_TYPE_LENGTH;
+        const class_len = CLASS_TYPE_LENGTH;
+        const ttl_len = TTL_LENGTH;
+        const rd_len = RD_LENGTH;
 
         const extend_len: usize = dns_encoded_name_len + qtype_len + class_len + ttl_len + rd_len + dns_encoded_answer_len;
 
@@ -735,21 +771,21 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         buf_offset += 1;
 
         // Write QTYPE
-        std.mem.writeInt(u16, abuffer[buf_offset .. buf_offset + 2][0..2], @intFromEnum(qtype), .big);
-        buf_offset += 2;
+        std.mem.writeInt(u16, abuffer[buf_offset .. buf_offset + QUERY_TYPE_LENGTH][0..2], @intFromEnum(qtype), .big);
+        buf_offset += QUERY_TYPE_LENGTH;
 
         // Write QCLASS
-        std.mem.writeInt(u16, abuffer[buf_offset .. buf_offset + 2][0..2], @intFromEnum(qclass), .big);
-        buf_offset += 2;
+        std.mem.writeInt(u16, abuffer[buf_offset .. buf_offset + CLASS_TYPE_LENGTH][0..2], @intFromEnum(qclass), .big);
+        buf_offset += CLASS_TYPE_LENGTH;
 
         // Write TTL
-        std.mem.writeInt(u32, abuffer[buf_offset .. buf_offset + 4][0..4], ttl, .big);
-        buf_offset += 4;
+        std.mem.writeInt(u32, abuffer[buf_offset .. buf_offset + TTL_LENGTH][0..4], ttl, .big);
+        buf_offset += TTL_LENGTH;
 
         // Write RD LENGTH (length of encoded answer)
         const rdlength: u16 = @intCast(dns_encoded_answer_len);
-        std.mem.writeInt(u16, abuffer[buf_offset .. buf_offset + 2][0..2], rdlength, .big);
-        buf_offset += 2;
+        std.mem.writeInt(u16, abuffer[buf_offset .. buf_offset + RD_LENGTH][0..2], rdlength, .big);
+        buf_offset += RD_LENGTH;
 
         // handle record type
 
@@ -797,17 +833,17 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             _ = advance_past_name(data, &offset); // advances the offset
 
             // QTYPE
-            offset += 2;
+            offset += QUERY_TYPE_LENGTH;
 
             // QCLASS
-            offset += 2;
+            offset += CLASS_TYPE_LENGTH;
 
             // TTL
-            offset += 4;
+            offset += TTL_LENGTH;
 
             // RDLENGTH
-            const rdlength = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
-            offset += 2;
+            const rdlength = std.mem.readInt(u16, @ptrCast(data[offset .. offset + RD_LENGTH].ptr), .big);
+            offset += RD_LENGTH;
 
             if (offset + rdlength > data.len) {
                 return error.InvalidPacket;
@@ -854,22 +890,22 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             _ = advance_past_name(data, &offset);
 
             // Parse TYPE
-            const rtype = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
-            offset += 2;
+            const rtype = std.mem.readInt(u16, @ptrCast(data[offset .. offset + QUERY_TYPE_LENGTH].ptr), .big);
+            offset += QUERY_TYPE_LENGTH;
 
             // Parse CLASS
-            const rclass = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
-            offset += 2;
+            const rclass = std.mem.readInt(u16, @ptrCast(data[offset .. offset + CLASS_TYPE_LENGTH].ptr), .big);
+            offset += CLASS_TYPE_LENGTH;
 
             // Parse TTL
-            const ttl = std.mem.readInt(u32, @ptrCast(data[offset .. offset + 4].ptr), .big);
-            offset += 4;
+            const ttl = std.mem.readInt(u32, @ptrCast(data[offset .. offset + TTL_LENGTH].ptr), .big);
+            offset += TTL_LENGTH;
 
             _ = ttl;
 
             // Parse RDLENGTH
-            const rdlength = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
-            offset += 2;
+            const rdlength = std.mem.readInt(u16, @ptrCast(data[offset .. offset + RD_LENGTH].ptr), .big);
+            offset += RD_LENGTH;
 
             if (offset + rdlength > data.len) {
                 return error.InvalidPacket;
@@ -1050,7 +1086,7 @@ pub const Queries = struct {
         allocator: Allocator,
     ) (LayerError || Allocator.Error)!void {
         // 2 byte qtype, 2 byte qclass, 1 byte first label, 1 byte null terminator
-        const extend_len = name.len + @sizeOf(QueryType) + @sizeOf(DnsClass) + (@sizeOf(u8) * 2);
+        const extend_len = name.len + QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + (@sizeOf(u8) * 2);
 
         var start_offset = if (self.owner.is_layer_owned()) DNSHeaderSize else 0;
 
