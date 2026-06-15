@@ -288,12 +288,6 @@ pub const Packet = struct {
         return null;
     }
 
-    //   pub fn get_layer_as(self: *Packet, comptime T: type) ?*T {
-    //       const layer = self.search_layers(T.protocol) orelse return null;
-    //       if (layer.layer_iface.ptr() != @as(*anyopaque, @ptrCast(layer))) return null;
-    //       return @fieldParentPtr("layer_iface", layer);
-    //   }
-
     /// example: has_protocol_layer(.eth) in a packet which has EthLayer->IPv4Layer->UDPLayer->DNSLayer returns true
     pub fn has_protocol_layer(self: *Packet, layer_proto: tcp_ip_protocol) bool {
         if (self.search_layers(layer_proto) != null) {
@@ -303,6 +297,7 @@ pub const Packet = struct {
         return false;
     }
 
+    // TODO: make this private and allow callers to insert/delete/extract layers using get_layer_of_type with depth arg
     /// Returns Layer. Packet uses this Layer struct to seperate layers and coordinate mutations
     pub fn search_layers(self: *Packet, target: tcp_ip_protocol) ?*Layer { // this should return a const ptr
         var cur = self.first_layer;
@@ -325,8 +320,10 @@ pub const Packet = struct {
         }
     }
 
-    // TODO: call proceeding layers calculate_length
     pub fn extend_layer(self: *Packet, layer: *Layer, offset: usize, length: usize) Allocator.Error![]u8 {
+        // TODO: call proceeding layers calculate_length
+        // TODO: ensure layer cannot be shorten beyond its Minimum or fixed header header length
+
         const extend_offset = layer.offset + offset; // absolute position in packet
 
         const buf = try self.buffer.extend(extend_offset, length);
@@ -343,7 +340,9 @@ pub const Packet = struct {
         return buf; // return the extend slice
     }
 
-    pub fn shorten_layer(self: *Packet, layer: *Layer, offset: usize, length: usize) Allocator.Error!void { // TODO: call proceeding layers calculate_length
+    pub fn shorten_layer(self: *Packet, layer: *Layer, offset: usize, length: usize) Allocator.Error!void {
+        // TODO: call proceeding layers calculate_length
+        // TODO: ensure layer cannot be shorten beyond its Minimum or fixed header header length
         const shorten_offset = layer.offset + offset;
 
         try self.buffer.shorten(shorten_offset, length);

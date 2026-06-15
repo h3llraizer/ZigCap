@@ -526,6 +526,8 @@ pub const IPv4Layer = struct {
             panic("IPv4 data len ({}) less than IPv4HeaderSize", .{data.len});
         }
 
+        //std.debug.assert(data.len >= @sizeOf(IPv4Header));
+
         return @ptrCast(data.ptr);
     }
 

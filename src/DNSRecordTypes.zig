@@ -36,7 +36,7 @@ pub const AnswerRecord = union(enum) {
     soa: SOARecord,
     generic: GenericRecord,
 
-    pub fn init(offset: usize, length: usize, qtype: QueryType, qclass: DnsClass, layer: *DNSLayer) AnswerRecord {
+    pub fn init(offset: usize, length: usize, qtype: QueryType, qclass: DnsClass, owner: TLVOwner) AnswerRecord {
         switch (qtype) {
             // TODO: reduce repeating code
             .A => {
@@ -44,7 +44,7 @@ pub const AnswerRecord = union(enum) {
                     .offset = offset,
                     .length = length,
                     .qclass = qclass,
-                    .layer = layer,
+                    .owner = owner,
                 } };
             },
 
@@ -53,7 +53,7 @@ pub const AnswerRecord = union(enum) {
                     .offset = offset,
                     .length = length,
                     .qclass = qclass,
-                    .layer = layer,
+                    .owner = owner,
                 } };
             },
 
@@ -62,7 +62,7 @@ pub const AnswerRecord = union(enum) {
                     .offset = offset,
                     .length = length,
                     .qclass = qclass,
-                    .layer = layer,
+                    .owner = owner,
                 } };
             },
 
@@ -71,7 +71,7 @@ pub const AnswerRecord = union(enum) {
                     .offset = offset,
                     .length = length,
                     .qclass = qclass,
-                    .layer = layer,
+                    .owner = owner,
                 } };
             },
 
@@ -80,7 +80,7 @@ pub const AnswerRecord = union(enum) {
                     .offset = offset,
                     .length = length,
                     .qclass = qclass,
-                    .layer = layer,
+                    .owner = owner,
                 } };
             },
 
@@ -89,7 +89,7 @@ pub const AnswerRecord = union(enum) {
                     .offset = offset,
                     .length = length,
                     .qclass = qclass,
-                    .layer = layer,
+                    .owner = owner,
                 } };
             },
 
@@ -98,7 +98,7 @@ pub const AnswerRecord = union(enum) {
                     .offset = offset,
                     .length = length,
                     .qclass = qclass,
-                    .layer = layer,
+                    .owner = owner,
                 } };
             },
 
@@ -107,7 +107,7 @@ pub const AnswerRecord = union(enum) {
                     .offset = offset,
                     .length = length,
                     .qclass = qclass,
-                    .layer = layer,
+                    .owner = owner,
                 } };
             },
 
@@ -117,7 +117,7 @@ pub const AnswerRecord = union(enum) {
                     .length = length,
                     .qtype = qtype,
                     .qclass = qclass,
-                    .layer = layer,
+                    .owner = owner,
                 } };
             },
 
@@ -126,16 +126,27 @@ pub const AnswerRecord = union(enum) {
                 .length = length,
                 .qtype = qtype,
                 .qclass = qclass,
-                .layer = layer,
+                .owner = owner,
             } },
         }
+    }
+
+    // experimental
+    fn change_rec_type(self: *AnswerRecord, qtype: QueryType, qclass: QueryType) void {
+        self.* = AnswerRecord.init(
+            self.get_offset(),
+            self.get_length(),
+            qtype,
+            qclass,
+            self.get_owner().*,
+        );
     }
 
     pub fn get_name(self: *AnswerRecord, allocator: Allocator) ![]u8 {
         const data = self.get_data();
         // the length of the name is not known so just take use the offset of this RR
-        const layer = self.get_layer();
-        return try decode_name(layer.get_data(), data, allocator);
+        const owner = self.get_owner();
+        return try decode_name(owner.get_data(), data, allocator);
     }
 
     pub fn get_name_raw(self: *AnswerRecord) []const u8 {
@@ -143,9 +154,9 @@ pub const AnswerRecord = union(enum) {
         return data;
     }
 
-    pub fn get_layer(self: *AnswerRecord) *DNSLayer {
+    pub fn get_owner(self: *AnswerRecord) *TLVOwner {
         return switch (self.*) {
-            inline else => |*rr| rr.layer,
+            inline else => |*rr| &rr.owner,
         };
     }
 
@@ -214,12 +225,9 @@ pub const AnswerRecord = union(enum) {
 
         var offset: usize = 0;
 
-        _ = DNSLayer.advance_past_name(self.get_data(), &offset) catch {
-            print("error decoding name.\n", .{});
-            return 0;
-        };
+        DNSLayer.advance_past_name(self.get_data(), &offset);
 
-        offset += 4; //  rrtype (2 bytes), class (2bytes)
+        offset += @sizeOf(QueryType) + @sizeOf(DnsClass); //  rrtype (2 bytes), class (2bytes)
 
         const ttl: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
 
@@ -231,12 +239,9 @@ pub const AnswerRecord = union(enum) {
 
         var offset: usize = 0;
 
-        _ = DNSLayer.advance_past_name(self.get_data(), &offset) catch {
-            print("error decoding name.\n", .{});
-            return;
-        };
+        DNSLayer.advance_past_name(self.get_data(), &offset);
 
-        offset += 4; //  rrtype (2 bytes), class (2bytes)
+        offset += @sizeOf(QueryType) + @sizeOf(DnsClass); //  rrtype (2 bytes), class (2bytes)
 
         const ttl_ptr = std.mem.bytesAsValue(u32, data[offset .. offset + @sizeOf(u32)]);
 
@@ -244,20 +249,15 @@ pub const AnswerRecord = union(enum) {
     }
 
     pub fn get_rr_type(self: *AnswerRecord) QueryType {
-        return switch (self.*) {
-            inline else => |*rr| rr.get_rr_type(),
-        };
+        return get_q_type(self.get_data());
     }
 
     pub fn get_class_type(self: *AnswerRecord) DnsClass {
-        return switch (self.*) {
-            inline else => |*rr| rr.qclass,
-        };
+        return get_dns_class(self.get_data());
     }
 };
 
 /// A doubly linked list containing RR-Records
-/// Calling deinit does not free any data in the DNSLayer - Only the structs are destroyed
 pub const AnswerRecords = struct {
     owner: TLVOwner,
     first: ?*AnswerRecord = null,
@@ -265,7 +265,7 @@ pub const AnswerRecords = struct {
     answer_count: usize = 0,
 
     /// Do not use
-    pub fn add_answer( // TODO: add compress bool arg - use a compressed name
+    pub fn add_answer( // TODO: add compress bool arg - use compression ptr for name or rdata
         self: *AnswerRecords,
         qname_record: ?*Query,
         answer_record: *AnswerRecord,
@@ -275,7 +275,7 @@ pub const AnswerRecords = struct {
 
         const extend_len = answer_record.get_data().len;
 
-        var extend_offset = if (self.owner.is_layer_owned()) DNS.DNSHeaderSize else 0;
+        var extend_offset = if (self.owner.is_layer_owned()) DNS.DNSHeaderSize else 0; // need to find offset of last ans instead
 
         var cur: ?*AnswerRecord = self.first;
         var last: ?*AnswerRecord = null;
@@ -368,11 +368,23 @@ pub const AnswerRecords = struct {
             }
             cur = a.get_next_record();
         }
+
         return error.AnswerRecordNotFound;
     }
 
     pub fn deinit(self: *AnswerRecords, allocator: Allocator) void {
         var cur = self.last;
+
+        while (cur) |ansrec| {
+            if (!ansrec.get_owner().is_layer_owned()) {
+                ansrec.get_owner().deinit();
+            }
+
+            cur = ansrec.get_prev_record();
+        }
+
+        cur = self.last;
+
         while (cur) |ansrec| {
             const prev = ansrec.get_prev_record();
             allocator.destroy(ansrec);
@@ -394,25 +406,61 @@ pub const AnswerRecords = struct {
 // RDLENGTH
 // RDATA
 
+fn get_dns_class(data: []const u8) DnsClass {
+    var offset: usize = 0;
+
+    DNSLayer.advance_past_name(data, &offset);
+
+    offset += @sizeOf(QueryType);
+
+    return @enumFromInt(std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big));
+}
+
+fn set_dns_class(data: []u8, class: DnsClass) void {
+    var offset: usize = 0;
+
+    DNSLayer.advance_past_name(data, &offset);
+
+    offset += @sizeOf(QueryType);
+
+    return std.mem.writeInt(u16, @ptrCast(data[offset .. offset + 2].ptr), @intFromEnum(class), .big);
+}
+
+fn get_q_type(data: []const u8) QueryType {
+    var offset: usize = 0;
+
+    DNSLayer.advance_past_name(data, &offset);
+
+    return @enumFromInt(std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big));
+}
+
+fn set_q_type(data: []u8, qtype: QueryType) void {
+    var offset: usize = 0;
+
+    DNSLayer.advance_past_name(data, &offset);
+
+    return std.mem.writeInt(u16, @ptrCast(data[offset .. offset + 2].ptr), @intFromEnum(qtype), .big);
+}
+
 pub const GenericRecord = struct {
     offset: usize,
     length: usize,
     qtype: QueryType,
     qclass: DnsClass,
-    layer: *DNSLayer,
+    owner: TLVOwner,
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
     pub fn get_data(self: *GenericRecord) []const u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
+        return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
     pub fn get_data_mut(self: *GenericRecord) []u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
+        return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
     pub fn get_rr_type(self: GenericRecord) QueryType {
-        return self.qtype;
+        return get_q_type(self.get_data());
     }
 };
 
@@ -421,22 +469,30 @@ pub const ARecord = struct {
     offset: usize,
     length: usize,
     qclass: DnsClass,
-    layer: *DNSLayer,
+    owner: TLVOwner,
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
     pub fn get_data(self: *ARecord) []const u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
+        return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
     pub fn get_data_mut(self: *ARecord) []u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
+        return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
     pub fn get_name(self: *ARecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         const data = self.get_data(); // the length of the name is not known so just take use the offset of this RR
 
-        return try decode_name(self.layer.get_data(), data, allocator);
+        return try decode_name(self.owner.get_data(), data, allocator);
+    }
+
+    pub fn get_class(self: *ARecord) DnsClass {
+        return get_dns_class(self.get_data());
+    }
+
+    pub fn set_class(self: *ARecord, class: DnsClass) void {
+        return set_dns_class(self.get_data_mut(), class);
     }
 
     pub fn get_ip(self: *ARecord) ?IPv4Address {
@@ -444,12 +500,10 @@ pub const ARecord = struct {
         if (data.len >= 16) {
             var offset: usize = 0;
 
-            _ = DNS.DNSLayer.decode_name(self.get_data(), &offset) catch {
-                print("error decoding name.\n", .{});
-                return null;
-            };
+            DNSLayer.advance_past_name(self.get_data(), &offset);
 
-            offset += 10; //  rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
+            //              rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
+            offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16));
 
             const ip_u32: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(u32)]);
 
@@ -465,12 +519,9 @@ pub const ARecord = struct {
         if (data.len >= 16) {
             var offset: usize = 0;
 
-            _ = DNS.DNSLayer.decode_name(self.get_data(), &offset) catch {
-                print("error decoding name.\n", .{});
-                return;
-            };
-
-            offset += 10; //  rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
+            DNSLayer.advance_past_name(self.get_data(), &offset);
+            //              rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
+            offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16));
 
             const ip_ptr = std.mem.bytesAsValue(u32, data[offset .. offset + @sizeOf(u32)]);
 
@@ -505,8 +556,7 @@ pub const ARecord = struct {
     }
 
     pub fn get_rr_type(self: ARecord) QueryType {
-        _ = self;
-        return QueryType.A;
+        return get_q_type(self.get_data());
     }
 };
 
@@ -515,16 +565,16 @@ pub const AAAARecord = struct {
     offset: usize,
     length: usize,
     qclass: DnsClass,
-    layer: *DNSLayer,
+    owner: TLVOwner,
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
     pub fn get_data(self: *AAAARecord) []const u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
+        return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
     pub fn get_data_mut(self: *AAAARecord) []u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
+        return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
     /// returns the IPv6 address of the AAAA record by creating a copy of the IPv6 start to len bytes and init'ing the IPv6 address from it.
@@ -554,32 +604,31 @@ pub const AAAARecord = struct {
     }
 
     pub fn get_rr_type(self: AAAARecord) QueryType {
-        _ = self;
-        return QueryType.AAAA;
+        return get_q_type(self.get_data());
     }
 };
 
 /// NS (Name Server) Record
-pub const NSRecord = struct {
+pub const NSRecord = struct { //TODO: remove magic numbers
     offset: usize,
     length: usize,
     qclass: DnsClass,
-    layer: *DNSLayer,
+    owner: TLVOwner,
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
     pub fn get_data(self: *NSRecord) []const u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
+        return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
     pub fn get_data_mut(self: *NSRecord) []u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
+        return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
     pub fn get_name(self: *NSRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         const data = self.get_data(); // the length of the name is not known so just take use the offset of this RR
 
-        return try decode_name(self.layer.get_data(), data, allocator);
+        return try decode_name(self.owner.get_data(), data, allocator);
     }
 
     pub fn decode_ns_name(self: *NSRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
@@ -587,7 +636,7 @@ pub const NSRecord = struct {
         if (self.get_data().len < 12) {
             return DNSLayer.DNSParseError.RecordTooShort;
         }
-        return try decode_name(self.layer.get_data(), self.get_data()[12..], allocator);
+        return try decode_name(self.owner.get_data(), self.get_data()[12..], allocator);
     }
 
     /// Takes a non-dns-label cname value and converts it to label format using a helper method and the allocator provided.
@@ -622,7 +671,7 @@ pub const NSRecord = struct {
             //print("extend len: {}\n", .{extend_len});
 
             // Extend the payload
-            _ = try self.layer.extend_layer(cname_offset, extend_len);
+            _ = try self.owner.extend_layer(cname_offset, extend_len);
 
             // Update this record's length
             self.length += extend_len;
@@ -645,10 +694,10 @@ pub const NSRecord = struct {
             //print("new cname len is less than current. current: {} new: {}\n", .{ old_len, new_len });
             const shrink_len: isize = @as(isize, @intCast(old_len)) - @as(isize, @intCast(new_len));
             //print("shrink len: {}\n", .{shrink_len});
-            const cname_offset = self.offset + 12;
+            const cname_offset = self.offset + 12; // remove temp magic number
 
             // Shrink the records RR
-            _ = try self.layer.shorten_layer(cname_offset, @intCast(shrink_len));
+            try self.owner.shorten_layer(cname_offset, @intCast(shrink_len));
             //print("shortened.\n", .{});
 
             // Update this record's length
@@ -675,10 +724,10 @@ pub const NSRecord = struct {
 
             // Write new NS
             const new_data = self.get_data_mut();
-            @memcpy(new_data[12..], new_cname_wire);
+            @memcpy(new_data[12..], new_cname_wire); // remove temp magic number
         } else {
             // Same length, simple overwrite
-            @memcpy(data[12..], new_cname_wire);
+            @memcpy(data[12..], new_cname_wire); // remove temp magic number
         }
     }
 
@@ -706,8 +755,7 @@ pub const NSRecord = struct {
     }
 
     pub fn get_rr_type(self: NSRecord) QueryType {
-        _ = self;
-        return QueryType.NS;
+        return get_q_type(self.get_data());
     }
 };
 
@@ -716,36 +764,37 @@ pub const CNAMERecord = struct {
     offset: usize,
     length: usize,
     qclass: DnsClass,
-    layer: *DNSLayer,
+    owner: TLVOwner,
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
     pub fn get_data(self: *CNAMERecord) []const u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
+        return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
     pub fn get_data_mut(self: *CNAMERecord) []u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
+        return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
     pub fn get_name(self: *CNAMERecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         const data = self.get_data(); // the length of the name is not known so just take use the offset of this RR
 
-        return try decode_name(self.layer.get_data(), data, allocator);
+        return try decode_name(self.owner.get_data(), data, allocator);
     }
 
     pub fn decode_cname(self: *CNAMERecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
-        if (self.get_data().len < 12) {
+        if (self.get_data().len < 12) { // TODO: remove temp magic number
             return DNSLayer.DNSParseError.RecordTooShort;
         }
 
         var offset: usize = 0;
 
-        _ = try DNS.DNSLayer.decode_name(self.get_data(), &offset);
+        DNSLayer.advance_past_name(self.get_data(), &offset);
 
-        offset += 10; //  rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
+        //  rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
+        offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16));
 
-        return try decode_name(self.layer.get_data(), self.get_data()[offset..], allocator);
+        return try decode_name(self.owner.get_data(), self.get_data()[offset..], allocator);
     }
 
     pub fn to_string(self: *CNAMERecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]const u8 {
@@ -772,8 +821,7 @@ pub const CNAMERecord = struct {
     }
 
     pub fn get_rr_type(self: CNAMERecord) QueryType {
-        _ = self;
-        return QueryType.CNAME;
+        return get_q_type(self.get_data());
     }
 };
 
@@ -782,34 +830,41 @@ pub const TXTRecord = struct {
     offset: usize,
     length: usize,
     qclass: DnsClass,
-    layer: *DNSLayer,
+    owner: TLVOwner,
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
     pub fn get_data(self: *TXTRecord) []const u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
+        return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
     pub fn get_data_mut(self: *TXTRecord) []u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
+        return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
     /// gets the records data from offset 13 and returns the slice which is the TXT string itself.
     /// no conversion needed because it's already a string
     /// to get the domain part, use get_name
     pub fn get_record_str(self: *TXTRecord) []const u8 {
-        return self.get_data()[13..];
+        const data = self.get_data();
+
+        var offset: usize = 0;
+
+        DNSLayer.advance_past_name(data, &offset);
+
+        offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16) + @sizeOf(u8));
+
+        return self.get_data()[offset..];
     }
 
     /// retrieves the name stated in the RR.
     pub fn get_name(self: *TXTRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         const data = self.get_data();
-        return try decode_name(self.layer.get_data(), data, allocator);
+        return try decode_name(self.owner.get_data(), data, allocator);
     }
 
     pub fn get_rr_type(self: TXTRecord) QueryType {
-        _ = self;
-        return QueryType.TXT;
+        return get_q_type(self.get_data());
     }
 };
 
@@ -818,26 +873,33 @@ pub const MXRecord = struct {
     offset: usize,
     length: usize,
     qclass: DnsClass,
-    layer: *DNSLayer,
+    owner: TLVOwner,
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
     pub fn get_data(self: *MXRecord) []const u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
+        return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
     pub fn get_data_mut(self: *MXRecord) []u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
+        return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
     pub fn get_mx_domain(self: *MXRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]const u8 {
-        const domain_start = self.get_data()[14..];
-        return try decode_name(self.layer.get_data(), domain_start, allocator);
+        var offset: usize = 0;
+
+        const data = self.get_data();
+
+        DNSLayer.advance_past_name(data, &offset);
+
+        offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16) + @sizeOf(u16));
+
+        const domain_start = self.get_data()[offset..]; // TODO: remove temp magic number
+        return try decode_name(self.owner.get_data(), domain_start, allocator);
     }
 
     pub fn get_rr_type(self: MXRecord) QueryType {
-        _ = self;
-        return QueryType.MX;
+        return get_q_type(self.get_data());
     }
 };
 
@@ -845,25 +907,24 @@ pub const PTRRecord = struct {
     offset: usize,
     length: usize,
     qclass: DnsClass,
-    layer: *DNSLayer,
+    owner: TLVOwner,
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
     pub fn get_data(self: *PTRRecord) []const u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
+        return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
     pub fn get_data_mut(self: *PTRRecord) []u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
+        return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
     pub fn get_name(self: *PTRRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
-        return try decode_name(self.layer.get_data(), self.get_data()[12..], allocator);
+        return try decode_name(self.owner.get_data(), self.get_data()[12..], allocator);
     }
 
     pub fn get_rr_type(self: PTRRecord) QueryType {
-        _ = self;
-        return QueryType.PTR;
+        return get_q_type(self.get_data());
     }
 };
 
@@ -871,52 +932,52 @@ pub const SOARecord = struct {
     offset: usize,
     length: usize,
     qclass: DnsClass,
-    layer: *DNSLayer,
+    owner: TLVOwner,
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
     pub fn get_data(self: *SOARecord) []const u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
+        return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
     pub fn get_data_mut(self: *SOARecord) []u8 {
-        return self.layer.get_data()[self.offset .. self.offset + self.length];
+        return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
     pub fn get_name(self: *SOARecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
-        return try decode_name(self.layer.get_data(), self.get_data()[12..], allocator);
+        return try decode_name(self.owner.get_data(), self.get_data()[12..], allocator);
     }
 
     /// Primary Name Server
     pub fn get_mname(self: *SOARecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         var offset: usize = 0;
 
-        _ = try DNS.DNSLayer.decode_name(self.get_data(), &offset);
+        DNS.DNSLayer.advance_past_name(self.get_data(), &offset);
 
-        offset += 10; //  rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
+        offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16));
 
         if (self.get_data().len < offset) {
             return "";
         }
 
-        return try decode_name(self.layer.get_data(), self.get_data()[offset..], allocator);
+        return try decode_name(self.owner.get_data(), self.get_data()[offset..], allocator);
     }
 
     /// Responsible Authorities Mailbox
     pub fn get_rname(self: *SOARecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         var offset: usize = 0;
 
-        _ = try DNS.DNSLayer.decode_name(self.get_data(), &offset);
+        DNSLayer.advance_past_name(self.get_data(), &offset);
 
-        offset += 10; //  rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
+        offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16));
 
-        _ = try DNS.DNSLayer.decode_name(self.get_data(), &offset);
+        DNSLayer.advance_past_name(self.get_data(), &offset);
 
         if (self.get_data().len < offset) {
             return ""; // return error instead
         }
 
-        return try decode_name(self.layer.get_data(), self.get_data()[offset..], allocator);
+        return try decode_name(self.owner.get_data(), self.get_data()[offset..], allocator);
     }
 
     pub fn get_serial(self: *SOARecord) u32 {
@@ -924,31 +985,22 @@ pub const SOARecord = struct {
         var offset: usize = 0;
 
         // advance offset past NAME
-        advance_past_name(self.get_data(), &offset) catch {
-            print("error decoding name.\n", .{});
-            return 0;
-        };
+        DNSLayer.advance_past_name(self.get_data(), &offset);
 
         // At this point, offset points to the byte AFTER the last label's null terminator
         // So we're now at the TYPE field
 
         // Skip TYPE (2), CLASS (2), TTL (4), RDLENGTH (2)
-        offset += 10;
+
+        offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16));
 
         // adance offset past MNAME
-        advance_past_name(self.get_data(), &offset) catch {
-            print("error decoding mname.\n", .{});
-            return 0;
-        };
+        DNSLayer.advance_past_name(self.get_data(), &offset);
 
         // advance offset past RNAME
-        advance_past_name(self.get_data(), &offset) catch {
-            print("error decoding rname.\n", .{});
-            print("bytes from current offset: {x}\n", .{data[offset..]});
-            return 0;
-        };
+        DNSLayer.advance_past_name(self.get_data(), &offset);
 
-        if (self.get_data().len < offset + 4) {
+        if (self.get_data().len < offset + @sizeOf(u32)) {
             return 0;
         }
 
@@ -961,34 +1013,24 @@ pub const SOARecord = struct {
         var offset: usize = 0;
 
         // advance offset past NAME
-        advance_past_name(self.get_data(), &offset) catch {
-            print("error decoding name.\n", .{});
-            return 0;
-        };
+        DNSLayer.advance_past_name(self.get_data(), &offset);
 
         // At this point, offset points to the byte AFTER the last label's null terminator
         // So we're now at the TYPE field
 
         // Skip TYPE (2), CLASS (2), TTL (4), RDLENGTH (2)
-        offset += 10;
+
+        offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16));
 
         // adance offset past MNAME
-        advance_past_name(self.get_data(), &offset) catch {
-            print("error decoding mname.\n", .{});
-            return 0;
-        };
-
+        DNSLayer.advance_past_name(self.get_data(), &offset);
         // advance offset past RNAME
-        advance_past_name(self.get_data(), &offset) catch {
-            print("error decoding rname.\n", .{});
-            print("bytes from current offset: {x}\n", .{data[offset..]});
-            return 0;
-        };
+        DNSLayer.advance_past_name(self.get_data(), &offset);
 
         // advance past serial
-        offset += 4;
+        offset += @sizeOf(u32);
 
-        if (self.get_data().len < offset + 4) {
+        if (self.get_data().len < offset + @sizeOf(u32)) {
             return 0;
         }
 
@@ -1001,37 +1043,28 @@ pub const SOARecord = struct {
         var offset: usize = 0;
 
         // advance offset past NAME
-        advance_past_name(self.get_data(), &offset) catch {
-            print("error decoding name.\n", .{});
-            return 0;
-        };
+        DNSLayer.advance_past_name(self.get_data(), &offset);
 
         // At this point, offset points to the byte AFTER the last label's null terminator
         // So we're now at the TYPE field
 
         // Skip TYPE (2), CLASS (2), TTL (4), RDLENGTH (2)
-        offset += 10;
+
+        offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16));
 
         // adance offset past MNAME
-        advance_past_name(self.get_data(), &offset) catch {
-            print("error decoding mname.\n", .{});
-            return 0;
-        };
+        DNSLayer.advance_past_name(self.get_data(), &offset);
 
         // advance offset past RNAME
-        advance_past_name(self.get_data(), &offset) catch {
-            print("error decoding rname.\n", .{});
-            print("bytes from current offset: {x}\n", .{data[offset..]});
-            return 0;
-        };
+        DNSLayer.advance_past_name(self.get_data(), &offset);
 
         // advance past serial
-        offset += 4;
+        offset += @sizeOf(u32);
 
         // advance past refresh interval
-        offset += 4;
+        offset += @sizeOf(u32);
 
-        if (self.get_data().len < offset + 4) {
+        if (self.get_data().len < offset + @sizeOf(u32)) {
             return 0;
         }
 
@@ -1044,40 +1077,31 @@ pub const SOARecord = struct {
         var offset: usize = 0;
 
         // advance offset past NAME
-        advance_past_name(self.get_data(), &offset) catch {
-            print("error decoding name.\n", .{});
-            return 0;
-        };
+        DNSLayer.advance_past_name(self.get_data(), &offset);
 
         // At this point, offset points to the byte AFTER the last label's null terminator
         // So we're now at the TYPE field
 
         // Skip TYPE (2), CLASS (2), TTL (4), RDLENGTH (2)
-        offset += 10;
+
+        offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16));
 
         // adance offset past MNAME
-        advance_past_name(self.get_data(), &offset) catch {
-            print("error decoding mname.\n", .{});
-            return 0;
-        };
+        DNSLayer.advance_past_name(self.get_data(), &offset);
 
         // advance offset past RNAME
-        advance_past_name(self.get_data(), &offset) catch {
-            print("error decoding rname.\n", .{});
-            print("bytes from current offset: {x}\n", .{data[offset..]});
-            return 0;
-        };
+        DNSLayer.advance_past_name(self.get_data(), &offset);
 
         // advance past serial
-        offset += 4;
+        offset += @sizeOf(u32);
 
         // advance past refresh interval
-        offset += 4;
+        offset += @sizeOf(u32);
 
         // advance past retry interval
-        offset += 4;
+        offset += @sizeOf(u32);
 
-        if (self.get_data().len < offset + 4) {
+        if (self.get_data().len < offset + @sizeOf(u32)) {
             return 0;
         }
 
@@ -1090,43 +1114,30 @@ pub const SOARecord = struct {
         var offset: usize = 0;
 
         // advance offset past NAME
-        advance_past_name(self.get_data(), &offset) catch {
-            print("error decoding name.\n", .{});
-            return 0;
-        };
+        DNSLayer.advance_past_name(self.get_data(), &offset);
 
-        // At this point, offset points to the byte AFTER the last label's null terminator
-        // So we're now at the TYPE field
-
-        // Skip TYPE (2), CLASS (2), TTL (4), RDLENGTH (2)
-        offset += 10;
+        //  Skip  TYPE (2),             CLASS (2),          TTL (4),        RDLENGTH (2)
+        offset += (@sizeOf(QueryType) + @sizeOf(DnsClass) + @sizeOf(u32) + @sizeOf(u16));
 
         // adance offset past MNAME
-        advance_past_name(self.get_data(), &offset) catch {
-            print("error decoding mname.\n", .{});
-            return 0;
-        };
+        DNSLayer.advance_past_name(self.get_data(), &offset);
 
         // advance offset past RNAME
-        advance_past_name(self.get_data(), &offset) catch {
-            print("error decoding rname.\n", .{});
-            print("bytes from current offset: {x}\n", .{data[offset..]});
-            return 0;
-        };
+        DNSLayer.advance_past_name(self.get_data(), &offset);
 
         // advance past serial
-        offset += 4;
+        offset += @sizeOf(u32);
 
         // advance past refresh interval
-        offset += 4;
+        offset += @sizeOf(u32);
 
         // advance past retry interval
-        offset += 4;
+        offset += @sizeOf(u32);
 
         // advance past expire limit
-        offset += 4;
+        offset += @sizeOf(u32);
 
-        if (self.get_data().len < offset + 4) {
+        if (self.get_data().len < offset + @sizeOf(u32)) {
             return 0;
         }
 
@@ -1135,26 +1146,25 @@ pub const SOARecord = struct {
     }
 
     pub fn get_rr_type(self: SOARecord) QueryType {
-        _ = self;
-        return QueryType.SOA;
+        return get_q_type(self.get_data());
     }
 };
 
-pub fn advance_past_name(slice: []const u8, offset: *usize) (DNSLayer.DNSParseError)!void {
-    while (offset.* < slice.len) {
-        const byte = slice[offset.*];
-        if (byte == 0) {
-            offset.* += 1;
-            return;
-        }
-        if ((byte & 0xC0) == 0xC0) {
-            offset.* += 2;
-            return;
-        }
-        offset.* += 1 + byte; // Skip length byte and label
-    }
-    return error.InvalidPacket;
-}
+//   pub fn advance_past_name(slice: []const u8, offset: *usize) (DNSLayer.DNSParseError)!void {
+//       while (offset.* < slice.len) {
+//           const byte = slice[offset.*];
+//           if (byte == 0) {
+//               offset.* += 1;
+//               return;
+//           }
+//           if ((byte & 0xC0) == 0xC0) {
+//               offset.* += 2;
+//               return;
+//           }
+//           offset.* += 1 + byte; // Skip length byte and label
+//       }
+//       return error.InvalidPacket;
+//   }
 
 // MNAME - variable len
 

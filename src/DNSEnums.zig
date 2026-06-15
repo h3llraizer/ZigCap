@@ -55,6 +55,7 @@ pub const QueryType = enum(u16) {
     HTTPS = 65,
     ALL = 255, // All cached records
     GENERIC = 256,
+    _,
 
     pub fn from_u16(value: u16) QueryType {
         return std.enums.fromInt(QueryType, value) orelse {
@@ -69,6 +70,7 @@ pub const DnsClass = enum(u16) {
     CH = 3, // Chaos
     HS = 4, // Hesiod
     ANY = 255, // Any class
+    _,
 
     pub fn fromU16(value: u16) DnsClass {
         switch (value) {

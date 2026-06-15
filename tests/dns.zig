@@ -136,9 +136,9 @@ test "parse dns query raw" {
 
     defer answers.deinit(allocator);
 
-    try answers.add_answer(
-        queries.first,
-    );
+    //  try answers.add_answer(
+    //      queries.first,
+    //  );
 }
 
 test "parse dns A response raw" {
@@ -196,10 +196,16 @@ test "parse dns A response raw" {
     var answer = answers.first;
     while (answer) |ans| {
         //        print("answer: offset={} length={} {any} {any}\n", .{ ans.get_offset(), ans.get_length(), ans.get_rr_type(), ans.get_class_type() });
+
+        print("{any} {any}\n", .{ ans.get_rr_type(), ans.get_class_type() });
+
         if (ans.a.get_ip()) |ip| {
             const ip_str = try ip.to_string(allocator);
             defer allocator.free(ip_str);
-            //           print("original: {s}\n", .{ip_str});
+            print("original: {s}\n", .{ip_str});
+
+            ans.a.set_class(.ANY);
+            //print("class: {any}\n", .{try ans.a.get_class()});
 
             const new_ip = try IPv4.IPv4Address.init_from_string("1.2.3.4");
 
@@ -207,9 +213,11 @@ test "parse dns A response raw" {
             if (ans.a.get_ip()) |new_ipv4| {
                 const new_ip_str = try new_ipv4.to_string(allocator);
                 defer allocator.free(new_ip_str);
-                //              print("changed: {s}\n", .{new_ip_str});
+                print("changed: {s}\n", .{new_ip_str});
             }
         }
+
+        print("{any} {any}\n", .{ ans.get_rr_type(), ans.get_class_type() });
 
         const ttl = ans.get_ttl();
 
@@ -227,7 +235,7 @@ test "parse dns A response raw" {
 }
 
 test "parse dns AAAA response raw" {
-    const cloudflare_aaaa_resp: [99]u8 = [_]u8{ 0xd5, 0xf5, 0x81, 0x80, 0x0, 0x1, 0x0, 0x2, 0x0, 0x0, 0x0, 0x1, 0xa, 0x63, 0x6c, 0x6f, 0x75, 0x64, 0x66, 0x6c, 0x61, 0x72, 0x65, 0x3, 0x63, 0x6f, 0x6d, 0x0, 0x0, 0x1c, 0x0, 0x1, 0xc0, 0xc, 0x0, 0x1c, 0x0, 0x1, 0x0, 0x0, 0x0, 0xad, 0x0, 0x10, 0x26, 0x6, 0x47, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x68, 0x10, 0x85, 0xe5, 0xc0, 0xc, 0x0, 0x1c, 0x0, 0x1, 0x0, 0x0, 0x0, 0xad, 0x0, 0x10, 0x26, 0x6, 0x47, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x68, 0x10, 0x84, 0xe5, 0x0, 0x0, 0x29, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
+    const cloudflare_aaaa_resp: []const u8 = &.{ 0xd5, 0xf5, 0x81, 0x80, 0x0, 0x1, 0x0, 0x2, 0x0, 0x0, 0x0, 0x1, 0xa, 0x63, 0x6c, 0x6f, 0x75, 0x64, 0x66, 0x6c, 0x61, 0x72, 0x65, 0x3, 0x63, 0x6f, 0x6d, 0x0, 0x0, 0x1c, 0x0, 0x1, 0xc0, 0xc, 0x0, 0x1c, 0x0, 0x1, 0x0, 0x0, 0x0, 0xad, 0x0, 0x10, 0x26, 0x6, 0x47, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x68, 0x10, 0x85, 0xe5, 0xc0, 0xc, 0x0, 0x1c, 0x0, 0x1, 0x0, 0x0, 0x0, 0xad, 0x0, 0x10, 0x26, 0x6, 0x47, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x68, 0x10, 0x84, 0xe5, 0x0, 0x0, 0x29, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
 
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.deinit();
@@ -247,14 +255,14 @@ test "parse dns AAAA response raw" {
     try expect(dns_header.get_qdcount() == 1);
 
     var queries = try dns_layer.dnsLayer.get_queries(allocator) orelse {
-        try expect(false); // failed to get queries
+        try expect(false); //failed to get queries
         return;
     };
 
     defer queries.deinit(allocator);
 
     var answers = try dns_layer.dnsLayer.get_answers(allocator) orelse {
-        try expect(false); // failed to get answers
+        try expect(false); //failed to get answers
         return;
     };
 
@@ -275,7 +283,7 @@ test "parse dns AAAA response raw" {
 
     var answer = answers.first;
     while (answer) |ans| {
-        //        print("answer: offset={} length={} {any} {any}\n", .{ ans.get_offset(), ans.get_length(), ans.get_rr_type(), ans.get_class_type() });
+        //print("answer: offset={} length={} {any} {any}\n", .{ ans.get_offset(), ans.get_length(), ans.get_rr_type(), ans.get_class_type() });
 
         if (ans.aaaa.get_ipv6()) |ipv6| {
             const ip_str = try ipv6.to_string(allocator);

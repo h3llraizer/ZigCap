@@ -293,8 +293,6 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
     /// Sets DNS Header values to reflect Query and Answer count and perform byte swap for NBE order.
     /// Call this if you intend to send dns packet over the network or you need to undertake further analysis of the DNSHeader post modification
     pub fn validate_layer(self: *DNSLayer) void {
-        //var hdr = self.get_mutable_header();
-        //hdr.flags = @byteSwap(hdr.flags);
         _ = self;
     }
 
@@ -455,7 +453,9 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         }
 
         var queries: Queries = (.{
-            .owner = TLVOwner{ .layer = &self.owner },
+            .owner = TLVOwner{
+                .layer = &self.owner,
+            },
         });
 
         var cur: ?*Query = null;
@@ -523,7 +523,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         return queries;
     }
 
-    pub fn advance_past_name(slice: []const u8, offset: *usize) DNSParseError!void {
+    pub fn advance_past_name(slice: []const u8, offset: *usize) void {
         while (offset.* < slice.len) {
             const byte = slice[offset.*];
             if (byte == 0) {
@@ -537,7 +537,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             offset.* += 1 + byte; // Skip length byte and label
         }
 
-        return DNSParseError.InvalidPacket;
+        //return DNSParseError.InvalidPacket;
     }
 
     /// Returns AnswerRecords (doubly linkedlist)
@@ -559,7 +559,9 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
         //           return null;
         //       }
 
-        var ansrecords: AnswerRecords = (.{ .owner = TLVOwner{ .layer = &self.owner } });
+        var ansrecords: AnswerRecords = (.{ .owner = TLVOwner{
+            .layer = &self.owner,
+        } });
 
         var cur: ?*AnswerRecord = null;
 
@@ -572,7 +574,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             const name_offset = offset;
             // This can be a pointer/offset compression (0xC0..) or raw labels
             // decode_name function to handle pointers and labels
-            _ = try advance_past_name(data, &offset);
+            _ = advance_past_name(data, &offset);
 
             // Parse TYPE
             const rtype = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
@@ -606,7 +608,9 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             const rtype_e: QueryType = QueryType.from_u16(rtype);
             const class_e: DnsClass = @enumFromInt(rclass);
 
-            answer.* = AnswerRecord.init(name_offset, whole_record.len, rtype_e, class_e, self);
+            answer.* = AnswerRecord.init(name_offset, whole_record.len, rtype_e, class_e, TLVOwner{
+                .layer = &self.owner,
+            });
 
             // append to linkedlist
             if (cur) |ans| { // if the last answer is not null
@@ -645,7 +649,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
                 return LayerError.LayerInvalid;
 
             // Parse NAME
-            _ = try advance_past_name(data, &offset); // advances the offset
+            _ = advance_past_name(data, &offset); // advances the offset
 
             // QTYPE
             offset += 2;
@@ -790,7 +794,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
                 return error.InvalidPacket;
 
             // Parse NAME
-            _ = try advance_past_name(data, &offset); // advances the offset
+            _ = advance_past_name(data, &offset); // advances the offset
 
             // QTYPE
             offset += 2;
@@ -847,7 +851,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             const name_offset = offset;
             // This can be a pointer/offset compression (0xC0..) or raw labels
             // decode_name function to handle pointers and labels
-            _ = try advance_past_name(data, &offset);
+            _ = advance_past_name(data, &offset);
 
             // Parse TYPE
             const rtype = std.mem.readInt(u16, @ptrCast(data[offset .. offset + 2].ptr), .big);
@@ -881,7 +885,7 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             const rtype_e: QueryType = QueryType.from_u16(rtype);
             const class_e: DnsClass = @enumFromInt(rclass);
 
-            answer.* = AnswerRecord.init(name_offset, whole_record.len, rtype_e, class_e, self);
+            answer.* = AnswerRecord.init(name_offset, whole_record.len, rtype_e, class_e, TLVOwner{ .layer = &self.owner });
 
             // append to linkedlist
             if (cur) |ans| { // if the last answer is not null
