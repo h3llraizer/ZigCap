@@ -161,7 +161,12 @@ pub const AnswerRecord = union(enum) {
 
     pub fn get_name_raw(self: *AnswerRecord) []const u8 {
         const data = self.get_data();
-        return data;
+
+        var offset: usize = 0;
+
+        advance_past_name(data, &offset);
+
+        return data[0..offset];
     }
 
     pub fn get_owner(self: *AnswerRecord) *TLVOwner {
@@ -452,6 +457,17 @@ fn set_q_type(data: []u8, qtype: QueryType) void {
     return std.mem.writeInt(u16, @ptrCast(data[offset .. offset + RD_LENGTH].ptr), @intFromEnum(qtype), .big);
 }
 
+fn init_buffer(owner: *TLVOwner, qtype: QueryType, class: DnsClass) !void {
+    if (owner.get_data().len < (@sizeOf(u8) * 2 + QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH)) {
+        const buf = try owner.extend_buffer();
+
+        std.mem.writeInt(u16, buf[2..4], @intFromEnum(qtype), .big);
+        std.mem.writeInt(u16, buf[4..6], @intFromEnum(class), .big);
+
+        std.mem.writeInt(u16, buf[6..10], 64, .big);
+    }
+}
+
 pub const GenericRecord = struct {
     offset: usize,
     length: usize,
@@ -461,6 +477,28 @@ pub const GenericRecord = struct {
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
+    /// init a new generic record.
+    /// Name provided must be an encoded name (use DNS.encode_name method).
+    /// qtype and class are set to value 0 (not valid)
+    /// allocated name length + 12 bytes (qtype, qclass, ttl, rd len, 2 byte rdata)
+    pub fn init(name: []const u8, allocator: Allocator) Allocator.Error!GenericRecord {
+        const initial_len = (name.len + QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH + (@sizeOf(u8) * 2));
+
+        var rec = GenericRecord{
+            .offset = 0,
+            .length = initial_len,
+            .qtype = @enumFromInt(0),
+            .qclass = @enumFromInt(0),
+            .owner = TLVOwner{ .owned_buffer = .init_empty(allocator) },
+        };
+
+        _ = try rec.owner.extend_buffer(0, initial_len);
+
+        @memmove(rec.owner.get_data()[0..name.len], name);
+
+        return rec;
+    }
+
     pub fn get_data(self: *GenericRecord) []const u8 {
         return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
@@ -469,8 +507,197 @@ pub const GenericRecord = struct {
         return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
-    pub fn get_rr_type(self: GenericRecord) QueryType {
+    pub fn get_name(self: *GenericRecord, allocator: Allocator) ![]u8 {
+        const data = self.get_data();
+        // the length of the name is not known so just take use the offset of this RR
+
+        return try decode_name(data, data, allocator);
+    }
+
+    pub fn set_name(self: *GenericRecord, qname: []const u8) Allocator.Error!void {
+        const data = self.get_data();
+
+        var offset: usize = 0;
+
+        advance_past_name(data, &offset);
+
+        const cur_name_len = offset;
+
+        if (cur_name_len < qname.len) {
+            const diff = qname.len - cur_name_len;
+            _ = try self.owner.extend_buffer(cur_name_len, diff);
+        }
+
+        if (cur_name_len > qname.len) {
+            const diff = cur_name_len - qname.len;
+
+            try self.owner.shorten_buffer(cur_name_len, diff);
+        }
+
+        @memmove(self.get_data_mut()[0..qname.len], qname);
+    }
+
+    pub fn set_rr_type(self: *GenericRecord, qtype: QueryType) void {
+        const data = self.get_data_mut();
+        var offset: usize = 0;
+
+        advance_past_name(data, &offset);
+
+        std.mem.writeInt(
+            u16,
+            @ptrCast(data[offset .. offset + QUERY_TYPE_LENGTH].ptr),
+            @intFromEnum(qtype),
+            .big,
+        );
+    }
+
+    pub fn get_rr_type(self: *GenericRecord) QueryType {
         return get_q_type(self.get_data());
+    }
+
+    pub fn set_class(self: *GenericRecord, qclass: DnsClass) void {
+        const data = self.get_data_mut();
+
+        var offset: usize = 0;
+
+        advance_past_name(data, &offset);
+
+        offset += QUERY_TYPE_LENGTH;
+
+        std.mem.writeInt(
+            u16,
+            @ptrCast(data[offset .. offset + CLASS_TYPE_LENGTH].ptr),
+            @intFromEnum(qclass),
+            .big,
+        );
+    }
+
+    pub fn get_class(self: *GenericRecord) DnsClass {
+        return get_dns_class(self.get_data());
+    }
+
+    pub fn set_ttl(self: *GenericRecord, ttl: u32) void {
+        const data = self.get_data_mut();
+
+        var offset: usize = 0;
+
+        advance_past_name(data, &offset);
+
+        offset += QUERY_TYPE_LENGTH;
+        offset += CLASS_TYPE_LENGTH;
+
+        std.mem.writeInt(
+            u32,
+            @ptrCast(data[offset .. offset + TTL_LENGTH].ptr),
+            ttl,
+            .big,
+        );
+    }
+
+    pub fn get_ttl(self: *GenericRecord) u32 {
+        const data = self.get_data();
+
+        var offset: usize = 0;
+
+        advance_past_name(data, &offset);
+
+        offset += QUERY_TYPE_LENGTH;
+        offset += CLASS_TYPE_LENGTH;
+
+        return std.mem.readInt(
+            u32,
+            @ptrCast(data[offset .. offset + TTL_LENGTH].ptr),
+            .big,
+        );
+    }
+
+    pub fn get_rd_len(self: *GenericRecord) u16 {
+        const data = self.get_data();
+
+        var offset: usize = 0;
+
+        advance_past_name(data, &offset);
+
+        offset += QUERY_TYPE_LENGTH;
+        offset += CLASS_TYPE_LENGTH;
+        offset += TTL_LENGTH;
+
+        return std.mem.readInt(
+            u16,
+            @ptrCast(data[offset .. offset + RD_LENGTH].ptr),
+            .big,
+        );
+    }
+
+    pub fn set_rdata(self: *GenericRecord, rdata: []const u8) Allocator.Error!void {
+        const data = self.get_data();
+
+        var offset: usize = 0;
+
+        advance_past_name(data, &offset);
+
+        offset += QUERY_TYPE_LENGTH;
+        offset += CLASS_TYPE_LENGTH;
+        offset += TTL_LENGTH;
+
+        const rd_offset = offset;
+
+        offset += RD_LENGTH;
+
+        const cur_rdata_len: usize = data.len - offset;
+
+        if (cur_rdata_len < rdata.len) {
+            const diff = rdata.len - cur_rdata_len;
+            const slice = try self.owner.extend_buffer(offset, diff);
+            self.length += slice.len;
+
+            var next_rec = self.next_answer;
+            while (next_rec) |rr| {
+                rr.set_offset(rr.get_offset() + diff);
+                next_rec = rr.get_next_record();
+            }
+        }
+        if (cur_rdata_len > rdata.len) {
+            const diff = cur_rdata_len - rdata.len;
+
+            try self.owner.shorten_buffer(offset + rdata.len, diff);
+
+            self.length -= diff;
+
+            var next_rec = self.next_answer;
+            while (next_rec) |rr| {
+                rr.set_offset(rr.get_offset() - diff);
+                next_rec = rr.get_next_record();
+            }
+        }
+
+        @memmove(self.get_data_mut()[offset..], rdata);
+
+        std.mem.writeInt(
+            u16,
+            @ptrCast(self.get_data_mut()[rd_offset .. rd_offset + RD_LENGTH].ptr),
+            @intCast(rdata.len),
+            .big,
+        );
+    }
+
+    pub fn get_rdata(self: *GenericRecord) []const u8 {
+        const data = self.get_data();
+
+        var offset: usize = 0;
+
+        advance_past_name(data, &offset);
+
+        offset += QUERY_TYPE_LENGTH;
+        offset += CLASS_TYPE_LENGTH;
+        offset += TTL_LENGTH;
+        offset += RD_LENGTH;
+
+        return data[offset..self.length];
+    }
+
+    pub fn deinit(self: *GenericRecord) void {
+        self.owner.deinit();
     }
 };
 
@@ -512,7 +739,7 @@ pub const ARecord = struct {
 
             advance_past_name(self.get_data(), &offset);
 
-            //              rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
+            //         rrtype (2 bytes),   class (2bytes),    ttl (4bytes), data length (2bytes)
             offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
 
             const ip_u32: u32 = std.mem.bytesToValue(u32, data[offset .. offset + TTL_LENGTH]);
@@ -530,7 +757,8 @@ pub const ARecord = struct {
             var offset: usize = 0;
 
             advance_past_name(self.get_data(), &offset);
-            //              rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
+
+            //         rrtype (2 bytes),   class (2bytes),     ttl (4bytes), data length (2bytes)
             offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
 
             const ip_ptr = std.mem.bytesAsValue(u32, data[offset .. offset + TTL_LENGTH]);
@@ -869,6 +1097,12 @@ pub const TXTRecord = struct {
         return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
+    /// retrieves the name stated in the RR.
+    pub fn get_name(self: *TXTRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
+        const data = self.get_data();
+        return try decode_name(self.owner.get_data(), data, allocator);
+    }
+
     /// gets the records data from offset 13 and returns the slice which is the TXT string itself.
     /// no conversion needed because it's already a string
     /// to get the domain part, use get_name
@@ -882,12 +1116,6 @@ pub const TXTRecord = struct {
         offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH + TXT_LENGTH);
 
         return self.get_data()[offset..];
-    }
-
-    /// retrieves the name stated in the RR.
-    pub fn get_name(self: *TXTRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
-        const data = self.get_data();
-        return try decode_name(self.owner.get_data(), data, allocator);
     }
 
     pub fn get_rr_type(self: TXTRecord) QueryType {
@@ -1174,36 +1402,6 @@ pub const SOARecord = struct {
         return get_q_type(self.get_data());
     }
 };
-
-//   pub fn advance_past_name(slice: []const u8, offset: *usize) (DNSLayer.DNSParseError)!void {
-//       while (offset.* < slice.len) {
-//           const byte = slice[offset.*];
-//           if (byte == 0) {
-//               offset.* += 1;
-//               return;
-//           }
-//           if ((byte & 0xC0) == 0xC0) {
-//               offset.* += 2;
-//               return;
-//           }
-//           offset.* += 1 + byte; // Skip length byte and label
-//       }
-//       return error.InvalidPacket;
-//   }
-
-// MNAME - variable len
-
-// RNAME - variable len
-
-// SERIAL - 4 bytes / u32
-
-// REFRESH INTERVAL - 4 bytes / u32
-
-// RETRY INTERVAL - 4 bytes / u32
-
-// EXPIRE LIMIT - 4 bytes / u32
-
-// MIN TTL - 4 bytes / u32
 
 pub fn decode_name(layer_data: []const u8, record_data: []const u8, allocator: Allocator) (DNS.DNSLayer.DNSParseError || Allocator.Error)![]u8 {
     const full_packet = layer_data; // get the entire dns layers data - this is required for pointer jumps

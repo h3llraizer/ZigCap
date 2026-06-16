@@ -22,15 +22,15 @@ pub const DnsClass = DNSEnums.DnsClass;
 pub const AnswerRecord = DNSRecordTypes.AnswerRecord;
 pub const AnswerRecords = DNSRecordTypes.AnswerRecords;
 
-const GenericRecord = DNSRecordTypes.GenericRecord;
+pub const GenericRecord = DNSRecordTypes.GenericRecord;
 pub const ARecord = DNSRecordTypes.ARecord;
-const AAAARecord = DNSRecordTypes.AAAARecord;
-const CNAMERecord = DNSRecordTypes.CNAMERecord;
-const TXTRecord = DNSRecordTypes.TXTRecord;
-const MXRecord = DNSRecordTypes.MXRecord;
-const PTRRecord = DNSRecordTypes.PTRRecord;
-const NSRecord = DNSRecordTypes.NSRecord;
-const SOARecord = DNSRecordTypes.SOARecord;
+pub const AAAARecord = DNSRecordTypes.AAAARecord;
+pub const CNAMERecord = DNSRecordTypes.CNAMERecord;
+pub const TXTRecord = DNSRecordTypes.TXTRecord;
+pub const MXRecord = DNSRecordTypes.MXRecord;
+pub const PTRRecord = DNSRecordTypes.PTRRecord;
+pub const NSRecord = DNSRecordTypes.NSRecord;
+pub const SOARecord = DNSRecordTypes.SOARecord;
 
 pub const DNSHeaderSize: usize = 12;
 
@@ -248,7 +248,8 @@ pub const DNSHeader = extern struct {
     }
 };
 
-pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative Records
+// TODO: Handle Additional Records, Authoritative Records
+pub const DNSLayer = struct {
     owner: LayerOwner,
 
     pub fn init(owner: LayerOwner) (LayerError || Allocator.Error)!DNSLayer {
@@ -591,10 +592,6 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
 
         const ancount = hdr.get_ancount();
 
-        //       if (ancount == 0) {
-        //           return null;
-        //       }
-
         var ansrecords: AnswerRecords = (.{ .owner = TLVOwner{
             .layer = &self.owner,
         } });
@@ -923,7 +920,13 @@ pub const DNSLayer = struct { // TODO: Handle Additional Records, Authoritative 
             const rtype_e: QueryType = QueryType.from_u16(rtype);
             const class_e: DnsClass = @enumFromInt(rclass);
 
-            answer.* = AnswerRecord.init(name_offset, whole_record.len, rtype_e, class_e, TLVOwner{ .layer = &self.owner });
+            answer.* = AnswerRecord.init(
+                name_offset,
+                whole_record.len,
+                rtype_e,
+                class_e,
+                TLVOwner{ .layer = &self.owner },
+            );
 
             // append to linkedlist
             if (cur) |ans| { // if the last answer is not null
@@ -1218,3 +1221,30 @@ pub const Queries = struct {
         self.query_count = 0;
     }
 };
+
+/// Encode names (domain names) into DNS Wire Format for DNS Layer.
+/// Caller must free the returned name.
+pub fn encode_name(name: []const u8, allocator: Allocator) Allocator.Error![]const u8 {
+    // Calculate how many bytes the DNS-encoded name will take
+    var dns_encoded_name_len: usize = 0;
+    var it = std.mem.splitScalar(u8, name, '.');
+    while (it.next()) |label| {
+        dns_encoded_name_len += 1 + label.len; // length byte + label
+    }
+    dns_encoded_name_len += 1; // final null terminator
+
+    const encoded_name = try allocator.alloc(u8, dns_encoded_name_len);
+
+    var buf_offset: usize = 0;
+
+    it = std.mem.splitScalar(u8, name, '.');
+    while (it.next()) |label| {
+        encoded_name[buf_offset] = @intCast(label.len);
+        buf_offset += 1;
+        @memcpy(encoded_name[buf_offset .. buf_offset + label.len], label);
+        buf_offset += label.len;
+    }
+    encoded_name[buf_offset] = 0; // null terminator
+
+    return encoded_name;
+}

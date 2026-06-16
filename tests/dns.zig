@@ -4,6 +4,10 @@ const zigcap = @import("zigcap");
 
 const print = std.debug.print;
 
+const eql = std.mem.eql;
+
+const Allocator = std.mem.Allocator;
+
 const DNS = zigcap.DNS;
 const Packet = zigcap.Packet.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
@@ -15,7 +19,93 @@ const IPv4 = zigcap.IPv4;
 const IPv6 = zigcap.IPv6;
 
 const LayerIface = zigcap.LayerIface;
-//const LayerInterface = @import("LayerIface.zig");
+
+test "generic record" {
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+
+    const allocator = debug_allocator.allocator();
+
+    const name = try DNS.encode_name("google.com", allocator);
+    defer allocator.free(name);
+
+    var grec: DNS.GenericRecord = try .init(name, allocator);
+    defer grec.deinit();
+
+    grec.set_rr_type(.A);
+
+    grec.set_class(.IN);
+
+    grec.set_ttl(137);
+
+    const expected = &[_]u8{
+        6, 'g', 'o', 'o', 'g', 'l', 'e',
+        3, 'c', 'o', 'm', 0,
+    };
+
+    try expect(eql(u8, grec.get_data()[0..name.len], expected));
+
+    const aname = try grec.get_name(allocator);
+    defer allocator.free(aname);
+
+    try expect(eql(u8, aname, "google.com"));
+
+    const ip = try IPv4.IPv4Address.init_from_string("8.8.8.8");
+
+    try grec.set_rdata(&ip.array);
+
+    try expect(eql(u8, grec.get_rdata(), &ip.array));
+
+    try expect(grec.get_rr_type() == .A);
+
+    try expect(grec.get_class() == .IN);
+
+    try expect(grec.get_ttl() == 137);
+
+    try expect(grec.get_rd_len() == ip.array.len);
+
+    const ipv6_bytes = &[_]u8{ 0x2a, 0x0, 0x14, 0x50, 0x40, 0x9, 0xc, 0x4, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x65 };
+
+    const ipv6 = IPv6.IPv6Address.init_from_array(ipv6_bytes.*);
+
+    grec.set_rr_type(.AAAA);
+
+    try grec.set_rdata(&ipv6.array);
+
+    try expect(eql(u8, grec.get_rdata(), &ipv6.array));
+
+    try expect(grec.get_rr_type() == .AAAA);
+
+    try expect(grec.get_class() == .IN);
+
+    try expect(grec.get_ttl() == 137);
+
+    try expect(grec.get_rd_len() == ipv6.array.len);
+
+    grec.set_class(.ANY);
+
+    grec.set_ttl(360);
+
+    try expect(grec.get_class() == .ANY);
+
+    try expect(grec.get_ttl() == 360);
+
+    try grec.set_rdata(&ip.array);
+
+    try expect(eql(u8, grec.get_rdata(), &ip.array));
+
+    try expect(grec.get_rr_type() != .A);
+
+    try expect(grec.get_class() == .ANY);
+
+    try expect(grec.get_ttl() == 360);
+
+    try expect(grec.get_rd_len() == ip.array.len);
+
+    const expected_len = (expected.len + DNS.QUERY_TYPE_LENGTH + DNS.CLASS_TYPE_LENGTH + DNS.TTL_LENGTH + DNS.RD_LENGTH + ip.array.len);
+
+    try expect(grec.get_data().len == expected_len);
+}
 
 test "dns build" {
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
