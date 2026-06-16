@@ -477,12 +477,17 @@ pub const GenericRecord = struct {
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
-    /// init a new generic record.
+    /// Init a new generic record.
     /// Name provided must be an encoded name (use DNS.encode_name method).
-    /// qtype and class are set to value 0 (not valid)
-    /// allocated name length + 12 bytes (qtype, qclass, ttl, rd len, 2 byte rdata)
+    /// qtype and class are set to value 0 (not valid), rd length is set to 2.
+    /// Allocates name length + 12 bytes (qtype, qclass, ttl, rd len, 2 byte rdata).
     pub fn init(name: []const u8, allocator: Allocator) Allocator.Error!GenericRecord {
-        const initial_len = (name.len + QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH + (@sizeOf(u8) * 2));
+        const initial_len = (name.len +
+            QUERY_TYPE_LENGTH +
+            CLASS_TYPE_LENGTH +
+            TTL_LENGTH +
+            RD_LENGTH +
+            (@sizeOf(u8) * 2));
 
         var rec = GenericRecord{
             .offset = 0,
@@ -492,7 +497,19 @@ pub const GenericRecord = struct {
             .owner = TLVOwner{ .owned_buffer = .init_empty(allocator) },
         };
 
-        _ = try rec.owner.extend_buffer(0, initial_len);
+        const rr_buf = try rec.owner.extend_buffer(0, initial_len);
+
+        const rd_len_offset = name.len +
+            QUERY_TYPE_LENGTH +
+            CLASS_TYPE_LENGTH +
+            TTL_LENGTH;
+
+        std.mem.writeInt(
+            u16,
+            @ptrCast(rr_buf[rd_len_offset .. rd_len_offset + RD_LENGTH].ptr),
+            (@sizeOf(u8) * 2),
+            .big,
+        );
 
         @memmove(rec.owner.get_data()[0..name.len], name);
 
@@ -509,9 +526,9 @@ pub const GenericRecord = struct {
 
     pub fn get_name(self: *GenericRecord, allocator: Allocator) ![]u8 {
         const data = self.get_data();
-        // the length of the name is not known so just take use the offset of this RR
 
-        return try decode_name(data, data, allocator);
+        // the length of the name is not known so just take use the offset of this RR
+        return try decode_name(self.owner.get_data(), data, allocator);
     }
 
     /// Name provided must be an encoded name (use DNS.encode_name method).
@@ -525,28 +542,30 @@ pub const GenericRecord = struct {
         const cur_name_len = offset;
 
         if (cur_name_len < name.len) {
-            const diff = name.len - cur_name_len;
-            _ = try self.owner.extend_buffer(cur_name_len, diff);
+            const extend_len = name.len - cur_name_len;
+            _ = try self.owner.extend_buffer(cur_name_len, extend_len);
 
-            self.length += diff;
+            self.length += extend_len;
 
+            // increase the proceeding records offsets by the extend_len
             var next_rec = self.next_answer;
             while (next_rec) |rr| {
-                rr.set_offset(rr.get_offset() + diff);
+                rr.set_offset(rr.get_offset() + extend_len);
                 next_rec = rr.get_next_record();
             }
         }
 
         if (cur_name_len > name.len) {
-            const diff = cur_name_len - name.len;
+            const shorten_len = cur_name_len - name.len;
 
-            try self.owner.shorten_buffer(cur_name_len, diff);
+            try self.owner.shorten_buffer(cur_name_len, shorten_len);
 
-            self.length -= diff;
+            self.length -= shorten_len;
 
+            // decrease the proceeding records offsets by the shorten_len
             var next_rec = self.next_answer;
             while (next_rec) |rr| {
-                rr.set_offset(rr.get_offset() - diff);
+                rr.set_offset(rr.get_offset() - shorten_len);
                 next_rec = rr.get_next_record();
             }
         }
@@ -646,6 +665,10 @@ pub const GenericRecord = struct {
         );
     }
 
+    /// Sets raw rdata bytes.
+    /// Caller needs to handle endiannes, name encoding, compression ptrs before calling the method.
+    /// RD_LENGTH value is handled in the method
+    /// If any proceeding layers, their offsets are adjusted
     pub fn set_rdata(self: *GenericRecord, rdata: []const u8) Allocator.Error!void {
         const data = self.get_data();
 
@@ -657,42 +680,45 @@ pub const GenericRecord = struct {
         offset += CLASS_TYPE_LENGTH;
         offset += TTL_LENGTH;
 
-        const rd_offset = offset;
+        const rd_len_offset = offset;
 
         offset += RD_LENGTH;
 
         const cur_rdata_len: usize = data.len - offset;
 
         if (cur_rdata_len < rdata.len) {
-            const diff = rdata.len - cur_rdata_len;
-            const slice = try self.owner.extend_buffer(offset, diff);
+            const extend_len = rdata.len - cur_rdata_len;
+            const slice = try self.owner.extend_buffer(offset, extend_len);
             self.length += slice.len;
 
+            // increase the proceeding layers offset by the shorten_len
             var next_rec = self.next_answer;
             while (next_rec) |rr| {
-                rr.set_offset(rr.get_offset() + diff);
+                rr.set_offset(rr.get_offset() + extend_len);
                 next_rec = rr.get_next_record();
             }
         }
         if (cur_rdata_len > rdata.len) {
-            const diff = cur_rdata_len - rdata.len;
+            const shorten_len = cur_rdata_len - rdata.len;
 
-            try self.owner.shorten_buffer(offset + rdata.len, diff);
+            try self.owner.shorten_buffer(offset + rdata.len, shorten_len);
 
-            self.length -= diff;
+            self.length -= shorten_len;
 
+            // decrease the proceeding layers offset by the shorten_len
             var next_rec = self.next_answer;
             while (next_rec) |rr| {
-                rr.set_offset(rr.get_offset() - diff);
+                rr.set_offset(rr.get_offset() - shorten_len);
                 next_rec = rr.get_next_record();
             }
         }
 
         @memmove(self.get_data_mut()[offset..], rdata);
 
+        // set the RD_LEN value the len of the rdata provided/written as big endian
         std.mem.writeInt(
             u16,
-            @ptrCast(self.get_data_mut()[rd_offset .. rd_offset + RD_LENGTH].ptr),
+            @ptrCast(self.get_data_mut()[rd_len_offset .. rd_len_offset + RD_LENGTH].ptr),
             @intCast(rdata.len),
             .big,
         );

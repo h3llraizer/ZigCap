@@ -32,6 +32,8 @@ test "generic record" {
     var grec: DNS.GenericRecord = try .init(name, allocator);
     defer grec.deinit();
 
+    try expect(grec.get_rd_len() == (@sizeOf(u8) * 2));
+
     grec.set_rr_type(.A);
 
     grec.set_class(.IN);
@@ -118,6 +120,8 @@ test "generic record" {
     arec.set_ip(cf_ip);
 
     try expect(eql(u8, grec.get_rdata(), &cf_ip.array));
+
+    try expect(grec.get_rd_len() == cf_ip.array.len);
 
     const cf_name = try DNS.encode_name("cloudflare.com", allocator);
     defer allocator.free(cf_name);

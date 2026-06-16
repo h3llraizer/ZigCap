@@ -560,21 +560,23 @@ pub const DNSLayer = struct {
         return queries;
     }
 
+    /// Increases the offset while iterating string/slice type until null-terminator or compression-ptr is encountered.
+    /// Asserts that the offset is within bounds before return - if not in bounds then panic will happen in debug mode.
     pub fn advance_past_name(slice: []const u8, offset: *usize) void {
         while (offset.* < slice.len) {
             const byte = slice[offset.*];
             if (byte == 0) {
                 offset.* += 1;
+                std.debug.assert(slice.len >= offset.*);
                 return;
             }
             if ((byte & 0xC0) == 0xC0) {
                 offset.* += 2;
+                std.debug.assert(slice.len >= offset.*);
                 return;
             }
             offset.* += 1 + byte; // Skip length byte and label
         }
-
-        //return DNSParseError.InvalidPacket;
     }
 
     /// Returns AnswerRecords (doubly linkedlist)
