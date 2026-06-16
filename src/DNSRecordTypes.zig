@@ -514,7 +514,8 @@ pub const GenericRecord = struct {
         return try decode_name(data, data, allocator);
     }
 
-    pub fn set_name(self: *GenericRecord, qname: []const u8) Allocator.Error!void {
+    /// Name provided must be an encoded name (use DNS.encode_name method).
+    pub fn set_name(self: *GenericRecord, name: []const u8) Allocator.Error!void {
         const data = self.get_data();
 
         var offset: usize = 0;
@@ -523,18 +524,34 @@ pub const GenericRecord = struct {
 
         const cur_name_len = offset;
 
-        if (cur_name_len < qname.len) {
-            const diff = qname.len - cur_name_len;
+        if (cur_name_len < name.len) {
+            const diff = name.len - cur_name_len;
             _ = try self.owner.extend_buffer(cur_name_len, diff);
+
+            self.length += diff;
+
+            var next_rec = self.next_answer;
+            while (next_rec) |rr| {
+                rr.set_offset(rr.get_offset() + diff);
+                next_rec = rr.get_next_record();
+            }
         }
 
-        if (cur_name_len > qname.len) {
-            const diff = cur_name_len - qname.len;
+        if (cur_name_len > name.len) {
+            const diff = cur_name_len - name.len;
 
             try self.owner.shorten_buffer(cur_name_len, diff);
+
+            self.length -= diff;
+
+            var next_rec = self.next_answer;
+            while (next_rec) |rr| {
+                rr.set_offset(rr.get_offset() - diff);
+                next_rec = rr.get_next_record();
+            }
         }
 
-        @memmove(self.get_data_mut()[0..qname.len], qname);
+        @memmove(self.get_data_mut()[0..name.len], name);
     }
 
     pub fn set_rr_type(self: *GenericRecord, qtype: QueryType) void {
@@ -696,6 +713,10 @@ pub const GenericRecord = struct {
         return data[offset..self.length];
     }
 
+    pub fn as(self: *GenericRecord, rr_type: anytype) *rr_type {
+        return @ptrCast(self);
+    }
+
     pub fn deinit(self: *GenericRecord) void {
         self.owner.deinit();
     }
@@ -753,6 +774,9 @@ pub const ARecord = struct {
 
     pub fn set_ip(self: *ARecord, ipv4: IPv4Address) void {
         const data = self.get_data_mut();
+
+        std.debug.assert(data.len >= 16);
+
         if (data.len >= 16) {
             var offset: usize = 0;
 
@@ -765,6 +789,10 @@ pub const ARecord = struct {
 
             ip_ptr.* = @byteSwap(ipv4.to_u32());
         }
+
+        // experimental:
+        //var grec: *GenericRecord = @ptrCast(self);
+        //grec.set_rdata(&ipv4.array) catch return;
     }
 
     pub fn to_string(self: *ARecord, allocator: Allocator) Allocator.Error![]const u8 {

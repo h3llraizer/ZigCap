@@ -102,9 +102,39 @@ test "generic record" {
 
     try expect(grec.get_rd_len() == ip.array.len);
 
-    const expected_len = (expected.len + DNS.QUERY_TYPE_LENGTH + DNS.CLASS_TYPE_LENGTH + DNS.TTL_LENGTH + DNS.RD_LENGTH + ip.array.len);
+    const expected_len = (expected.len +
+        DNS.QUERY_TYPE_LENGTH +
+        DNS.CLASS_TYPE_LENGTH +
+        DNS.TTL_LENGTH +
+        DNS.RD_LENGTH +
+        ip.array.len);
 
     try expect(grec.get_data().len == expected_len);
+
+    const arec: *DNS.ARecord = grec.as(DNS.ARecord);
+
+    const cf_ip = try IPv4.IPv4Address.init_from_string("1.1.1.1");
+
+    arec.set_ip(cf_ip);
+
+    try expect(eql(u8, grec.get_rdata(), &cf_ip.array));
+
+    const cf_name = try DNS.encode_name("cloudflare.com", allocator);
+    defer allocator.free(cf_name);
+
+    const cf_expected = &[_]u8{
+        10, 'c', 'l', 'o', 'u', 'd', 'f', 'l', 'a', 'r', 'e',
+        3,  'c', 'o', 'm', 0,
+    };
+
+    try expect(eql(u8, cf_name, cf_expected));
+
+    try grec.set_name(cf_name);
+
+    const clf_name = try grec.get_name(allocator);
+    defer allocator.free(clf_name);
+
+    try expect(eql(u8, clf_name, "cloudflare.com"));
 }
 
 test "dns build" {
