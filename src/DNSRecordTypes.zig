@@ -570,6 +570,8 @@ pub const GenericRecord = struct {
             }
         }
 
+        // if name is same length as current it can just be copied over
+
         @memmove(self.get_data_mut()[0..name.len], name);
     }
 
@@ -647,6 +649,7 @@ pub const GenericRecord = struct {
         );
     }
 
+    /// Returns the RDATA-Length value
     pub fn get_rd_len(self: *GenericRecord) u16 {
         const data = self.get_data();
 

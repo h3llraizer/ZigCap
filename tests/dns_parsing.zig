@@ -338,7 +338,7 @@ test "parse https w ar response" {
 
     const hdr = dns_layer.dnsLayer.get_immutable_header();
 
-    print("{any}\n", .{hdr});
+    //print("{any}\n", .{hdr});
 
     const nrcount = hdr.get_nscount();
 
@@ -355,12 +355,12 @@ test "parse https w ar response" {
 
     while (qcur) |query| {
         const name = try query.decode_qname(allocator);
-        print("Query: {s}\n", .{name});
+        //  print("Query: {s}\n", .{name});
         defer allocator.free(name);
 
         try expect(std.mem.eql(u8, name, "gew1-spclient.spotify.com"));
 
-        print("{any}\n", .{query.qtype});
+        //    print("{any}\n", .{query.qtype});
 
         qcur = query.next_query;
     }
@@ -376,22 +376,22 @@ test "parse https w ar response" {
 
     var cur: ?*DNS.AnswerRecord = ans_list.first;
     while (cur) |ans| {
-        print("SOA: \n", .{});
+        //print("SOA: \n", .{});
         if (ans.get_rr_type() == DNS.QueryType.SOA) {
             const name = try ans.get_name(allocator);
             defer allocator.free(name);
 
-            print("\tNAME: {s}\n", .{name});
+            //print("\tNAME: {s}\n", .{name});
 
             const mname = try ans.soa.get_mname(allocator);
 
             defer allocator.free(mname);
 
-            print("\tMNAME: {s}\n", .{mname});
+            //print("\tMNAME: {s}\n", .{mname});
 
             const rname = try ans.soa.get_rname(allocator);
 
-            print("\tRNAME: {s}\n", .{rname});
+            //print("\tRNAME: {s}\n", .{rname});
 
             defer allocator.free(rname);
 
@@ -496,12 +496,12 @@ test "parse https spotify domain" {
 
     while (qcur) |query| {
         const name = try query.decode_qname(allocator);
-        print("Query: {s}\n", .{name});
+        //print("Query: {s}\n", .{name});
         defer allocator.free(name);
 
         //    try expect(std.mem.eql(u8, name, "gew1-spclient.spotify.com"));
 
-        print("{any}\n", .{query.qtype});
+        //print("{any}\n", .{query.qtype});
 
         qcur = query.next_query;
     }
@@ -524,22 +524,22 @@ test "parse https spotify domain" {
 
     var cur: ?*DNS.AnswerRecord = ans_list.first;
     while (cur) |ans| {
-        print("SOA: \n", .{});
+        //print("SOA: \n", .{});
         if (ans.get_rr_type() == DNS.QueryType.SOA) {
             const name = try ans.get_name(allocator);
             defer allocator.free(name);
 
-            print("\tNAME: {s}\n", .{name});
+            //print("\tNAME: {s}\n", .{name});
 
             const mname = try ans.soa.get_mname(allocator);
 
             defer allocator.free(mname);
 
-            print("\tMNAME: {s}\n", .{mname});
+            //print("\tMNAME: {s}\n", .{mname});
 
             const rname = try ans.soa.get_rname(allocator);
 
-            print("\tRNAME: {s}\n", .{rname});
+            //print("\tRNAME: {s}\n", .{rname});
 
             defer allocator.free(rname);
 

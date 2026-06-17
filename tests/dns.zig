@@ -139,6 +139,69 @@ test "generic record" {
     defer allocator.free(clf_name);
 
     try expect(eql(u8, clf_name, "cloudflare.com"));
+
+    var gen_rec = DNS.AnswerRecord{ .generic = grec };
+
+    const tmp_owner: LayerOwner = .{ .owned_buffer = .init_empty(allocator) };
+
+    var dns_layer: DNS.DNSLayer = try .init(tmp_owner);
+    defer dns_layer.deinit();
+
+    try dns_layer.add_ans(&gen_rec);
+
+    try expect(dns_layer.get_immutable_header().get_ancount() == 1);
+    try expect(dns_layer.get_data().len == (DNS.DNSHeaderSize + grec.get_data().len));
+
+    var answers = try dns_layer.get_answers(allocator) orelse {
+        try expect(false); // no answers
+        return;
+    };
+
+    try expect(answers.answer_count == 1);
+
+    var answer = answers.first;
+    while (answer) |ans| {
+        try expect(eql(u8, ans.get_data(), grec.get_data()));
+        try expect(ans.get_next_record() == null);
+        answer = ans.get_next_record();
+    }
+
+    answers.deinit(allocator);
+
+    try dns_layer.add_query("cloudflare.com", .A, .ANY);
+
+    try expect(dns_layer.get_immutable_header().get_qdcount() == 1);
+
+    var queries = try dns_layer.get_queries(allocator) orelse {
+        try expect(false); // no queries
+        return;
+    };
+
+    defer queries.deinit(allocator);
+
+    try expect(queries.query_count == 1);
+
+    var query = queries.first;
+    while (query) |q| {
+        try expect(q.get_qtype() == .A);
+        try expect(q.get_class() == .ANY);
+        q.set_qtype(.SOA);
+        q.set_class(.IN);
+        try expect(q.get_qtype() == .SOA);
+        try expect(q.get_class() == .IN);
+
+        const google_com = try DNS.encode_name("google.com", allocator);
+        defer allocator.free(google_com);
+
+        try q.set_name(google_com);
+
+        const qname = try q.decode_qname(allocator);
+        defer allocator.free(qname);
+        try expect(eql(u8, "google.com", qname));
+
+        try expect(q.next_query == null);
+        query = q.next_query;
+    }
 }
 
 test "dns build" {

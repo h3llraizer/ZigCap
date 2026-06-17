@@ -709,6 +709,24 @@ pub const DNSLayer = struct {
         return offset;
     }
 
+    pub fn add_ans(self: *DNSLayer, record: *AnswerRecord) (LayerError || Allocator.Error || DNSParseError)!void {
+        var start_offset: usize = DNSHeaderSize;
+
+        if (try self.get_last_answer_offset()) |off| {
+            start_offset = off;
+        }
+
+        const extend_len = record.get_data().len;
+
+        const buf = try self.owner.extend_layer(start_offset, extend_len);
+
+        @memmove(buf, record.get_data());
+
+        const cur_an_count = self.get_immutable_header().get_ancount();
+
+        self.get_mutable_header().set_ancount(cur_an_count + 1);
+    }
+
     /// append an answer to the DNSLayer in the Answers section
     /// for A, AAAA answers, pass answer as &ipv4_addr.array or &ipv6.array to coerce as slice
     /// all values will be copied
@@ -869,7 +887,7 @@ pub const DNSLayer = struct {
 
         const nscount = hdr.get_nscount();
 
-        print("nscount: {}\n", .{nscount});
+        //print("nscount: {}\n", .{nscount});
 
         //    if (nscount == 0) {
         //        return null;
@@ -1072,11 +1090,121 @@ pub const Query = struct {
     }
 
     pub fn get_data(self: *Query) []const u8 {
+        return self.get_data_mut();
+    }
+
+    pub fn get_data_mut(self: *Query) []u8 {
         return self.owner.get_data()[self.offset .. self.offset + self.length];
+    }
+
+    /// Name provided must be an encoded name (use DNS.encode_name method).
+    pub fn set_name(self: *Query, name: []const u8) Allocator.Error!void {
+        const data = self.get_data();
+
+        var offset: usize = 0;
+
+        DNSLayer.advance_past_name(data, &offset);
+
+        const cur_name_len = offset;
+
+        if (cur_name_len < name.len) {
+            const extend_len = name.len - cur_name_len;
+            _ = try self.owner.extend_buffer(cur_name_len, extend_len);
+
+            self.length += extend_len;
+
+            // increase the proceeding records offsets by the extend_len
+            var next_query = self.next_query;
+            while (next_query) |q| {
+                q.offset = q.offset + extend_len;
+                next_query = q.next_query;
+            }
+        }
+
+        if (cur_name_len > name.len) {
+            const shorten_len = cur_name_len - name.len;
+
+            try self.owner.shorten_buffer(cur_name_len, shorten_len);
+
+            self.length -= shorten_len;
+
+            // decrease the proceeding records offsets by the shorten_len
+            var next_query = self.next_query;
+            while (next_query) |q| {
+                q.offset = q.offset - shorten_len;
+                next_query = q.next_query;
+            }
+        }
+
+        // if name is same length as current it can just be copied over
+
+        @memmove(self.get_data_mut()[0..name.len], name);
     }
 
     pub fn decode_qname(self: *Query, allocator: Allocator) ![]const u8 {
         return try decodeQname(allocator, self.get_data());
+    }
+
+    pub fn get_qtype(self: *Query) QueryType {
+        const data = self.get_data();
+
+        var offset: usize = 0;
+
+        DNSLayer.advance_past_name(data, &offset);
+
+        return @enumFromInt(std.mem.readInt(
+            u16,
+            @ptrCast(data[offset .. offset + QUERY_TYPE_LENGTH].ptr),
+            .big,
+        ));
+    }
+
+    pub fn set_qtype(self: *Query, qtype: QueryType) void {
+        const data = self.get_data_mut();
+
+        var offset: usize = 0;
+
+        DNSLayer.advance_past_name(data, &offset);
+
+        std.mem.writeInt(
+            u16,
+            @ptrCast(data[offset .. offset + QUERY_TYPE_LENGTH].ptr),
+            @intFromEnum(qtype),
+            .big,
+        );
+    }
+
+    pub fn get_class(self: *Query) DnsClass {
+        const data = self.get_data();
+
+        var offset: usize = 0;
+
+        DNSLayer.advance_past_name(data, &offset);
+
+        offset += QUERY_TYPE_LENGTH;
+
+        return @enumFromInt(std.mem.readInt(
+            u16,
+            @ptrCast(data[offset .. offset + CLASS_TYPE_LENGTH].ptr),
+            .big,
+        ));
+    }
+
+    pub fn set_class(self: *Query, class: DnsClass) void {
+        const data = self.get_data_mut();
+
+        var offset: usize = 0;
+
+        DNSLayer.advance_past_name(data, &offset);
+
+        offset += QUERY_TYPE_LENGTH;
+
+        return std.mem.writeInt(
+            u16,
+            @ptrCast(data[offset .. offset + CLASS_TYPE_LENGTH].ptr),
+            @intFromEnum(class),
+            .big,
+        );
     }
 };
 
