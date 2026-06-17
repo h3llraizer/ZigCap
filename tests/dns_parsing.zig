@@ -11,10 +11,6 @@ const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
 const LayerOwner = zigcap.Owner.LayerOwner;
 const LayerIface = zigcap.LayerIface;
 
-fn add_query(domain: []const u8, dns_layer_iface: *LayerIface) !void {
-    try dns_layer_iface.dnsLayer.add_query(domain, DNS.QueryType.A, DNS.DnsClass.IN);
-}
-
 test "build dns query layer" {
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.deinit();
@@ -26,13 +22,27 @@ test "build dns query layer" {
     var dns_layer_iface = try LayerIface.init(DNS.DNSLayer, tmp_buf);
     defer dns_layer_iface.deinit();
 
-    const ziggit_dev_domain: []const u8 = "ziggit.dev";
-    const ziggit_net_domain: []const u8 = "ziggit.net";
-    const ziggit_org_domain: []const u8 = "ziggit.org";
+    const ziggit_dev_domain: []const u8 = try DNS.encode_name("ziggit.dev", allocator);
+    defer allocator.free(ziggit_dev_domain);
 
-    try add_query(ziggit_dev_domain, &dns_layer_iface);
-    try add_query(ziggit_net_domain, &dns_layer_iface);
-    try add_query(ziggit_org_domain, &dns_layer_iface);
+    const ziggit_net_domain: []const u8 = try DNS.encode_name("ziggit.net", allocator);
+    defer allocator.free(ziggit_net_domain);
+
+    const ziggit_org_domain: []const u8 = try DNS.encode_name("ziggit.org", allocator);
+    defer allocator.free(ziggit_org_domain);
+
+    var zig_query = try DNS.Query.init(ziggit_dev_domain, .A, .IN, allocator);
+    defer zig_query.deinit();
+
+    try dns_layer_iface.dnsLayer.add_query(&zig_query);
+
+    try zig_query.set_name(ziggit_net_domain);
+
+    try dns_layer_iface.dnsLayer.add_query(&zig_query);
+
+    try zig_query.set_name(ziggit_org_domain);
+
+    try dns_layer_iface.dnsLayer.add_query(&zig_query);
 
     var q_list = try dns_layer_iface.dnsLayer.get_queries(allocator) orelse {
         try expect(false); // no dns queries
@@ -69,9 +79,13 @@ test "build dns response layer" {
     var dns_layer_iface = try LayerIface.init(DNS.DNSLayer, tmp_buf);
     defer dns_layer_iface.deinit();
 
-    const ebay_www_domain: []const u8 = "www.ebay.com";
+    const ebay_www_domain: []const u8 = try DNS.encode_name("www.ebay.com", allocator);
+    defer allocator.free(ebay_www_domain);
 
-    try dns_layer_iface.dnsLayer.add_query(ebay_www_domain, DNS.QueryType.A, DNS.DnsClass.IN);
+    var query = try DNS.Query.init(ebay_www_domain, .A, .IN, allocator);
+    defer query.deinit();
+
+    try dns_layer_iface.dnsLayer.add_query(&query);
 
     var q_list = try dns_layer_iface.dnsLayer.get_queries(allocator) orelse {
         try expect(false); // no dns queries
@@ -128,9 +142,13 @@ test "build dns a response layer" {
     var dns_layer_iface = try LayerIface.init(DNS.DNSLayer, tmp_buf);
     defer dns_layer_iface.deinit();
 
-    const ebay_www_domain: []const u8 = "www.ebay.com";
+    const ebay_www_domain: []const u8 = try DNS.encode_name("www.ebay.com", allocator);
+    defer allocator.free(ebay_www_domain);
 
-    try dns_layer_iface.dnsLayer.add_query(ebay_www_domain, DNS.QueryType.A, DNS.DnsClass.IN);
+    var query = try DNS.Query.init(ebay_www_domain, .A, .IN, allocator);
+    defer query.deinit();
+
+    try dns_layer_iface.dnsLayer.add_query(&query);
 
     var q_list = try dns_layer_iface.dnsLayer.get_queries(allocator) orelse {
         try expect(false); // no dns queries
@@ -430,9 +448,13 @@ test "build dns query soa layer" {
     var dns_layer_iface = try LayerIface.init(DNS.DNSLayer, tmp_buf);
     defer dns_layer_iface.deinit();
 
-    const ziggit_dev_domain: []const u8 = "ziggit.dev";
+    const ziggit_dev_domain: []const u8 = try DNS.encode_name("ziggit.dev", allocator);
+    defer allocator.free(ziggit_dev_domain);
 
-    try dns_layer_iface.dnsLayer.add_query(ziggit_dev_domain, DNS.QueryType.SOA, DNS.DnsClass.IN);
+    var zig_query = try DNS.Query.init(ziggit_dev_domain, .SOA, .IN, allocator);
+    defer zig_query.deinit();
+
+    try dns_layer_iface.dnsLayer.add_query(&zig_query);
 
     var q_list = try dns_layer_iface.dnsLayer.get_queries(allocator) orelse {
         try expect(false); // no dns queries

@@ -305,63 +305,22 @@ pub const DNSLayer = struct {
     /// Append a DNS Query to the Queries section of the DNSLayer.
     /// Extends the layer, converts the name to DNS labels and copies the data at correct offset.
     /// Increases the qdcount value in the header by 1.
-    pub fn add_query(
-        self: *DNSLayer,
-        name: []const u8,
-        qtype: QueryType,
-        qclass: DnsClass,
-    ) (LayerError || Allocator.Error)!void {
+    pub fn add_query(self: *DNSLayer, query: *Query) (LayerError || Allocator.Error)!void {
+        const extend_len = query.get_data().len;
 
-        // 2 byte qtype, 2 byte qclass, 1 byte first label, 1 byte null terminator
-        const extend_len = name.len + (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + (@sizeOf(u8) * 2));
         var start_offset = DNSHeaderSize;
 
         if (try self.get_last_query_offset()) |last_q_offset| {
             start_offset = last_q_offset;
         }
 
-        var query_buf = try self.owner.extend_layer(start_offset, extend_len);
+        const query_buf = try self.owner.extend_layer(start_offset, extend_len);
 
-        // Slice buffer starting at offset
-        var qbuffer = query_buf[0..];
+        @memmove(query_buf, query.get_data());
 
-        // Write QNAME (labels)
-        var buf_offset: usize = 0;
-        var it = std.mem.splitScalar(u8, name, '.');
-        while (it.next()) |label| {
-            qbuffer[buf_offset] = @intCast(label.len);
-            buf_offset += 1;
-            @memmove(qbuffer[buf_offset .. buf_offset + label.len], label);
-            buf_offset += label.len;
-        }
-        qbuffer[buf_offset] = 0; // null terminator
-        buf_offset += 1;
+        const qcount = self.get_immutable_header().get_qdcount();
 
-        // Write QTYPE
-        std.mem.writeInt(
-            u16,
-            @ptrCast(qbuffer[buf_offset .. buf_offset + QUERY_TYPE_LENGTH]),
-            @intCast(@intFromEnum(qtype)),
-            .big,
-        );
-
-        buf_offset += QUERY_TYPE_LENGTH;
-
-        // Write QCLASS
-        std.mem.writeInt(
-            u16,
-            @ptrCast(qbuffer[buf_offset .. buf_offset + CLASS_TYPE_LENGTH]),
-            @intCast(@intFromEnum(qclass)),
-            .big,
-        );
-
-        buf_offset += CLASS_TYPE_LENGTH;
-
-        var hdr = self.get_mutable_header();
-        var qdcount = hdr.get_qdcount();
-
-        qdcount += 1;
-        hdr.set_qdcount(qdcount);
+        self.get_mutable_header().set_qdcount(qcount + 1);
     }
 
     /// Remove the specified query.
@@ -533,13 +492,13 @@ pub const DNSLayer = struct {
             const qtype_e: QueryType = @enumFromInt(qtype);
 
             // Store the starting offset of this query
-            query.* = Query.init(
-                qname_start,
-                whole_record.len,
-                qtype_e,
-                qclass_e,
-                TLVOwner{ .layer = &self.owner },
-            );
+            query.* = .{
+                .offset = qname_start,
+                .length = whole_record.len,
+                .qtype = qtype_e,
+                .qclass = qclass_e,
+                .owner = TLVOwner{ .layer = &self.owner },
+            };
 
             // Link queries together
             if (cur) |q| {
@@ -1075,7 +1034,6 @@ pub fn decodeQname(allocator: Allocator, dns_label: []const u8) (DNSLayer.DNSPar
     return list.toOwnedSlice(allocator);
 }
 
-// Query struct stores offset and length of the raw query so the DNSLayer can manage it (similar to Packet.Layer)
 pub const Query = struct {
     offset: usize,
     length: usize,
@@ -1085,8 +1043,43 @@ pub const Query = struct {
     next_query: ?*Query = null,
     prev_query: ?*Query = null,
 
-    pub fn init(offset: usize, length: usize, qtype: QueryType, qclass: DnsClass, owner: TLVOwner) Query {
-        return Query{ .offset = offset, .length = length, .qtype = qtype, .qclass = qclass, .owner = owner };
+    /// Init a new DNS Query.
+    /// Name provided must be an encoded name (use DNS.encode_name method).
+    /// Allocates name length + 4 bytes (qtype + qclass).
+    pub fn init(name: []const u8, qtype: QueryType, qclass: DnsClass, allocator: Allocator) Allocator.Error!Query {
+        const initial_len = name.len + QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH;
+
+        var query = Query{
+            .offset = 0,
+            .length = initial_len,
+            .qtype = qtype,
+            .qclass = qclass,
+            .owner = TLVOwner{ .owned_buffer = .init_empty(allocator) },
+        };
+
+        const buf = try query.owner.extend_buffer(0, initial_len);
+
+        @memmove(buf[0..name.len], name);
+
+        const query_type_offset = name.len;
+
+        std.mem.writeInt(
+            u16,
+            @ptrCast(buf[query_type_offset .. query_type_offset + QUERY_TYPE_LENGTH].ptr),
+            @intFromEnum(qtype),
+            .big,
+        );
+
+        const class_type_offset = query_type_offset + QUERY_TYPE_LENGTH;
+
+        std.mem.writeInt(
+            u16,
+            @ptrCast(buf[class_type_offset .. class_type_offset + CLASS_TYPE_LENGTH].ptr),
+            @intFromEnum(qclass),
+            .big,
+        );
+
+        return query;
     }
 
     pub fn get_data(self: *Query) []const u8 {
@@ -1142,7 +1135,11 @@ pub const Query = struct {
     }
 
     pub fn decode_qname(self: *Query, allocator: Allocator) ![]const u8 {
-        return try decodeQname(allocator, self.get_data());
+        return try DNSRecordTypes.decode_name(
+            self.owner.get_data(),
+            self.get_data(),
+            allocator,
+        );
     }
 
     pub fn get_qtype(self: *Query) QueryType {
@@ -1206,6 +1203,10 @@ pub const Query = struct {
             .big,
         );
     }
+
+    pub fn deinit(self: *Query) void {
+        self.owner.deinit();
+    }
 };
 
 pub const Queries = struct {
@@ -1213,15 +1214,8 @@ pub const Queries = struct {
     owner: TLVOwner,
     query_count: usize = 0,
 
-    pub fn add_query(
-        self: *Queries,
-        name: []const u8,
-        qtype: QueryType,
-        qclass: DnsClass,
-        allocator: Allocator,
-    ) (LayerError || Allocator.Error)!void {
-        // 2 byte qtype, 2 byte qclass, 1 byte first label, 1 byte null terminator
-        const extend_len = name.len + QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + (@sizeOf(u8) * 2);
+    pub fn add_query(self: *Queries, query: *Query, allocator: Allocator) (LayerError || Allocator.Error)!void {
+        const extend_len = query.get_data().len;
 
         var start_offset = if (self.owner.is_layer_owned()) DNSHeaderSize else 0;
 
@@ -1240,40 +1234,19 @@ pub const Queries = struct {
             cur = q.next_query;
         }
 
-        var query_buf = try self.owner.extend_buffer(start_offset, extend_len);
+        const query_buf = try self.owner.extend_buffer(start_offset, extend_len);
 
-        // Slice buffer starting at offset
-        var qbuffer = query_buf[0..];
-
-        // Write QNAME (labels)
-        var buf_offset: usize = 0;
-        var it = std.mem.splitScalar(u8, name, '.');
-        while (it.next()) |label| {
-            qbuffer[buf_offset] = @intCast(label.len);
-            buf_offset += 1;
-            @memmove(qbuffer[buf_offset .. buf_offset + label.len], label);
-            buf_offset += label.len;
-        }
-        qbuffer[buf_offset] = 0; // null terminator
-        buf_offset += 1;
-
-        // Write QTYPE
-        std.mem.writeInt(u16, @ptrCast(qbuffer[buf_offset .. buf_offset + 2]), @intCast(@intFromEnum(qtype)), .big);
-        buf_offset += 2;
-
-        // Write QCLASS
-        std.mem.writeInt(u16, @ptrCast(qbuffer[buf_offset .. buf_offset + 2]), @intCast(@intFromEnum(qclass)), .big);
-        buf_offset += 2;
+        @memmove(query_buf, query.get_data());
 
         const added_query = try allocator.create(Query);
 
-        added_query.* = Query.init(
-            start_offset,
-            extend_len,
-            qtype,
-            qclass,
-            self.owner,
-        );
+        added_query.* = .{
+            .offset = start_offset,
+            .length = extend_len,
+            .qtype = query.get_qtype(),
+            .qclass = query.get_class(),
+            .owner = self.owner,
+        };
 
         if (last) |last_query| {
             last_query.next_query = added_query;

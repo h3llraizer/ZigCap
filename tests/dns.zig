@@ -168,7 +168,10 @@ test "generic record" {
 
     answers.deinit(allocator);
 
-    try dns_layer.add_query("cloudflare.com", .A, .ANY);
+    var cf_query = try DNS.Query.init(cf_name, .A, .IN, allocator);
+    defer cf_query.deinit();
+
+    try dns_layer.add_query(&cf_query);
 
     try expect(dns_layer.get_immutable_header().get_qdcount() == 1);
 
@@ -184,7 +187,7 @@ test "generic record" {
     var query = queries.first;
     while (query) |q| {
         try expect(q.get_qtype() == .A);
-        try expect(q.get_class() == .ANY);
+        try expect(q.get_class() == .IN);
         q.set_qtype(.SOA);
         q.set_class(.IN);
         try expect(q.get_qtype() == .SOA);
@@ -200,8 +203,19 @@ test "generic record" {
         try expect(eql(u8, "google.com", qname));
 
         try expect(q.next_query == null);
+        if (q.next_query == null) break;
         query = q.next_query;
     }
+
+    try dns_layer.remove_query(query.?);
+
+    const gname = try cf_query.decode_qname(allocator);
+    try expect(eql(u8, gname, "cloudflare.com"));
+    allocator.free(gname);
+
+    try dns_layer.add_query(&cf_query);
+
+    try expect(dns_layer.get_immutable_header().get_qdcount() == 1);
 }
 
 test "dns build" {
@@ -223,9 +237,13 @@ test "dns build" {
 
     try expect(dns_header.get_qdcount() == 0);
 
-    const ziggit_dev_domain: []const u8 = "ziggit.dev";
+    const ziggit_dev_domain: []const u8 = try DNS.encode_name("ziggit.dev", allocator);
+    defer allocator.free(ziggit_dev_domain);
 
-    try dns_layer.add_query(ziggit_dev_domain, DNS.QueryType.A, DNS.DnsClass.IN);
+    var ziggit_dev_query = try DNS.Query.init(ziggit_dev_domain, .A, .IN, allocator);
+    defer ziggit_dev_query.deinit();
+
+    try dns_layer.add_query(&ziggit_dev_query);
 
     try expect(dns_header.get_qdcount() == 1);
 
@@ -236,8 +254,13 @@ test "dns build" {
     //      try expect(std.mem.eql(u8, qname, ziggit_dev_domain));
     //  }
 
-    const google_domain: []const u8 = "google.com";
-    try dns_layer.add_query(google_domain, DNS.QueryType.A, DNS.DnsClass.IN);
+    const google_domain: []const u8 = try DNS.encode_name("google.com", allocator);
+    defer allocator.free(google_domain);
+
+    var google_domain_query = try DNS.Query.init(google_domain, .A, .IN, allocator);
+    defer google_domain_query.deinit();
+
+    try dns_layer.add_query(&google_domain_query);
 
     try expect(dns_header.get_qdcount() == 2);
 }
@@ -276,7 +299,13 @@ test "parse dns query raw" {
 
     defer queries.deinit(allocator);
 
-    try queries.add_query("someother.com", DNS.QueryType.SOA, DNS.DnsClass.IN, allocator);
+    const someother_com = try DNS.encode_name("someother.com", allocator);
+    defer allocator.free(someother_com);
+
+    var someother_com_query = try DNS.Query.init(someother_com, .SOA, .IN, allocator);
+    defer someother_com_query.deinit();
+
+    try queries.add_query(&someother_com_query, allocator);
 
     try expect(queries.query_count == 2);
 
@@ -296,7 +325,13 @@ test "parse dns query raw" {
     try expect(queries.query_count == 0);
     try expect(dns_layer.dnsLayer.get_immutable_header().get_qdcount() == 0);
 
-    try queries.add_query("ziggit.dev", DNS.QueryType.A, DNS.DnsClass.IN, allocator);
+    const ziggit_dev_domain: []const u8 = try DNS.encode_name("ziggit.dev", allocator);
+    defer allocator.free(ziggit_dev_domain);
+
+    var ziggit_dev_query = try DNS.Query.init(ziggit_dev_domain, .A, .IN, allocator);
+    defer ziggit_dev_query.deinit();
+
+    try queries.add_query(&ziggit_dev_query, allocator);
 
     query = queries.first;
 
@@ -318,10 +353,6 @@ test "parse dns query raw" {
     };
 
     defer answers.deinit(allocator);
-
-    //  try answers.add_answer(
-    //      queries.first,
-    //  );
 }
 
 test "parse dns A response raw" {
