@@ -144,10 +144,7 @@ test "parse dns packet" {
 
     try expect(answer.get_ttl() == 854);
 
-    const ip = answer.a.get_ip() orelse {
-        try expect(false); // A record contains no IP
-        return;
-    };
+    const ip = answer.a.get_ip();
 
     const ip_str = try ip.to_string(allocator);
     defer allocator.free(ip_str);

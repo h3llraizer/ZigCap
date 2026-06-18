@@ -2,6 +2,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 const zigcap = @import("zigcap");
 const print = std.debug.print;
+const eql = std.mem.eql;
 const Allocator = std.mem.Allocator;
 
 const DNS = zigcap.DNS;
@@ -183,11 +184,7 @@ test "build dns a response layer" {
         if (ans.get_rr_type() == DNS.QueryType.A) {
             ans.a.set_ip(try IPv4.IPv4Address.init_from_string("192.168.1.111"));
 
-            const ip_addr = ans.a.get_ip() orelse {
-                //           print("-\n", .{});
-                cur = ans.get_next_record();
-                continue;
-            };
+            const ip_addr = ans.a.get_ip();
 
             //      print("{x} ", .{&ip_addr.array});
 
@@ -243,10 +240,7 @@ test "parse dns response layer" {
         const name = try ans.get_name(allocator);
         defer allocator.free(name);
         if (ans.get_rr_type() == DNS.QueryType.A) {
-            const ip = ans.a.get_ip() orelse {
-                cur = ans.get_next_record();
-                continue;
-            };
+            const ip = ans.a.get_ip();
 
             const ip_str = try ip.to_string(allocator);
             defer allocator.free(ip_str);
@@ -279,6 +273,17 @@ test "parse dns response" {
 
     defer ans_list.deinit(allocator);
 
+    const nameservers: [4][]const u8 = .{
+        "ns1083.ui-dns.biz",
+        "ns1110.ui-dns.org",
+        "ns1065.ui-dns.com",
+        "ns1112.ui-dns.de",
+    };
+
+    try expect(ans_list.answer_count == 4);
+
+    var count: usize = 0;
+
     var cur: ?*DNS.AnswerRecord = ans_list.first;
     while (cur) |ans| {
         const name = try ans.get_name(allocator);
@@ -290,10 +295,15 @@ test "parse dns response" {
                 continue;
             };
 
+            try expect(eql(u8, ns_name, nameservers[count]));
+
             defer allocator.free(ns_name);
         }
+        count += 1;
         cur = ans.get_next_record();
     }
+
+    try expect(count == 4);
 }
 
 test "parse cname response" {

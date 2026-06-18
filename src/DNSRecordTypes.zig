@@ -24,6 +24,8 @@ pub const RD_LENGTH = DNS.RD_LENGTH;
 const TXT_LENGTH = @sizeOf(u8);
 const MX_PREFERENCE_VALUE_LENGTH = @sizeOf(u16);
 
+const COMPRESSION_PTR_LENGTH = @sizeOf(u8) * 2;
+
 /// This tagged union is an interface over the concrete Answer Record Types.
 /// currently implemented record types are:
 ///     A,
@@ -45,6 +47,8 @@ pub const AnswerRecord = union(enum) {
     ns: NSRecord,
     soa: SOARecord,
     generic: GenericRecord,
+
+    const TTL_OFFSET_FROM_NAME = 32;
 
     pub fn init(offset: usize, length: usize, qtype: QueryType, qclass: DnsClass, owner: TLVOwner) AnswerRecord {
         switch (qtype) {
@@ -242,7 +246,7 @@ pub const AnswerRecord = union(enum) {
 
         advance_past_name(self.get_data(), &offset);
 
-        offset += QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH; //  rrtype (2 bytes), class (2bytes)
+        offset += GenericRecord.TTL_OFFSET_FROM_NAME; //  rrtype (2 bytes), class (2bytes)
 
         const ttl: u32 = std.mem.bytesToValue(u32, data[offset .. offset + TTL_LENGTH]);
 
@@ -256,7 +260,7 @@ pub const AnswerRecord = union(enum) {
 
         advance_past_name(self.get_data(), &offset);
 
-        offset += QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH; //  rrtype (2 bytes), class (2bytes)
+        offset += GenericRecord.TTL_OFFSET_FROM_NAME; //  rrtype (2 bytes), class (2bytes)
 
         const ttl_ptr = std.mem.bytesAsValue(u32, data[offset .. offset + TTL_LENGTH]);
 
@@ -468,6 +472,69 @@ fn init_buffer(owner: *TLVOwner, qtype: QueryType, class: DnsClass) !void {
     }
 }
 
+fn init_record(name: []const u8, qtype: QueryType, class: DnsClass, allocator: Allocator) Allocator.Error!TLVOwner {
+    var initial_len: usize = name.len +
+        QUERY_TYPE_LENGTH + // 2 bytes
+        CLASS_TYPE_LENGTH + // 2 bytes
+        TTL_LENGTH + // 4 bytes
+        RD_LENGTH; // 2 bytes
+
+    var rd_len: u16 = 0;
+
+    switch (qtype) {
+        .MX => {
+            rd_len += MX_PREFERENCE_VALUE_LENGTH; // 2 bytes
+            rd_len += COMPRESSION_PTR_LENGTH; // include at least 2 bytes for the rdata (compression ptr length) and extend when required
+
+        },
+        .TXT => {
+            rd_len += TXT_LENGTH; // 1 byte
+        }, // 1 byte
+        .A => rd_len += @sizeOf(IPv4Address), // 4 bytes
+        .AAAA => rd_len += @sizeOf(IPv6Address), // 16 bytes
+        else => {
+            rd_len += COMPRESSION_PTR_LENGTH; // 2 bytes
+        },
+    }
+
+    initial_len += rd_len;
+
+    var owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
+
+    const buf = try owner.extend_buffer(0, initial_len);
+
+    @memmove(buf[0..name.len], name);
+
+    const qtype_offset = name.len;
+
+    std.mem.writeInt(
+        u16,
+        @ptrCast(buf[qtype_offset .. qtype_offset + QUERY_TYPE_LENGTH].ptr),
+        @intFromEnum(qtype),
+        .big,
+    );
+
+    const qclass_offset = qtype_offset + QUERY_TYPE_LENGTH;
+
+    std.mem.writeInt(
+        u16,
+        @ptrCast(buf[qclass_offset .. qclass_offset + CLASS_TYPE_LENGTH].ptr),
+        @intFromEnum(class),
+        .big,
+    );
+
+    const rd_len_offset = qclass_offset + CLASS_TYPE_LENGTH + TTL_LENGTH;
+
+    std.mem.writeInt(
+        u16,
+        @ptrCast(buf[rd_len_offset .. rd_len_offset + RD_LENGTH].ptr),
+        rd_len,
+        .big,
+    );
+
+    return owner;
+}
+
 pub const GenericRecord = struct {
     offset: usize,
     length: usize,
@@ -477,41 +544,32 @@ pub const GenericRecord = struct {
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
+    const CLASS_TYPE_OFFSET_FROM_NAME = QUERY_TYPE_LENGTH;
+    const TTL_OFFSET_FROM_NAME = QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH;
+    const RD_LENGTH_OFFSET_FROM_NAME = QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH;
+    const RDATA_OFFSET_FROM_NAME = QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH;
+
     /// Init a new generic record.
     /// Name provided must be an encoded name (use DNS.encode_name method).
     /// qtype and class are set to value 0 (not valid), rd length is set to 2.
     /// Allocates name length + 12 bytes (qtype, qclass, ttl, rd len, 2 byte rdata).
     pub fn init(name: []const u8, allocator: Allocator) Allocator.Error!GenericRecord {
-        const initial_len = (name.len +
-            QUERY_TYPE_LENGTH +
-            CLASS_TYPE_LENGTH +
-            TTL_LENGTH +
-            RD_LENGTH +
-            (@sizeOf(u8) * 2));
-
-        var rec = GenericRecord{
-            .offset = 0,
-            .length = initial_len,
-            .qtype = @enumFromInt(0),
-            .qclass = @enumFromInt(0),
-            .owner = TLVOwner{ .owned_buffer = .init_empty(allocator) },
-        };
-
-        const rr_buf = try rec.owner.extend_buffer(0, initial_len);
-
-        const rd_len_offset = name.len +
-            QUERY_TYPE_LENGTH +
-            CLASS_TYPE_LENGTH +
-            TTL_LENGTH;
-
-        std.mem.writeInt(
-            u16,
-            @ptrCast(rr_buf[rd_len_offset .. rd_len_offset + RD_LENGTH].ptr),
-            (@sizeOf(u8) * 2),
-            .big,
+        var owner: TLVOwner = try init_record(
+            name,
+            @enumFromInt(0),
+            @enumFromInt(0),
+            allocator,
         );
 
-        @memmove(rec.owner.get_data()[0..name.len], name);
+        const len = owner.get_data().len;
+
+        const rec = GenericRecord{
+            .offset = 0,
+            .length = len,
+            .qtype = @enumFromInt(0),
+            .qclass = @enumFromInt(0),
+            .owner = owner,
+        };
 
         return rec;
     }
@@ -621,8 +679,7 @@ pub const GenericRecord = struct {
 
         advance_past_name(data, &offset);
 
-        offset += QUERY_TYPE_LENGTH;
-        offset += CLASS_TYPE_LENGTH;
+        offset += TTL_OFFSET_FROM_NAME;
 
         std.mem.writeInt(
             u32,
@@ -639,8 +696,7 @@ pub const GenericRecord = struct {
 
         advance_past_name(data, &offset);
 
-        offset += QUERY_TYPE_LENGTH;
-        offset += CLASS_TYPE_LENGTH;
+        offset += TTL_OFFSET_FROM_NAME;
 
         return std.mem.readInt(
             u32,
@@ -657,9 +713,7 @@ pub const GenericRecord = struct {
 
         advance_past_name(data, &offset);
 
-        offset += QUERY_TYPE_LENGTH;
-        offset += CLASS_TYPE_LENGTH;
-        offset += TTL_LENGTH;
+        offset += RD_LENGTH_OFFSET_FROM_NAME;
 
         return std.mem.readInt(
             u16,
@@ -679,11 +733,9 @@ pub const GenericRecord = struct {
 
         advance_past_name(data, &offset);
 
-        offset += QUERY_TYPE_LENGTH;
-        offset += CLASS_TYPE_LENGTH;
-        offset += TTL_LENGTH;
+        offset += RD_LENGTH_OFFSET_FROM_NAME;
 
-        const rd_len_offset = offset;
+        const rd_len_offset = offset; // assign rd length offset
 
         offset += RD_LENGTH;
 
@@ -734,14 +786,12 @@ pub const GenericRecord = struct {
 
         advance_past_name(data, &offset);
 
-        offset += QUERY_TYPE_LENGTH;
-        offset += CLASS_TYPE_LENGTH;
-        offset += TTL_LENGTH;
-        offset += RD_LENGTH;
+        offset += RDATA_OFFSET_FROM_NAME;
 
         return data[offset..self.length];
     }
 
+    /// experimental
     pub fn as(self: *GenericRecord, rr_type: anytype) *rr_type {
         return @ptrCast(self);
     }
@@ -760,6 +810,62 @@ pub const ARecord = struct {
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
+    /// Init a new A record.
+    /// Name provided must be an encoded name (use DNS.encode_name method).
+    /// qtype is set to A
+    /// Allocates name length + 16 bytes (qtype, qclass, ttl, rd len, 4 bytes for ipv4 address).
+    /// copies all provided values into correct places
+    pub fn init(
+        name: []const u8,
+        class: DnsClass,
+        ttl: u32,
+        ip: IPv4Address,
+        allocator: Allocator,
+    ) Allocator.Error!ARecord {
+        var owner: TLVOwner = try init_record(
+            name,
+            .A,
+            class,
+            allocator,
+        );
+
+        const len = owner.get_data().len;
+
+        const rec = ARecord{
+            .offset = 0,
+            .length = len,
+            .qclass = class,
+            .owner = owner,
+        };
+
+        const ttl_offset = name.len + GenericRecord.TTL_OFFSET_FROM_NAME;
+
+        std.mem.writeInt(
+            u32,
+            @ptrCast(owner.get_data()[ttl_offset .. ttl_offset + TTL_LENGTH].ptr),
+            ttl,
+            .big,
+        );
+
+        const rd_len_offset = name.len + GenericRecord.RD_LENGTH_OFFSET_FROM_NAME;
+
+        std.mem.writeInt(
+            u16,
+            @ptrCast(owner.get_data()[rd_len_offset .. rd_len_offset + @sizeOf(IPv4Address)].ptr),
+            @sizeOf(IPv4Address),
+            .big,
+        );
+
+        const ip_offset = name.len + GenericRecord.RDATA_OFFSET_FROM_NAME;
+
+        @memmove(
+            owner.get_data()[ip_offset .. ip_offset + @sizeOf(IPv4Address)],
+            &ip.array,
+        );
+
+        return rec;
+    }
+
     pub fn get_data(self: *ARecord) []const u8 {
         return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
@@ -768,10 +874,18 @@ pub const ARecord = struct {
         return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
-    pub fn get_name(self: *ARecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
-        const data = self.get_data(); // the length of the name is not known so just take use the offset of this RR
+    pub fn set_name(self: *ARecord, name: []const u8) Allocator.Error!void {
+        var grec: *GenericRecord = @ptrCast(self);
+        return try grec.set_name(name);
+    }
 
-        return try decode_name(self.owner.get_data(), data, allocator);
+    pub fn get_name(self: *ARecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
+        //const data = self.get_data(); // the length of the name is not known so just take use the offset of this RR
+
+        var grec: *GenericRecord = @ptrCast(self);
+        return try grec.get_name(allocator);
+
+        //return try decode_name(self.owner.get_data(), data, allocator);
     }
 
     pub fn get_class(self: *ARecord) DnsClass {
@@ -782,23 +896,31 @@ pub const ARecord = struct {
         return set_dns_class(self.get_data_mut(), class);
     }
 
-    pub fn get_ip(self: *ARecord) ?IPv4Address {
+    pub fn get_ttl(self: *ARecord) u32 {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.get_ttl();
+    }
+
+    pub fn set_ttl(self: *ARecord, ttl: u32) void {
+        var grec: *GenericRecord = @ptrCast(self);
+
+        return grec.set_ttl(ttl);
+    }
+
+    pub fn get_ip(self: *ARecord) IPv4Address {
         const data = self.get_data();
-        if (data.len >= 16) {
-            var offset: usize = 0;
+        std.debug.assert(data.len >= 16);
 
-            advance_past_name(self.get_data(), &offset);
+        var offset: usize = 0;
 
-            //         rrtype (2 bytes),   class (2bytes),    ttl (4bytes), data length (2bytes)
-            offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
+        advance_past_name(self.get_data(), &offset);
 
-            const ip_u32: u32 = std.mem.bytesToValue(u32, data[offset .. offset + TTL_LENGTH]);
+        offset += GenericRecord.RDATA_OFFSET_FROM_NAME;
 
-            const ip = IPv4Address.init_from_u32(@byteSwap(ip_u32));
-            return ip;
-        }
+        const ip_u32: u32 = std.mem.bytesToValue(u32, data[offset .. offset + @sizeOf(IPv4Address)]);
 
-        return null;
+        const ip = IPv4Address.init_from_u32(@byteSwap(ip_u32));
+        return ip;
     }
 
     pub fn set_ip(self: *ARecord, ipv4: IPv4Address) void {
@@ -806,35 +928,25 @@ pub const ARecord = struct {
 
         std.debug.assert(data.len >= 16);
 
-        if (data.len >= 16) {
-            var offset: usize = 0;
+        var offset: usize = 0;
 
-            advance_past_name(self.get_data(), &offset);
+        advance_past_name(self.get_data(), &offset);
 
-            //         rrtype (2 bytes),   class (2bytes),     ttl (4bytes), data length (2bytes)
-            offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
+        offset += GenericRecord.RDATA_OFFSET_FROM_NAME;
 
-            const ip_ptr = std.mem.bytesAsValue(u32, data[offset .. offset + TTL_LENGTH]);
+        const ip_ptr = std.mem.bytesAsValue(u32, data[offset .. offset + @sizeOf(IPv4Address)]);
 
-            ip_ptr.* = @byteSwap(ipv4.to_u32());
-        }
-
-        // experimental:
-        //var grec: *GenericRecord = @ptrCast(self);
-        //grec.set_rdata(&ipv4.array) catch return;
+        ip_ptr.* = @byteSwap(ipv4.to_u32());
     }
 
-    pub fn to_string(self: *ARecord, allocator: Allocator) Allocator.Error![]const u8 {
+    pub fn to_string(self: *ARecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]const u8 {
         var list: std.ArrayList(u8) = .empty;
 
         const name = try self.get_name(allocator);
         defer allocator.free(name);
-        const type_s = @tagName(self.qtype);
+        const type_s = @tagName(self.get_rr_type());
         const class_s = @tagName(self.qclass);
-        var ip: []const u8 = undefined;
-        if (self.get_ip()) |ipv4| {
-            ip = try ipv4.to_string(allocator);
-        }
+        const ip = try self.get_ip().to_string(allocator);
         defer allocator.free(ip);
 
         const space = " ";
@@ -850,8 +962,12 @@ pub const ARecord = struct {
         return try list.toOwnedSlice(allocator);
     }
 
-    pub fn get_rr_type(self: ARecord) QueryType {
+    pub fn get_rr_type(self: *ARecord) QueryType {
         return get_q_type(self.get_data());
+    }
+
+    pub fn deinit(self: *ARecord) void {
+        self.owner.deinit();
     }
 };
 
@@ -864,6 +980,27 @@ pub const AAAARecord = struct {
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
+    pub fn init(name: []const u8, class: DnsClass, allocator: Allocator) Allocator.Error!ARecord {
+        var owner: TLVOwner = try init_record(
+            name,
+            .AAAA,
+            class,
+            allocator,
+        );
+
+        const len = owner.get_data().len;
+
+        const rec = AAAARecord{
+            .offset = 0,
+            .length = len,
+            .qtype = .AAAA,
+            .qclass = class,
+            .owner = owner,
+        };
+
+        return rec;
+    }
+
     pub fn get_data(self: *AAAARecord) []const u8 {
         return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
@@ -874,35 +1011,35 @@ pub const AAAARecord = struct {
 
     /// returns the IPv6 address of the AAAA record by creating a copy of the IPv6 start to len bytes and init'ing the IPv6 address from it.
     /// null is retured when length of the RR data (in the DNS Layer) is not atleast 28 bytes in length
-    pub fn get_ipv6(self: *AAAARecord) ?IPv6Address {
+    pub fn get_ipv6(self: *AAAARecord) IPv6Address {
         const data = self.get_data();
-        if (data.len >= 28) {
-            var offset: usize = 0;
+        std.debug.assert(data.len >= 28);
+        var offset: usize = 0;
 
-            advance_past_name(data, &offset);
+        advance_past_name(data, &offset);
 
-            offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
+        offset += GenericRecord.RDATA_OFFSET_FROM_NAME;
 
-            var ipv6_arr: [16]u8 = undefined;
-            @memmove(ipv6_arr[0..], data[offset .. offset + @sizeOf(IPv6Address)]);
+        var ipv6_arr: [16]u8 = undefined;
+        @memmove(ipv6_arr[0..], data[offset .. offset + @sizeOf(IPv6Address)]);
 
-            const ip = IPv6Address.init_from_array(ipv6_arr);
-            return ip;
-        }
-
-        return null;
+        const ip = IPv6Address.init_from_array(ipv6_arr);
+        return ip;
     }
 
     /// Sets the IPv6 address of this record.
     /// Will fail silently when length of the RR data (in the DNS Layer) is not atleast 28 bytes in length
     pub fn set_ipv6(self: *AAAARecord, ipv6: IPv6Address) void {
         const data = self.get_data_mut();
+
+        std.debug.assert(data.len >= 28);
+
         if (data.len >= 28) {
             var offset: usize = 0;
 
             advance_past_name(data, &offset);
 
-            offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
+            offset += GenericRecord.RDATA_OFFSET_FROM_NAME;
 
             var ipv6_arr: [16]u8 = ipv6.array;
             @memmove(data[offset .. offset + @sizeOf(IPv6Address)], ipv6_arr[0..]);
@@ -938,52 +1075,50 @@ pub const NSRecord = struct { //TODO: remove magic numbers
     }
 
     pub fn decode_ns_name(self: *NSRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
-        // NS's rdata, offset 12 is used for name ptr (2bytes), rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
-        if (self.get_data().len < 12) {
-            return DNSLayer.DNSParseError.RecordTooShort;
-        }
-        return try decode_name(self.owner.get_data(), self.get_data()[12..], allocator);
+        var offset: usize = 0;
+
+        advance_past_name(self.get_data(), &offset);
+
+        offset += GenericRecord.RDATA_OFFSET_FROM_NAME;
+
+        return try decode_name(self.owner.get_data(), self.get_data()[offset..], allocator);
     }
 
     /// Takes a non-dns-label cname value and converts it to label format using a helper method and the allocator provided.
     /// The formatted cname value is copied over the current one with these cases:
     /// if the formatted cname value is of the same length as the current one, the DNSLayer buffer remains unchanged
     /// else if the new cname is shorter or longer, then the dns layers buffer is shortened or extended, respectively
-    ///
-    /// currently broken. don't use it.
-    fn set_ns_name(self: *NSRecord, cname: []const u8, allocator: Allocator) Allocator.Error!void {
-        // need to check if the cname being changed contains any sub label ptrs which proceeding records rely on
-        // e.g. .net in a cname can be relied on proceeding records
-        // in this case, find the next record that uses this ptr, edit the cname record to include that sub-label
+    fn set_ns_name(self: *NSRecord, name: []const u8) Allocator.Error!void {
+        // need to check if the name being changed contains any sub label ptrs which proceeding records rely on
+        // e.g. .net in a name can be relied on proceeding records
+        // in this case, find the next record that uses this ptr, edit the name record to include that sub-label
         // and then update the proceeding records so that they use the ptr to the above
         const data = self.get_data_mut();
-        const new_cname_wire = try encodeQnameSimple(allocator, cname);
-        defer allocator.free(new_cname_wire);
 
         var offset: usize = 0;
 
         advance_past_name(data, &offset);
 
-        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
+        offset += GenericRecord.RDATA_OFFSET_FROM_NAME;
 
         const current_rdata = data[offset..];
         const old_len = current_rdata.len;
-        const new_len = new_cname_wire.len;
+        const new_len = name.len;
 
-        const cname_start = self.offset + offset;
+        const name_start = self.offset + offset;
 
-        var ptr: [2]u8 = undefined; // generate compression ptr for this cname record being changed
-        ptr[0] = 0xC0 | @as(u8, @truncate((cname_start >> 8) & 0x3F));
-        ptr[1] = @as(u8, @truncate(cname_start & 0xFF));
+        var ptr: [2]u8 = undefined; // generate compression ptr for this name record being changed
+        ptr[0] = 0xC0 | @as(u8, @truncate((name_start >> 8) & 0x3F));
+        ptr[1] = @as(u8, @truncate(name_start & 0xFF));
 
         if (new_len > old_len) {
             const extend_len = new_len - old_len;
-            const cname_offset = self.offset + offset;
+            const name_offset = self.offset + offset;
 
             //print("extend len: {}\n", .{extend_len});
 
             // Extend the payload
-            _ = try self.owner.extend_layer(cname_offset, extend_len);
+            _ = try self.owner.extend_layer(name_offset, extend_len);
 
             // Update this record's length
             self.length += extend_len;
@@ -1001,15 +1136,15 @@ pub const NSRecord = struct { //TODO: remove magic numbers
 
             // Refresh data pointer and write new NS
             const new_data = self.get_data_mut();
-            @memcpy(new_data[offset..], new_cname_wire);
+            @memcpy(new_data[offset..], name);
         } else if (new_len < old_len) {
-            //print("new cname len is less than current. current: {} new: {}\n", .{ old_len, new_len });
+            //print("new name len is less than current. current: {} new: {}\n", .{ old_len, new_len });
             const shrink_len: isize = @as(isize, @intCast(old_len)) - @as(isize, @intCast(new_len));
             //print("shrink len: {}\n", .{shrink_len});
-            const cname_offset = self.offset + offset; // remove temp magic number
+            const name_offset = self.offset + offset; // remove temp magic number
 
             // Shrink the records RR
-            try self.owner.shorten_layer(cname_offset, @intCast(shrink_len));
+            try self.owner.shorten_layer(name_offset, @intCast(shrink_len));
             //print("shortened.\n", .{});
 
             // Update this record's length
@@ -1036,10 +1171,10 @@ pub const NSRecord = struct { //TODO: remove magic numbers
 
             // Write new NS
             const new_data = self.get_data_mut();
-            @memcpy(new_data[offset..], new_cname_wire); // remove temp magic number
+            @memcpy(new_data[offset..], name); // remove temp magic number
         } else {
             // Same length, simple overwrite
-            @memcpy(data[offset..], new_cname_wire); // remove temp magic number
+            @memcpy(data[offset..], name); // remove temp magic number
         }
     }
 
@@ -1249,6 +1384,149 @@ pub const SOARecord = struct {
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
+    pub const SERIAL_NUMBER_LENGTH = @sizeOf(u32);
+    pub const REFRESH_INTERVAL_LENGTH = @sizeOf(u32);
+    pub const RETRY_INTERVAL_LENGTH = @sizeOf(u32);
+    pub const EXPIRE_LIMIT_LENGTH = @sizeOf(u32);
+    pub const MIN_TTL_LENGTH = TTL_LENGTH;
+
+    const MNAME_OFFSET_FROM_NAME = GenericRecord.RDATA_OFFSET_FROM_NAME;
+
+    const RETRY_INTERVAL_OFFSET_FROM_RNAME = SERIAL_NUMBER_LENGTH + REFRESH_INTERVAL_LENGTH;
+    const EXPIRE_LIMIT_OFFSET_FROM_RNAME = SERIAL_NUMBER_LENGTH + REFRESH_INTERVAL_LENGTH + RETRY_INTERVAL_LENGTH;
+    const MIN_TTL_OFFSET_FROM_RNAME = SERIAL_NUMBER_LENGTH + REFRESH_INTERVAL_LENGTH + RETRY_INTERVAL_LENGTH + EXPIRE_LIMIT_LENGTH;
+
+    pub fn init(
+        name: []const u8,
+        class: DnsClass,
+        ttl: u32,
+        primary_ns: []const u8,
+        responsible_mbox: []const u8,
+        serial: u32,
+        refresh_interval: u32,
+        retry_interval: u32,
+        expire_limit: u32,
+        min_ttl: u32,
+        allocator: Allocator,
+    ) Allocator.Error!SOARecord {
+        const initial_len = name.len +
+            QUERY_TYPE_LENGTH +
+            CLASS_TYPE_LENGTH +
+            TTL_LENGTH +
+            RD_LENGTH +
+            primary_ns.len +
+            responsible_mbox.len +
+            SERIAL_NUMBER_LENGTH +
+            REFRESH_INTERVAL_LENGTH +
+            RETRY_INTERVAL_LENGTH +
+            EXPIRE_LIMIT_LENGTH +
+            MIN_TTL_LENGTH;
+
+        var owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
+
+        const buf = try owner.extend_buffer(0, initial_len);
+
+        @memmove(buf[0..name.len], name);
+
+        var offset = name.len;
+
+        std.mem.writeInt(
+            u16,
+            @ptrCast(buf[offset .. offset + QUERY_TYPE_LENGTH].ptr),
+            @intFromEnum(QueryType.SOA),
+            .big,
+        );
+
+        offset += QUERY_TYPE_LENGTH;
+
+        std.mem.writeInt(
+            u16,
+            @ptrCast(buf[offset .. offset + CLASS_TYPE_LENGTH].ptr),
+            @intFromEnum(class),
+            .big,
+        );
+
+        offset += CLASS_TYPE_LENGTH;
+
+        std.mem.writeInt(
+            u32,
+            @ptrCast(buf[offset .. offset + TTL_LENGTH].ptr),
+            ttl,
+            .big,
+        );
+
+        offset += TTL_LENGTH;
+
+        std.mem.writeInt(
+            u16,
+            @ptrCast(buf[offset .. offset + RD_LENGTH].ptr),
+            @intCast(initial_len - (name.len + QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH)),
+            .big,
+        );
+
+        offset += RD_LENGTH;
+
+        @memmove(buf[offset .. offset + primary_ns.len], primary_ns);
+
+        offset += primary_ns.len;
+
+        @memmove(buf[offset .. offset + responsible_mbox.len], responsible_mbox);
+
+        offset += responsible_mbox.len;
+
+        std.mem.writeInt(
+            u32,
+            @ptrCast(buf[offset .. offset + SERIAL_NUMBER_LENGTH].ptr),
+            serial,
+            .big,
+        );
+
+        offset += SERIAL_NUMBER_LENGTH;
+
+        std.mem.writeInt(
+            u32,
+            @ptrCast(buf[offset .. offset + REFRESH_INTERVAL_LENGTH].ptr),
+            refresh_interval,
+            .big,
+        );
+
+        offset += REFRESH_INTERVAL_LENGTH;
+
+        std.mem.writeInt(
+            u32,
+            @ptrCast(buf[offset .. offset + RETRY_INTERVAL_LENGTH].ptr),
+            retry_interval,
+            .big,
+        );
+
+        offset += RETRY_INTERVAL_LENGTH;
+
+        std.mem.writeInt(
+            u32,
+            @ptrCast(buf[offset .. offset + EXPIRE_LIMIT_LENGTH].ptr),
+            expire_limit,
+            .big,
+        );
+
+        offset += EXPIRE_LIMIT_LENGTH;
+
+        std.mem.writeInt(
+            u32,
+            @ptrCast(buf[offset .. offset + MIN_TTL_LENGTH].ptr),
+            min_ttl,
+            .big,
+        );
+
+        offset += MIN_TTL_LENGTH;
+
+        return SOARecord{
+            .offset = 0,
+            .length = initial_len,
+            .qclass = class,
+            .owner = owner,
+        };
+    }
+
     pub fn get_data(self: *SOARecord) []const u8 {
         return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
@@ -1261,13 +1539,125 @@ pub const SOARecord = struct {
         return try decode_name(self.owner.get_data(), self.get_data()[0..], allocator);
     }
 
+    pub fn set_name(self: *SOARecord, name: []const u8) Allocator.Error!void {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.set_name(name);
+    }
+
+    pub fn get_rr_type(self: *SOARecord) QueryType {
+        return get_q_type(self.get_data());
+    }
+
+    pub fn set_class(self: *SOARecord, qclass: DnsClass) void {
+        var grec: *GenericRecord = @ptrCast(self);
+        grec.set_class(qclass);
+    }
+
+    pub fn get_class(self: *SOARecord) DnsClass {
+        return get_dns_class(self.get_data());
+    }
+
+    pub fn get_ttl(self: *SOARecord) u32 {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.get_ttl();
+    }
+
+    pub fn set_ttl(self: *SOARecord, ttl: u32) void {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.set_ttl(ttl);
+    }
+
+    pub fn get_rd_len(self: *SOARecord) u16 {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.get_rd_len();
+    }
+
+    fn set_soa_name(self: *SOARecord, offset: usize, rdata: []const u8) Allocator.Error!void {
+        const initial_offset: usize = offset;
+        var length: usize = 0;
+
+        const data = self.get_data();
+
+        advance_past_name(data[initial_offset..], &length);
+
+        const cur_rdata_len: usize = length;
+
+        var diff: isize = 0;
+
+        if (cur_rdata_len < rdata.len) {
+            const extend_len = rdata.len - cur_rdata_len;
+
+            diff = @intCast(extend_len);
+
+            const slice = try self.owner.extend_buffer(initial_offset + cur_rdata_len, extend_len);
+            self.length += slice.len;
+
+            // increase the proceeding layers offset by the shorten_len
+            var next_rec = self.next_answer;
+            while (next_rec) |rr| {
+                rr.set_offset(rr.get_offset() + extend_len);
+                next_rec = rr.get_next_record();
+            }
+        }
+        if (cur_rdata_len > rdata.len) {
+            const shorten_len = cur_rdata_len - rdata.len;
+
+            diff = -@as(isize, @intCast(shorten_len));
+
+            try self.owner.shorten_buffer(initial_offset + rdata.len, shorten_len);
+
+            self.length -= shorten_len;
+
+            // decrease the proceeding layers offset by the shorten_len
+            var next_rec = self.next_answer;
+            while (next_rec) |rr| {
+                rr.set_offset(rr.get_offset() - shorten_len);
+                next_rec = rr.get_next_record();
+            }
+        }
+
+        @memmove(self.get_data_mut()[initial_offset .. initial_offset + rdata.len], rdata);
+
+        var rd_len_offset: usize = 0;
+
+        advance_past_name(self.get_data(), &rd_len_offset);
+
+        rd_len_offset += GenericRecord.RD_LENGTH_OFFSET_FROM_NAME;
+
+        const current_rd_len = std.mem.readInt(
+            u16,
+            @ptrCast(self.get_data()[rd_len_offset .. rd_len_offset + RD_LENGTH].ptr),
+            .big,
+        );
+
+        const new_rd_len = @as(isize, @intCast(current_rd_len)) + diff;
+
+        // set the RD_LEN value the len of the rdata provided/written as big endian
+        std.mem.writeInt(
+            u16,
+            @ptrCast(self.get_data_mut()[rd_len_offset .. rd_len_offset + RD_LENGTH].ptr),
+            @intCast(new_rd_len),
+            .big,
+        );
+    }
+
+    pub fn set_mname(self: *SOARecord, mname: []const u8) Allocator.Error!void {
+        var offset: usize = 0;
+
+        advance_past_name(self.get_data(), &offset);
+
+        offset += MNAME_OFFSET_FROM_NAME;
+
+        try self.set_soa_name(offset, mname);
+    }
+
     /// Primary Name Server
     pub fn get_mname(self: *SOARecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         var offset: usize = 0;
 
         advance_past_name(self.get_data(), &offset);
 
-        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
+        offset += MNAME_OFFSET_FROM_NAME;
 
         if (self.get_data().len < offset) {
             return "";
@@ -1276,14 +1666,29 @@ pub const SOARecord = struct {
         return try decode_name(self.owner.get_data(), self.get_data()[offset..], allocator);
     }
 
-    /// Responsible Authorities Mailbox
-    pub fn get_rname(self: *SOARecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
+    pub fn set_rname(self: *SOARecord, rname: []const u8) Allocator.Error!void {
         var offset: usize = 0;
 
         advance_past_name(self.get_data(), &offset);
 
-        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
+        offset += MNAME_OFFSET_FROM_NAME;
 
+        advance_past_name(self.get_data(), &offset);
+
+        try self.set_soa_name(offset, rname);
+    }
+
+    /// Responsible Authorities Mailbox
+    pub fn get_rname(self: *SOARecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
+        var offset: usize = 0;
+
+        // advance past query name
+        advance_past_name(self.get_data(), &offset);
+
+        // advance past
+        offset += MNAME_OFFSET_FROM_NAME;
+
+        // advance past mname
         advance_past_name(self.get_data(), &offset);
 
         if (self.get_data().len < offset) {
@@ -1305,7 +1710,7 @@ pub const SOARecord = struct {
 
         // Skip TYPE (2), CLASS (2), TTL (4), RDLENGTH (2)
 
-        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
+        offset += MNAME_OFFSET_FROM_NAME;
 
         // adance offset past MNAME
         advance_past_name(self.get_data(), &offset);
@@ -1317,8 +1722,11 @@ pub const SOARecord = struct {
             return 0;
         }
 
-        const serial_be: u32 = std.mem.bytesToValue(u32, data[offset .. offset + TTL_LENGTH]);
-        return @byteSwap(serial_be);
+        return std.mem.readInt(
+            u32,
+            @ptrCast(data[offset .. offset + TTL_LENGTH].ptr),
+            .big,
+        );
     }
 
     pub fn get_refresh_interval(self: *SOARecord) u32 {
@@ -1333,7 +1741,7 @@ pub const SOARecord = struct {
 
         // Skip TYPE (2), CLASS (2), TTL (4), RDLENGTH (2)
 
-        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
+        offset += MNAME_OFFSET_FROM_NAME;
 
         // adance offset past MNAME
         advance_past_name(self.get_data(), &offset);
@@ -1341,14 +1749,17 @@ pub const SOARecord = struct {
         advance_past_name(self.get_data(), &offset);
 
         // advance past serial
-        offset += TTL_LENGTH;
+        offset += SERIAL_NUMBER_LENGTH;
 
         if (self.get_data().len < offset + TTL_LENGTH) {
             return 0;
         }
 
-        const re_be: u32 = std.mem.bytesToValue(u32, data[offset .. offset + TTL_LENGTH]);
-        return @byteSwap(re_be);
+        return std.mem.readInt(
+            u32,
+            @ptrCast(data[offset .. offset + TTL_LENGTH].ptr),
+            .big,
+        );
     }
 
     pub fn get_retry_interval(self: *SOARecord) u32 {
@@ -1358,12 +1769,7 @@ pub const SOARecord = struct {
         // advance offset past NAME
         advance_past_name(self.get_data(), &offset);
 
-        // At this point, offset points to the byte AFTER the last label's null terminator
-        // So we're now at the TYPE field
-
-        // Skip TYPE (2), CLASS (2), TTL (4), RDLENGTH (2)
-
-        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
+        offset += MNAME_OFFSET_FROM_NAME;
 
         // adance offset past MNAME
         advance_past_name(self.get_data(), &offset);
@@ -1372,17 +1778,17 @@ pub const SOARecord = struct {
         advance_past_name(self.get_data(), &offset);
 
         // advance past serial
-        offset += TTL_LENGTH;
-
-        // advance past refresh interval
-        offset += TTL_LENGTH;
+        offset += RETRY_INTERVAL_OFFSET_FROM_RNAME;
 
         if (self.get_data().len < offset + TTL_LENGTH) {
             return 0;
         }
 
-        const exp_limit: u32 = std.mem.bytesToValue(u32, data[offset .. offset + TTL_LENGTH]);
-        return @byteSwap(exp_limit);
+        return std.mem.readInt(
+            u32,
+            @ptrCast(data[offset .. offset + TTL_LENGTH].ptr),
+            .big,
+        );
     }
 
     pub fn get_expire_limit(self: *SOARecord) u32 {
@@ -1394,7 +1800,7 @@ pub const SOARecord = struct {
 
         // Skip TYPE (2), CLASS (2), TTL (4), RDLENGTH (2)
 
-        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
+        offset += MNAME_OFFSET_FROM_NAME;
 
         // adance offset past MNAME
         advance_past_name(self.get_data(), &offset);
@@ -1403,20 +1809,17 @@ pub const SOARecord = struct {
         advance_past_name(self.get_data(), &offset);
 
         // advance past serial
-        offset += TTL_LENGTH;
-
-        // advance past refresh interval
-        offset += TTL_LENGTH;
-
-        // advance past retry interval
-        offset += TTL_LENGTH;
+        offset += EXPIRE_LIMIT_OFFSET_FROM_RNAME;
 
         if (self.get_data().len < offset + TTL_LENGTH) {
             return 0;
         }
 
-        const exp_limit: u32 = std.mem.bytesToValue(u32, data[offset .. offset + TTL_LENGTH]);
-        return @byteSwap(exp_limit);
+        return std.mem.readInt(
+            u32,
+            @ptrCast(data[offset .. offset + TTL_LENGTH].ptr),
+            .big,
+        );
     }
 
     pub fn get_minimum_ttl(self: *SOARecord) u32 {
@@ -1427,7 +1830,7 @@ pub const SOARecord = struct {
         advance_past_name(self.get_data(), &offset);
 
         //  Skip  TYPE (2),             CLASS (2),          TTL (4),        RDLENGTH (2)
-        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
+        offset += MNAME_OFFSET_FROM_NAME;
 
         // adance offset past MNAME
         advance_past_name(self.get_data(), &offset);
@@ -1436,30 +1839,25 @@ pub const SOARecord = struct {
         advance_past_name(self.get_data(), &offset);
 
         // advance past serial
-        offset += TTL_LENGTH;
+        offset += MIN_TTL_OFFSET_FROM_RNAME;
 
-        // advance past refresh interval
-        offset += TTL_LENGTH;
-
-        // advance past retry interval
-        offset += TTL_LENGTH;
-
-        // advance past expire limit
-        offset += TTL_LENGTH;
-
-        if (self.get_data().len < offset + TTL_LENGTH) {
+        if (self.get_data().len < offset + MIN_TTL_LENGTH) {
             return 0;
         }
 
-        const min_ttl: u32 = std.mem.bytesToValue(u32, data[offset .. offset + TTL_LENGTH]);
-        return @byteSwap(min_ttl);
+        return std.mem.readInt(
+            u32,
+            @ptrCast(data[offset .. offset + MIN_TTL_LENGTH].ptr),
+            .big,
+        );
     }
 
-    pub fn get_rr_type(self: SOARecord) QueryType {
-        return get_q_type(self.get_data());
+    pub fn deinit(self: *SOARecord) void {
+        self.owner.deinit();
     }
 };
 
+// TODO: Rename to indicate compression ptr handling
 pub fn decode_name(layer_data: []const u8, record_data: []const u8, allocator: Allocator) (DNS.DNSLayer.DNSParseError || Allocator.Error)![]u8 {
     const full_packet = layer_data; // get the entire dns layers data - this is required for pointer jumps
     const rdata = record_data;

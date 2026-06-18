@@ -1003,37 +1003,6 @@ pub const DNSLayer = struct {
     }
 };
 
-/// Creates a domain name from a DNS label. The allocator creates an ArrayList to store the bytes and returns a mutable slice
-/// The ArrayList is deinit'd before return but you must free the slice that is returned (it returns an ownedSlice)
-pub fn decodeQname(allocator: Allocator, dns_label: []const u8) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
-    var list = try std.ArrayList(u8).initCapacity(allocator, dns_label.len);
-    defer list.deinit(allocator);
-
-    var offset: usize = 0;
-    var first = true;
-
-    while (offset < dns_label.len and dns_label[offset] != 0) {
-        const len = dns_label[offset];
-        offset += 1;
-
-        if (offset + len > dns_label.len) {
-            print("offset + len: {} exceeds packet.\n", .{offset + len});
-            return error.InvalidPacket;
-        }
-
-        if (!first) try list.append(allocator, '.');
-        first = false;
-
-        try list.appendSlice(allocator, dns_label[offset .. offset + len]);
-        offset += len;
-    }
-
-    // if we never saw the terminating 0 byte, reject
-    if (offset >= dns_label.len or dns_label[offset] != 0) return error.InvalidPacket;
-
-    return list.toOwnedSlice(allocator);
-}
-
 pub const Query = struct {
     offset: usize,
     length: usize,
@@ -1350,4 +1319,35 @@ pub fn encode_name(name: []const u8, allocator: Allocator) Allocator.Error![]con
     encoded_name[buf_offset] = 0; // null terminator
 
     return encoded_name;
+}
+
+/// Creates a domain name from a DNS label. The allocator creates an ArrayList to store the bytes and returns a mutable slice
+/// The ArrayList is deinit'd before return but you must free the slice that is returned (it returns an ownedSlice)
+pub fn decode_name(allocator: Allocator, dns_label: []const u8) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
+    var list = try std.ArrayList(u8).initCapacity(allocator, dns_label.len);
+    defer list.deinit(allocator);
+
+    var offset: usize = 0;
+    var first = true;
+
+    while (offset < dns_label.len and dns_label[offset] != 0) {
+        const len = dns_label[offset];
+        offset += 1;
+
+        if (offset + len > dns_label.len) {
+            print("offset + len: {} exceeds packet.\n", .{offset + len});
+            return error.InvalidPacket;
+        }
+
+        if (!first) try list.append(allocator, '.');
+        first = false;
+
+        try list.appendSlice(allocator, dns_label[offset .. offset + len]);
+        offset += len;
+    }
+
+    // if we never saw the terminating 0 byte, reject
+    if (offset >= dns_label.len or dns_label[offset] != 0) return error.InvalidPacket;
+
+    return list.toOwnedSlice(allocator);
 }
