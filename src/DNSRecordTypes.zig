@@ -48,8 +48,6 @@ pub const AnswerRecord = union(enum) {
     soa: SOARecord,
     generic: GenericRecord,
 
-    const TTL_OFFSET_FROM_NAME = 32;
-
     pub fn init(offset: usize, length: usize, qtype: QueryType, qclass: DnsClass, owner: TLVOwner) AnswerRecord {
         switch (qtype) {
             // TODO: reduce repeating code
@@ -489,7 +487,7 @@ fn init_record(name: []const u8, qtype: QueryType, class: DnsClass, allocator: A
         },
         .TXT => {
             rd_len += TXT_LENGTH; // 1 byte
-        }, // 1 byte
+        },
         .A => rd_len += @sizeOf(IPv4Address), // 4 bytes
         .AAAA => rd_len += @sizeOf(IPv6Address), // 16 bytes
         else => {
@@ -993,7 +991,6 @@ pub const AAAARecord = struct {
         const rec = AAAARecord{
             .offset = 0,
             .length = len,
-            .qtype = .AAAA,
             .qclass = class,
             .owner = owner,
         };
@@ -1052,13 +1049,70 @@ pub const AAAARecord = struct {
 };
 
 /// NS (Name Server) Record
-pub const NSRecord = struct { //TODO: remove magic numbers
+pub const NSRecord = struct {
     offset: usize,
     length: usize,
     qclass: DnsClass,
     owner: TLVOwner,
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
+
+    pub fn init(
+        name: []const u8,
+        class: DnsClass,
+        ttl: u32,
+        ns_name: []const u8,
+        allocator: Allocator,
+    ) Allocator.Error!NSRecord {
+        var owner: TLVOwner = try init_record(
+            name,
+            .NS,
+            class,
+            allocator,
+        );
+
+        if (ns_name.len > COMPRESSION_PTR_LENGTH) {
+            const diff = ns_name.len - COMPRESSION_PTR_LENGTH;
+            const current_len = owner.get_data().len;
+            _ = try owner.extend_buffer(current_len, diff);
+        }
+
+        const len = owner.get_data().len;
+
+        const rec = NSRecord{
+            .offset = 0,
+            .length = len,
+            .qclass = class,
+            .owner = owner,
+        };
+
+        const ttl_offset = name.len + GenericRecord.TTL_OFFSET_FROM_NAME;
+
+        std.mem.writeInt(
+            u32,
+            @ptrCast(owner.get_data()[ttl_offset .. ttl_offset + TTL_LENGTH].ptr),
+            ttl,
+            .big,
+        );
+
+        const rd_len_offset = name.len + GenericRecord.RD_LENGTH_OFFSET_FROM_NAME;
+
+        std.mem.writeInt(
+            u16,
+            @ptrCast(owner.get_data()[rd_len_offset .. rd_len_offset + RD_LENGTH].ptr),
+            @intCast(ns_name.len),
+            .big,
+        );
+
+        const ns_offset = name.len + GenericRecord.RDATA_OFFSET_FROM_NAME;
+
+        @memmove(
+            owner.get_data()[ns_offset .. ns_offset + ns_name.len],
+            ns_name,
+        );
+
+        return rec;
+    }
 
     pub fn get_data(self: *NSRecord) []const u8 {
         return self.owner.get_data()[self.offset .. self.offset + self.length];
@@ -1074,6 +1128,39 @@ pub const NSRecord = struct { //TODO: remove magic numbers
         return try decode_name(self.owner.get_data(), data, allocator);
     }
 
+    pub fn set_name(self: *NSRecord, name: []const u8) Allocator.Error!void {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.set_name(name);
+    }
+
+    pub fn get_rr_type(self: *NSRecord) QueryType {
+        return get_q_type(self.get_data());
+    }
+
+    pub fn set_class(self: *NSRecord, qclass: DnsClass) void {
+        var grec: *GenericRecord = @ptrCast(self);
+        grec.set_class(qclass);
+    }
+
+    pub fn get_class(self: *NSRecord) DnsClass {
+        return get_dns_class(self.get_data());
+    }
+
+    pub fn get_ttl(self: *NSRecord) u32 {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.get_ttl();
+    }
+
+    pub fn set_ttl(self: *NSRecord, ttl: u32) void {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.set_ttl(ttl);
+    }
+
+    pub fn get_rd_len(self: *NSRecord) u16 {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.get_rd_len();
+    }
+
     pub fn decode_ns_name(self: *NSRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         var offset: usize = 0;
 
@@ -1084,99 +1171,104 @@ pub const NSRecord = struct { //TODO: remove magic numbers
         return try decode_name(self.owner.get_data(), self.get_data()[offset..], allocator);
     }
 
+    pub fn set_ns_name(self: *NSRecord, server_name: []const u8) Allocator.Error!void {
+        var grec: *GenericRecord = @ptrCast(self);
+        try grec.set_rdata(server_name);
+    }
+
     /// Takes a non-dns-label cname value and converts it to label format using a helper method and the allocator provided.
     /// The formatted cname value is copied over the current one with these cases:
     /// if the formatted cname value is of the same length as the current one, the DNSLayer buffer remains unchanged
     /// else if the new cname is shorter or longer, then the dns layers buffer is shortened or extended, respectively
-    fn set_ns_name(self: *NSRecord, name: []const u8) Allocator.Error!void {
-        // need to check if the name being changed contains any sub label ptrs which proceeding records rely on
-        // e.g. .net in a name can be relied on proceeding records
-        // in this case, find the next record that uses this ptr, edit the name record to include that sub-label
-        // and then update the proceeding records so that they use the ptr to the above
-        const data = self.get_data_mut();
+    // fn set_ns_name(self: *NSRecord, name: []const u8) Allocator.Error!void {
+    //     // need to check if the name being changed contains any sub label ptrs which proceeding records rely on
+    //     // e.g. .net in a name can be relied on proceeding records
+    //     // in this case, find the next record that uses this ptr, edit the name record to include that sub-label
+    //     // and then update the proceeding records so that they use the ptr to the above
+    //     const data = self.get_data_mut();
 
-        var offset: usize = 0;
+    //     var offset: usize = 0;
 
-        advance_past_name(data, &offset);
+    //     advance_past_name(data, &offset);
 
-        offset += GenericRecord.RDATA_OFFSET_FROM_NAME;
+    //     offset += GenericRecord.RDATA_OFFSET_FROM_NAME;
 
-        const current_rdata = data[offset..];
-        const old_len = current_rdata.len;
-        const new_len = name.len;
+    //     const current_rdata = data[offset..];
+    //     const old_len = current_rdata.len;
+    //     const new_len = name.len;
 
-        const name_start = self.offset + offset;
+    //     const name_start = self.offset + offset;
 
-        var ptr: [2]u8 = undefined; // generate compression ptr for this name record being changed
-        ptr[0] = 0xC0 | @as(u8, @truncate((name_start >> 8) & 0x3F));
-        ptr[1] = @as(u8, @truncate(name_start & 0xFF));
+    //     var ptr: [2]u8 = undefined; // generate compression ptr for this name record being changed
+    //     ptr[0] = 0xC0 | @as(u8, @truncate((name_start >> 8) & 0x3F));
+    //     ptr[1] = @as(u8, @truncate(name_start & 0xFF));
 
-        if (new_len > old_len) {
-            const extend_len = new_len - old_len;
-            const name_offset = self.offset + offset;
+    //     if (new_len > old_len) {
+    //         const extend_len = new_len - old_len;
+    //         const name_offset = self.offset + offset;
 
-            //print("extend len: {}\n", .{extend_len});
+    //         //print("extend len: {}\n", .{extend_len});
 
-            // Extend the payload
-            _ = try self.owner.extend_layer(name_offset, extend_len);
+    //         // Extend the payload
+    //         _ = try self.owner.extend_layer(name_offset, extend_len);
 
-            // Update this record's length
-            self.length += extend_len;
+    //         // Update this record's length
+    //         self.length += extend_len;
 
-            // Update all subsequent records' offsets and lengths
-            var next_record: ?*AnswerRecord = self.next_answer;
-            while (next_record) |next| {
-                next.set_offset(next.get_offset() + extend_len);
-                next_record = next.get_next_record();
-            }
+    //         // Update all subsequent records' offsets and lengths
+    //         var next_record: ?*AnswerRecord = self.next_answer;
+    //         while (next_record) |next| {
+    //             next.set_offset(next.get_offset() + extend_len);
+    //             next_record = next.get_next_record();
+    //         }
 
-            // Update ALL compression pointers in the packet
-            self.update_proceeding_records(@intCast(extend_len));
-            try self.update_rest_ptrs(ptr); // needs to be called now
+    //         // Update ALL compression pointers in the packet
+    //         self.update_proceeding_records(@intCast(extend_len));
+    //         try self.update_rest_ptrs(ptr); // needs to be called now
 
-            // Refresh data pointer and write new NS
-            const new_data = self.get_data_mut();
-            @memcpy(new_data[offset..], name);
-        } else if (new_len < old_len) {
-            //print("new name len is less than current. current: {} new: {}\n", .{ old_len, new_len });
-            const shrink_len: isize = @as(isize, @intCast(old_len)) - @as(isize, @intCast(new_len));
-            //print("shrink len: {}\n", .{shrink_len});
-            const name_offset = self.offset + offset; // remove temp magic number
+    //         // Refresh data pointer and write new NS
+    //         const new_data = self.get_data_mut();
+    //         @memcpy(new_data[offset..], name);
+    //     } else if (new_len < old_len) {
+    //         //print("new name len is less than current. current: {} new: {}\n", .{ old_len, new_len });
+    //         const shrink_len: isize = @as(isize, @intCast(old_len)) - @as(isize, @intCast(new_len));
+    //         //print("shrink len: {}\n", .{shrink_len});
+    //         const name_offset = self.offset + offset; // remove temp magic number
 
-            // Shrink the records RR
-            try self.owner.shorten_layer(name_offset, @intCast(shrink_len));
-            //print("shortened.\n", .{});
+    //         // Shrink the records RR
+    //         try self.owner.shorten_layer(name_offset, @intCast(shrink_len));
+    //         //print("shortened.\n", .{});
 
-            // Update this record's length
-            self.length -= @intCast(shrink_len); // int cast required here because shrink_len is isize
+    //         // Update this record's length
+    //         self.length -= @intCast(shrink_len); // int cast required here because shrink_len is isize
 
-            // Update subsequent records' offsets and lengths
-            //print("Update subsequent records' offsets and lengths:\n", .{});
-            var next_record: ?*AnswerRecord = self.next_answer;
-            while (next_record) |next| {
-                const cur_offset = next.get_offset();
-                //print("cur record offset: {}\n", .{cur_offset});
-                next.set_offset(cur_offset - @as(usize, @intCast(shrink_len)));
-                //print("cur record new offset: {}\n", .{next.get_offset()});
-                next_record = next.get_next_record();
-            }
+    //         // Update subsequent records' offsets and lengths
+    //         //print("Update subsequent records' offsets and lengths:\n", .{});
+    //         var next_record: ?*AnswerRecord = self.next_answer;
+    //         while (next_record) |next| {
+    //             const cur_offset = next.get_offset();
+    //             //print("cur record offset: {}\n", .{cur_offset});
+    //             next.set_offset(cur_offset - @as(usize, @intCast(shrink_len)));
+    //             //print("cur record new offset: {}\n", .{next.get_offset()});
+    //             next_record = next.get_next_record();
+    //         }
 
-            //print("shrink len: {}\n", .{-shrink_len});
+    //         //print("shrink len: {}\n", .{-shrink_len});
 
-            // Update compression pointers
-            self.update_proceeding_records(-shrink_len);
-            //print("proceeding records updated.\n", .{});
-            try self.update_rest_ptrs(ptr); // needs to be called now
-            //print("rest of ptrs updated.\n", .{});
+    //         // Update compression pointers
+    //         self.update_proceeding_records(-shrink_len);
+    //         //print("proceeding records updated.\n", .{});
+    //         try self.update_rest_ptrs(ptr); // needs to be called now
+    //         //print("rest of ptrs updated.\n", .{});
 
-            // Write new NS
-            const new_data = self.get_data_mut();
-            @memcpy(new_data[offset..], name); // remove temp magic number
-        } else {
-            // Same length, simple overwrite
-            @memcpy(data[offset..], name); // remove temp magic number
-        }
-    }
+    //         // Write new NS
+    //         const new_data = self.get_data_mut();
+    //         @memcpy(new_data[offset..], name); // remove temp magic number
+    //     } else {
+    //         // Same length, simple overwrite
+    //         @memcpy(data[offset..], name); // remove temp magic number
+    //     }
+    // }
 
     pub fn to_string(self: *NSRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]const u8 {
         var list: std.ArrayList(u8) = .empty;
@@ -1201,8 +1293,8 @@ pub const NSRecord = struct { //TODO: remove magic numbers
         return try list.toOwnedSlice(allocator);
     }
 
-    pub fn get_rr_type(self: NSRecord) QueryType {
-        return get_q_type(self.get_data());
+    pub fn deinit(self: *NSRecord) void {
+        self.owner.deinit();
     }
 };
 
@@ -1705,14 +1797,10 @@ pub const SOARecord = struct {
         // advance offset past NAME
         advance_past_name(self.get_data(), &offset);
 
-        // At this point, offset points to the byte AFTER the last label's null terminator
-        // So we're now at the TYPE field
-
         // Skip TYPE (2), CLASS (2), TTL (4), RDLENGTH (2)
-
         offset += MNAME_OFFSET_FROM_NAME;
 
-        // adance offset past MNAME
+        // advance offset past MNAME
         advance_past_name(self.get_data(), &offset);
 
         // advance offset past RNAME

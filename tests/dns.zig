@@ -396,8 +396,6 @@ test "build soa record" {
     const ns_server = try DNS.encode_name("ns1.google.com", allocator);
     defer allocator.free(ns_server);
 
-    print("ns1.google.com: ({}) {x}\n", .{ ns_server.len, ns_server });
-
     const resp_mbox = try DNS.encode_name("dns-admin.google.com", allocator);
     defer allocator.free(resp_mbox);
 
@@ -467,8 +465,6 @@ test "build soa record" {
     const cf_ns_name = try DNS.encode_name("ns3.cloudflare.com", allocator);
     defer allocator.free(cf_ns_name);
 
-    print("ns3.cloudflare.com: ({}) {x}\n", .{ cf_ns_name.len, cf_ns_name });
-
     try record.set_mname(cf_ns_name);
 
     const cf_mname = try record.get_mname(allocator);
@@ -498,6 +494,62 @@ test "build soa record" {
     try expect(record.get_retry_interval() == retry_interval);
     try expect(record.get_expire_limit() == expire_limit);
     try expect(record.get_minimum_ttl() == min_ttl);
+}
+
+test "build ns record" {
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+
+    const allocator = debug_allocator.allocator();
+
+    const name = try DNS.encode_name("google.com", allocator);
+    defer allocator.free(name);
+
+    const ns_server = try DNS.encode_name("ns1.google.com", allocator);
+    defer allocator.free(ns_server);
+
+    var record = try DNS.NSRecord.init(name, .IN, 300, ns_server, allocator);
+    defer record.deinit();
+
+    const name_dec = try record.get_name(allocator);
+    defer allocator.free(name_dec);
+
+    try expect(eql(u8, name_dec, "google.com"));
+
+    try expect(record.get_rr_type() == .NS);
+    try expect(record.get_class() == .IN);
+    try expect(record.get_ttl() == 300);
+    try expect(record.get_rd_len() == ns_server.len);
+
+    const ns_server_dec = try record.decode_ns_name(allocator);
+    defer allocator.free(ns_server_dec);
+
+    try expect(eql(u8, ns_server_dec, "ns1.google.com"));
+
+    const cf_ns_name = try DNS.encode_name("ns3.cloudflare.com", allocator);
+    defer allocator.free(cf_ns_name);
+
+    try record.set_ns_name(cf_ns_name);
+
+    const cf_ns_name_dec = try record.decode_ns_name(allocator);
+    defer allocator.free(cf_ns_name_dec);
+
+    try expect(eql(u8, cf_ns_name_dec, "ns3.cloudflare.com"));
+
+    const cf_name = try DNS.encode_name("cloudflare.com", allocator);
+    defer allocator.free(cf_name);
+
+    try record.set_name(cf_name);
+
+    const cf_name_dec = try record.get_name(allocator);
+    defer allocator.free(cf_name_dec);
+
+    try expect(eql(u8, cf_name_dec, "cloudflare.com"));
+
+    try expect(record.get_rr_type() == .NS);
+    try expect(record.get_class() == .IN);
+    try expect(record.get_ttl() == 300);
+    try expect(record.get_rd_len() == cf_ns_name.len);
 }
 
 test "parse dns A response raw" {
