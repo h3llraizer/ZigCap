@@ -1373,6 +1373,58 @@ pub const TXTRecord = struct {
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
+    const TXT_STRING_OFFSET_FROM_NAME = QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH + TXT_LENGTH;
+
+    pub fn init(
+        name: []const u8,
+        class: DnsClass,
+        ttl: u32,
+        txt_str: []const u8,
+        allocator: Allocator,
+    ) Allocator.Error!TXTRecord {
+        var owner: TLVOwner = try init_record(
+            name,
+            .TXT,
+            class,
+            allocator,
+        );
+
+        _ = try owner.extend_buffer(owner.get_data().len, txt_str.len);
+
+        const len = owner.get_data().len;
+
+        var rec = TXTRecord{
+            .offset = 0,
+            .length = len,
+            .qclass = class,
+            .owner = owner,
+        };
+
+        var offset: usize = 0;
+
+        advance_past_name(owner.get_data(), &offset);
+
+        offset += QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH;
+
+        const rd_len_offset = offset;
+        offset += RD_LENGTH;
+
+        owner.get_data()[offset] = @intCast(txt_str.len);
+        @memmove(owner.get_data()[offset + 1 .. offset + 1 + txt_str.len], txt_str);
+
+        std.mem.writeInt(
+            u16,
+            @ptrCast(owner.get_data()[rd_len_offset .. rd_len_offset + RD_LENGTH].ptr),
+            @intCast(1 + txt_str.len),
+            .big,
+        );
+
+        var grec: *GenericRecord = @ptrCast(&rec);
+        grec.set_ttl(ttl);
+
+        return rec;
+    }
+
     pub fn get_data(self: *TXTRecord) []const u8 {
         return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
@@ -1387,23 +1439,122 @@ pub const TXTRecord = struct {
         return try decode_name(self.owner.get_data(), data, allocator);
     }
 
+    pub fn set_name(self: *TXTRecord, name: []const u8) Allocator.Error!void {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.set_name(name);
+    }
+
+    pub fn get_rr_type(self: *TXTRecord) QueryType {
+        return get_q_type(self.get_data());
+    }
+
+    pub fn set_class(self: *TXTRecord, qclass: DnsClass) void {
+        var grec: *GenericRecord = @ptrCast(self);
+        grec.set_class(qclass);
+    }
+
+    pub fn get_class(self: *TXTRecord) DnsClass {
+        return get_dns_class(self.get_data());
+    }
+
+    pub fn get_ttl(self: *TXTRecord) u32 {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.get_ttl();
+    }
+
+    pub fn set_ttl(self: *TXTRecord, ttl: u32) void {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.set_ttl(ttl);
+    }
+
+    pub fn get_rd_len(self: *TXTRecord) u16 {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.get_rd_len();
+    }
+
+    pub fn get_txt_len(self: *TXTRecord) u8 {
+        var offset: usize = 0;
+
+        advance_past_name(self.get_data(), &offset);
+
+        offset += TXT_STRING_OFFSET_FROM_NAME - @sizeOf(u8);
+
+        return self.get_data()[offset];
+    }
+
     /// gets the records data from offset 13 and returns the slice which is the TXT string itself.
     /// no conversion needed because it's already a string
     /// to get the domain part, use get_name
-    pub fn get_record_str(self: *TXTRecord) []const u8 {
+    pub fn get_txt(self: *TXTRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]const u8 {
         const data = self.get_data();
 
         var offset: usize = 0;
 
         advance_past_name(data, &offset);
 
-        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH + TXT_LENGTH);
+        offset += TXT_STRING_OFFSET_FROM_NAME;
 
-        return self.get_data()[offset..];
+        return try decode_name(self.owner.get_data(), self.get_data()[offset..], allocator);
     }
 
-    pub fn get_rr_type(self: TXTRecord) QueryType {
-        return get_q_type(self.get_data());
+    pub fn set_txt(self: *TXTRecord, str: []const u8) Allocator.Error!void {
+        const data = self.get_data();
+
+        var offset: usize = 0;
+
+        advance_past_name(data, &offset);
+
+        offset += TXT_STRING_OFFSET_FROM_NAME;
+
+        const cur_len: usize = offset + self.length;
+
+        if (str.len > cur_len) {
+            const extend_len: usize = str.len - cur_len;
+
+            _ = try self.owner.extend_buffer(offset, extend_len);
+
+            self.length += extend_len;
+
+            var next_rec = self.next_answer;
+            while (next_rec) |rr| {
+                rr.set_offset(rr.get_offset() + extend_len);
+                next_rec = rr.get_next_record();
+            }
+        }
+
+        if (str.len < cur_len) {
+            const shorten_len: usize = cur_len - str.len;
+
+            try self.owner.shorten_buffer(offset + str.len, shorten_len);
+
+            self.length -= shorten_len;
+
+            var next_rec = self.next_answer;
+
+            while (next_rec) |rr| {
+                rr.set_offset(rr.get_offset() - shorten_len);
+                next_rec = rr.get_next_record();
+            }
+        }
+
+        offset -= TXT_STRING_OFFSET_FROM_NAME;
+
+        self.get_data_mut()[offset] = @intCast(str.len - 1);
+
+        offset -= RD_LENGTH;
+
+        std.mem.writeInt(
+            u16,
+            @ptrCast(self.get_data_mut[offset .. offset + RD_LENGTH].ptr),
+            @intCast(str.len),
+            .big,
+        );
+
+        @memmove(self.get_data_mut()[offset..str.len], str);
+    }
+
+    pub fn deinit(self: *TXTRecord) void {
+        self.owner.deinit();
     }
 };
 

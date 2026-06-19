@@ -550,6 +550,46 @@ test "build ns record" {
     try expect(record.get_class() == .IN);
     try expect(record.get_ttl() == 300);
     try expect(record.get_rd_len() == cf_ns_name.len);
+
+    record.set_ttl(600);
+    record.set_class(.ANY);
+
+    try expect(record.get_class() == .ANY);
+    try expect(record.get_ttl() == 600);
+}
+
+test "build txt record" {
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+
+    const allocator = debug_allocator.allocator();
+
+    const name = try DNS.encode_name("google.com", allocator);
+    defer allocator.free(name);
+
+    const txt_rec = try DNS.encode_name("asv=894f6d1f9f83bcf44e4b1bc40bc1c4aa", allocator);
+    defer allocator.free(txt_rec);
+
+    var record = try DNS.TXTRecord.init(name, .IN, 300, txt_rec, allocator);
+    defer record.deinit();
+
+    const name_dec = try record.get_name(allocator);
+    defer allocator.free(name_dec);
+
+    try expect(eql(u8, name_dec, "google.com"));
+
+    const txt_dec = try record.get_txt(allocator);
+    defer allocator.free(txt_dec);
+
+    try expect(eql(u8, txt_dec, "asv=894f6d1f9f83bcf44e4b1bc40bc1c4aa"));
+
+    try expect(record.get_class() == .IN);
+
+    try expect(record.get_ttl() == 300);
+
+    try expect(record.get_txt_len() == txt_rec.len);
+
+    try expect(record.get_rd_len() == txt_rec.len + 1);
 }
 
 test "parse dns A response raw" {
