@@ -581,6 +581,11 @@ test "build txt record" {
     const txt_dec = try record.get_txt(allocator);
     defer allocator.free(txt_dec);
 
+    //  const cf_name = try DNS.encode_name("cloudflare.com", allocator);
+    //  defer allocator.free(cf_name);
+
+    //  try record.set_name(cf_name);
+
     try expect(eql(u8, txt_dec, "asv=894f6d1f9f83bcf44e4b1bc40bc1c4aa"));
 
     try expect(record.get_class() == .IN);
@@ -590,6 +595,97 @@ test "build txt record" {
     try expect(record.get_txt_len() == txt_rec.len);
 
     try expect(record.get_rd_len() == txt_rec.len + 1);
+}
+
+test "build mx record" {
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+
+    const allocator = debug_allocator.allocator();
+
+    const name = try DNS.encode_name("cloudflare.com", allocator);
+    defer allocator.free(name);
+
+    const mx_domain = try DNS.encode_name("mxa-canary.global.inbound.cf-emailsecurity.net", allocator);
+    defer allocator.free(mx_domain);
+
+    const class_in = DNS.DnsClass.IN;
+    const ttl: u32 = 36;
+    const preference: u16 = 5;
+
+    var record = try DNS.MXRecord.init(name, class_in, ttl, preference, mx_domain, allocator);
+    defer record.deinit();
+
+    const name_dec = try record.get_name(allocator);
+    defer allocator.free(name_dec);
+
+    try expect(eql(u8, name_dec, "cloudflare.com"));
+
+    try expect(record.get_rr_type() == .MX);
+    try expect(record.get_class() == .IN);
+    try expect(record.get_ttl() == ttl);
+    try expect(record.get_preference() == preference);
+    try expect(record.get_rd_len() == mx_domain.len + DNS.MXRecord.MX_PREFERENCE_VALUE_LENGTH);
+
+    const mx_domain_dec = try record.get_mx_domain(allocator);
+    defer allocator.free(mx_domain_dec);
+
+    try expect(eql(u8, mx_domain_dec, "mxa-canary.global.inbound.cf-emailsecurity.net"));
+
+    const expected_len = (name.len +
+        mx_domain.len +
+        DNS.QUERY_TYPE_LENGTH +
+        DNS.CLASS_TYPE_LENGTH +
+        DNS.TTL_LENGTH +
+        DNS.RD_LENGTH +
+        DNS.MXRecord.MX_PREFERENCE_VALUE_LENGTH);
+
+    try expect(record.get_data().len == expected_len);
+
+    const google_name = try DNS.encode_name("google.com", allocator);
+    defer allocator.free(google_name);
+
+    try expect(record.get_rr_type() == .MX);
+    try expect(record.get_class() == .IN);
+    try expect(record.get_ttl() == ttl);
+
+    try record.set_name(google_name);
+
+    const google_name_dec = try record.get_name(allocator);
+    defer allocator.free(google_name_dec);
+
+    try expect(eql(u8, google_name_dec, "google.com"));
+
+    try expect(record.get_data().len == (google_name.len +
+        mx_domain.len +
+        DNS.QUERY_TYPE_LENGTH +
+        DNS.CLASS_TYPE_LENGTH +
+        DNS.TTL_LENGTH +
+        DNS.RD_LENGTH +
+        DNS.MXRecord.MX_PREFERENCE_VALUE_LENGTH));
+
+    try expect(record.get_rr_type() == .MX);
+    try expect(record.get_class() == .IN);
+    try expect(record.get_ttl() == ttl);
+    try expect(record.get_preference() == preference);
+
+    const google_mx_domain = try DNS.encode_name("mx.google.com", allocator);
+    defer allocator.free(google_mx_domain);
+
+    try record.set_mx_domain(google_mx_domain);
+
+    const google_mx_dec = try record.get_mx_domain(allocator);
+    defer allocator.free(google_mx_dec);
+
+    try expect(eql(u8, google_mx_dec, "mx.google.com"));
+
+    try expect(record.get_rr_type() == .MX);
+    try expect(record.get_class() == .IN);
+    try expect(record.get_ttl() == ttl);
+
+    record.set_preference(10);
+
+    try expect(record.get_preference() == 10);
 }
 
 test "parse dns A response raw" {

@@ -22,7 +22,6 @@ pub const TTL_LENGTH = DNS.TTL_LENGTH;
 pub const RD_LENGTH = DNS.RD_LENGTH;
 
 const TXT_LENGTH = @sizeOf(u8);
-const MX_PREFERENCE_VALUE_LENGTH = @sizeOf(u16);
 
 const COMPRESSION_PTR_LENGTH = @sizeOf(u8) * 2;
 
@@ -127,7 +126,6 @@ pub const AnswerRecord = union(enum) {
                 return .{ .generic = .{
                     .offset = offset,
                     .length = length,
-                    .qtype = qtype,
                     .qclass = qclass,
                     .owner = owner,
                 } };
@@ -136,7 +134,6 @@ pub const AnswerRecord = union(enum) {
             else => return .{ .generic = .{
                 .offset = offset,
                 .length = length,
-                .qtype = qtype,
                 .qclass = qclass,
                 .owner = owner,
             } },
@@ -430,7 +427,11 @@ fn get_dns_class(data: []const u8) DnsClass {
 
     offset += QUERY_TYPE_LENGTH;
 
-    return @enumFromInt(std.mem.readInt(u16, @ptrCast(data[offset .. offset + RD_LENGTH].ptr), .big));
+    return @enumFromInt(std.mem.readInt(
+        u16,
+        @ptrCast(data[offset .. offset + CLASS_TYPE_LENGTH].ptr),
+        .big,
+    ));
 }
 
 fn set_dns_class(data: []u8, class: DnsClass) void {
@@ -440,7 +441,12 @@ fn set_dns_class(data: []u8, class: DnsClass) void {
 
     offset += QUERY_TYPE_LENGTH;
 
-    return std.mem.writeInt(u16, @ptrCast(data[offset .. offset + RD_LENGTH].ptr), @intFromEnum(class), .big);
+    return std.mem.writeInt(
+        u16,
+        @ptrCast(data[offset .. offset + CLASS_TYPE_LENGTH].ptr),
+        @intFromEnum(class),
+        .big,
+    );
 }
 
 fn get_q_type(data: []const u8) QueryType {
@@ -448,7 +454,11 @@ fn get_q_type(data: []const u8) QueryType {
 
     advance_past_name(data, &offset);
 
-    return @enumFromInt(std.mem.readInt(u16, @ptrCast(data[offset .. offset + RD_LENGTH].ptr), .big));
+    return @enumFromInt(std.mem.readInt(
+        u16,
+        @ptrCast(data[offset .. offset + QUERY_TYPE_LENGTH].ptr),
+        .big,
+    ));
 }
 
 fn set_q_type(data: []u8, qtype: QueryType) void {
@@ -456,18 +466,12 @@ fn set_q_type(data: []u8, qtype: QueryType) void {
 
     advance_past_name(data, &offset);
 
-    return std.mem.writeInt(u16, @ptrCast(data[offset .. offset + RD_LENGTH].ptr), @intFromEnum(qtype), .big);
-}
-
-fn init_buffer(owner: *TLVOwner, qtype: QueryType, class: DnsClass) !void {
-    if (owner.get_data().len < (@sizeOf(u8) * 2 + QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH)) {
-        const buf = try owner.extend_buffer();
-
-        std.mem.writeInt(u16, buf[2..4], @intFromEnum(qtype), .big);
-        std.mem.writeInt(u16, buf[4..6], @intFromEnum(class), .big);
-
-        std.mem.writeInt(u16, buf[6..10], 64, .big);
-    }
+    return std.mem.writeInt(
+        u16,
+        @ptrCast(data[offset .. offset + QUERY_TYPE_LENGTH].ptr),
+        @intFromEnum(qtype),
+        .big,
+    );
 }
 
 fn init_record(name: []const u8, qtype: QueryType, class: DnsClass, allocator: Allocator) Allocator.Error!TLVOwner {
@@ -481,8 +485,9 @@ fn init_record(name: []const u8, qtype: QueryType, class: DnsClass, allocator: A
 
     switch (qtype) {
         .MX => {
-            rd_len += MX_PREFERENCE_VALUE_LENGTH; // 2 bytes
-            rd_len += COMPRESSION_PTR_LENGTH; // include at least 2 bytes for the rdata (compression ptr length) and extend when required
+            rd_len += MXRecord.MX_PREFERENCE_VALUE_LENGTH; // 2 bytes
+
+            //rd_len += COMPRESSION_PTR_LENGTH; // include at least 2 bytes for the rdata (compression ptr length) and extend when required
 
         },
         .TXT => {
@@ -536,7 +541,6 @@ fn init_record(name: []const u8, qtype: QueryType, class: DnsClass, allocator: A
 pub const GenericRecord = struct {
     offset: usize,
     length: usize,
-    qtype: QueryType,
     qclass: DnsClass,
     owner: TLVOwner,
     next_answer: ?*AnswerRecord = null,
@@ -564,7 +568,6 @@ pub const GenericRecord = struct {
         const rec = GenericRecord{
             .offset = 0,
             .length = len,
-            .qtype = @enumFromInt(0),
             .qclass = @enumFromInt(0),
             .owner = owner,
         };
@@ -614,7 +617,9 @@ pub const GenericRecord = struct {
         if (cur_name_len > name.len) {
             const shorten_len = cur_name_len - name.len;
 
-            try self.owner.shorten_buffer(cur_name_len, shorten_len);
+            //print("shortening at {} by {}\n", .{ cur_name_len, shorten_len });
+
+            try self.owner.shorten_buffer(name.len, shorten_len);
 
             self.length -= shorten_len;
 
@@ -646,7 +651,17 @@ pub const GenericRecord = struct {
     }
 
     pub fn get_rr_type(self: *GenericRecord) QueryType {
-        return get_q_type(self.get_data());
+        const data = self.get_data();
+
+        var offset: usize = 0;
+
+        advance_past_name(data, &offset);
+
+        return @enumFromInt(std.mem.readInt(
+            u16,
+            @ptrCast(data[offset .. offset + QUERY_TYPE_LENGTH].ptr),
+            .big,
+        ));
     }
 
     pub fn set_class(self: *GenericRecord, qclass: DnsClass) void {
@@ -667,7 +682,19 @@ pub const GenericRecord = struct {
     }
 
     pub fn get_class(self: *GenericRecord) DnsClass {
-        return get_dns_class(self.get_data());
+        const data = self.get_data();
+
+        var offset: usize = 0;
+
+        advance_past_name(data, &offset);
+
+        offset += QUERY_TYPE_LENGTH;
+
+        return @enumFromInt(std.mem.readInt(
+            u16,
+            @ptrCast(data[offset .. offset + RD_LENGTH].ptr),
+            .big,
+        ));
     }
 
     pub fn set_ttl(self: *GenericRecord, ttl: u32) void {
@@ -1176,100 +1203,6 @@ pub const NSRecord = struct {
         try grec.set_rdata(server_name);
     }
 
-    /// Takes a non-dns-label cname value and converts it to label format using a helper method and the allocator provided.
-    /// The formatted cname value is copied over the current one with these cases:
-    /// if the formatted cname value is of the same length as the current one, the DNSLayer buffer remains unchanged
-    /// else if the new cname is shorter or longer, then the dns layers buffer is shortened or extended, respectively
-    // fn set_ns_name(self: *NSRecord, name: []const u8) Allocator.Error!void {
-    //     // need to check if the name being changed contains any sub label ptrs which proceeding records rely on
-    //     // e.g. .net in a name can be relied on proceeding records
-    //     // in this case, find the next record that uses this ptr, edit the name record to include that sub-label
-    //     // and then update the proceeding records so that they use the ptr to the above
-    //     const data = self.get_data_mut();
-
-    //     var offset: usize = 0;
-
-    //     advance_past_name(data, &offset);
-
-    //     offset += GenericRecord.RDATA_OFFSET_FROM_NAME;
-
-    //     const current_rdata = data[offset..];
-    //     const old_len = current_rdata.len;
-    //     const new_len = name.len;
-
-    //     const name_start = self.offset + offset;
-
-    //     var ptr: [2]u8 = undefined; // generate compression ptr for this name record being changed
-    //     ptr[0] = 0xC0 | @as(u8, @truncate((name_start >> 8) & 0x3F));
-    //     ptr[1] = @as(u8, @truncate(name_start & 0xFF));
-
-    //     if (new_len > old_len) {
-    //         const extend_len = new_len - old_len;
-    //         const name_offset = self.offset + offset;
-
-    //         //print("extend len: {}\n", .{extend_len});
-
-    //         // Extend the payload
-    //         _ = try self.owner.extend_layer(name_offset, extend_len);
-
-    //         // Update this record's length
-    //         self.length += extend_len;
-
-    //         // Update all subsequent records' offsets and lengths
-    //         var next_record: ?*AnswerRecord = self.next_answer;
-    //         while (next_record) |next| {
-    //             next.set_offset(next.get_offset() + extend_len);
-    //             next_record = next.get_next_record();
-    //         }
-
-    //         // Update ALL compression pointers in the packet
-    //         self.update_proceeding_records(@intCast(extend_len));
-    //         try self.update_rest_ptrs(ptr); // needs to be called now
-
-    //         // Refresh data pointer and write new NS
-    //         const new_data = self.get_data_mut();
-    //         @memcpy(new_data[offset..], name);
-    //     } else if (new_len < old_len) {
-    //         //print("new name len is less than current. current: {} new: {}\n", .{ old_len, new_len });
-    //         const shrink_len: isize = @as(isize, @intCast(old_len)) - @as(isize, @intCast(new_len));
-    //         //print("shrink len: {}\n", .{shrink_len});
-    //         const name_offset = self.offset + offset; // remove temp magic number
-
-    //         // Shrink the records RR
-    //         try self.owner.shorten_layer(name_offset, @intCast(shrink_len));
-    //         //print("shortened.\n", .{});
-
-    //         // Update this record's length
-    //         self.length -= @intCast(shrink_len); // int cast required here because shrink_len is isize
-
-    //         // Update subsequent records' offsets and lengths
-    //         //print("Update subsequent records' offsets and lengths:\n", .{});
-    //         var next_record: ?*AnswerRecord = self.next_answer;
-    //         while (next_record) |next| {
-    //             const cur_offset = next.get_offset();
-    //             //print("cur record offset: {}\n", .{cur_offset});
-    //             next.set_offset(cur_offset - @as(usize, @intCast(shrink_len)));
-    //             //print("cur record new offset: {}\n", .{next.get_offset()});
-    //             next_record = next.get_next_record();
-    //         }
-
-    //         //print("shrink len: {}\n", .{-shrink_len});
-
-    //         // Update compression pointers
-    //         self.update_proceeding_records(-shrink_len);
-    //         //print("proceeding records updated.\n", .{});
-    //         try self.update_rest_ptrs(ptr); // needs to be called now
-    //         //print("rest of ptrs updated.\n", .{});
-
-    //         // Write new NS
-    //         const new_data = self.get_data_mut();
-    //         @memcpy(new_data[offset..], name); // remove temp magic number
-    //     } else {
-    //         // Same length, simple overwrite
-    //         @memcpy(data[offset..], name); // remove temp magic number
-    //     }
-    // }
-
     pub fn to_string(self: *NSRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]const u8 {
         var list: std.ArrayList(u8) = .empty;
 
@@ -1445,7 +1378,8 @@ pub const TXTRecord = struct {
     }
 
     pub fn get_rr_type(self: *TXTRecord) QueryType {
-        return get_q_type(self.get_data());
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.get_rr_type();
     }
 
     pub fn set_class(self: *TXTRecord, qclass: DnsClass) void {
@@ -1454,7 +1388,8 @@ pub const TXTRecord = struct {
     }
 
     pub fn get_class(self: *TXTRecord) DnsClass {
-        return get_dns_class(self.get_data());
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.get_class();
     }
 
     pub fn get_ttl(self: *TXTRecord) u32 {
@@ -1517,7 +1452,7 @@ pub const TXTRecord = struct {
 
             var next_rec = self.next_answer;
             while (next_rec) |rr| {
-                rr.set_offset(rr.get_offset() + extend_len);
+                rr.set_offset(rr.get_offse() + extend_len);
                 next_rec = rr.get_next_record();
             }
         }
@@ -1558,6 +1493,8 @@ pub const TXTRecord = struct {
     }
 };
 
+// Layout
+// Name | QueryType | DnsClass | TTL | RD Length | Pref | MX Domain
 /// MX Record
 pub const MXRecord = struct {
     offset: usize,
@@ -1567,12 +1504,166 @@ pub const MXRecord = struct {
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
+    pub const MX_PREFERENCE_VALUE_LENGTH = @sizeOf(u16);
+
+    const MX_PREF_OFFSET_FROM_RD_LENGTH = GenericRecord.RD_LENGTH_OFFSET_FROM_NAME + RD_LENGTH;
+
+    const MX_DOMAIN_OFFSET_FROM_NAME = MX_PREF_OFFSET_FROM_RD_LENGTH + MX_PREFERENCE_VALUE_LENGTH;
+
+    pub fn init(name: []const u8, class: DnsClass, ttl: u32, preference: u16, mx_domain: []const u8, allocator: Allocator) Allocator.Error!MXRecord {
+        var owner: TLVOwner = .{ .owned_buffer = .init_empty(allocator) };
+
+        const initial_len = name.len +
+            QUERY_TYPE_LENGTH +
+            CLASS_TYPE_LENGTH +
+            TTL_LENGTH +
+            RD_LENGTH +
+            MX_PREFERENCE_VALUE_LENGTH +
+            mx_domain.len;
+
+        var offset: usize = 0;
+
+        const buf = try owner.extend_buffer(offset, initial_len);
+
+        @memmove(buf[offset..name.len], name);
+
+        offset += name.len;
+
+        std.mem.writeInt(
+            u16,
+            @ptrCast(buf[offset .. offset + QUERY_TYPE_LENGTH].ptr),
+            @intFromEnum(QueryType.MX),
+            .big,
+        );
+
+        offset += QUERY_TYPE_LENGTH;
+
+        std.mem.writeInt(
+            u16,
+            @ptrCast(buf[offset .. offset + CLASS_TYPE_LENGTH].ptr),
+            @intFromEnum(class),
+            .big,
+        );
+
+        offset += CLASS_TYPE_LENGTH;
+
+        std.mem.writeInt(
+            u32,
+            @ptrCast(buf[offset .. offset + TTL_LENGTH].ptr),
+            ttl,
+            .big,
+        );
+
+        offset += TTL_LENGTH;
+
+        std.mem.writeInt(
+            u16,
+            @ptrCast(buf[offset .. offset + RD_LENGTH].ptr),
+            @intCast(mx_domain.len + MX_PREFERENCE_VALUE_LENGTH),
+            .big,
+        );
+
+        offset += RD_LENGTH;
+
+        std.mem.writeInt(
+            u16,
+            @ptrCast(buf[offset .. offset + MX_PREFERENCE_VALUE_LENGTH].ptr),
+            preference,
+            .big,
+        );
+
+        offset += MX_PREFERENCE_VALUE_LENGTH;
+
+        @memmove(buf[offset .. offset + mx_domain.len], mx_domain);
+
+        const mxrecord = MXRecord{
+            .offset = 0,
+            .length = owner.get_data().len,
+            .qclass = class,
+            .owner = owner,
+        };
+
+        return mxrecord;
+    }
+
     pub fn get_data(self: *MXRecord) []const u8 {
         return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
     pub fn get_data_mut(self: *MXRecord) []u8 {
         return self.owner.get_data()[self.offset .. self.offset + self.length];
+    }
+
+    /// retrieves the name stated in the RR.
+    pub fn get_name(self: *MXRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
+        //const data = self.get_data();
+        //return try decode_name(self.owner.get_data(), data, allocator);
+        var grec: *GenericRecord = @ptrCast(self);
+        return try grec.get_name(allocator);
+    }
+
+    pub fn set_name(self: *MXRecord, name: []const u8) Allocator.Error!void {
+        var grec: *GenericRecord = @ptrCast(self);
+        return try grec.set_name(name);
+    }
+
+    pub fn get_rr_type(self: *MXRecord) QueryType {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.get_rr_type();
+    }
+
+    pub fn set_class(self: *MXRecord, qclass: DnsClass) void {
+        var grec: *GenericRecord = @ptrCast(self);
+        grec.set_class(qclass);
+    }
+
+    pub fn get_class(self: *MXRecord) DnsClass {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.get_class();
+    }
+
+    pub fn get_ttl(self: *MXRecord) u32 {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.get_ttl();
+    }
+
+    pub fn set_ttl(self: *MXRecord, ttl: u32) void {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.set_ttl(ttl);
+    }
+
+    pub fn get_rd_len(self: *MXRecord) u16 {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.get_rd_len();
+    }
+
+    pub fn get_preference(self: *MXRecord) u16 {
+        var offset: usize = 0;
+
+        advance_past_name(self.get_data(), &offset);
+
+        offset += MX_PREF_OFFSET_FROM_RD_LENGTH;
+
+        return std.mem.readInt(
+            u16,
+            @ptrCast(self.get_data()[offset .. offset + MX_PREFERENCE_VALUE_LENGTH].ptr),
+            .big,
+        );
+    }
+
+    pub fn set_preference(self: *MXRecord, pref: u16) void {
+        var offset: usize = 0;
+
+        advance_past_name(self.get_data(), &offset);
+
+        offset += MX_PREF_OFFSET_FROM_RD_LENGTH;
+
+        std.mem.writeInt(
+            u16,
+            @ptrCast(self.get_data_mut()[offset .. offset + MX_PREFERENCE_VALUE_LENGTH].ptr),
+            pref,
+            .big,
+        );
     }
 
     pub fn get_mx_domain(self: *MXRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]const u8 {
@@ -1589,8 +1680,64 @@ pub const MXRecord = struct {
         return try decode_name(self.owner.get_data(), domain_start, allocator);
     }
 
-    pub fn get_rr_type(self: MXRecord) QueryType {
-        return get_q_type(self.get_data());
+    pub fn set_mx_domain(self: *MXRecord, mx_domain: []const u8) (DNSLayer.DNSParseError || Allocator.Error)!void {
+        const data = self.get_data();
+
+        var offset: usize = 0;
+
+        advance_past_name(data, &offset);
+
+        const rd_len_offset = offset + QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH;
+
+        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH + MX_PREFERENCE_VALUE_LENGTH);
+
+        var cur_len: usize = 0;
+
+        advance_past_name(self.get_data()[offset..self.length], &cur_len);
+
+        if (mx_domain.len > cur_len) {
+            const extend_len: usize = mx_domain.len - cur_len;
+
+            _ = try self.owner.extend_buffer(offset, extend_len);
+
+            self.length += extend_len;
+
+            var next_rec = self.next_answer;
+            while (next_rec) |rr| {
+                rr.set_offset(rr.get_offset() + extend_len);
+                next_rec = rr.get_next_record();
+            }
+        }
+
+        if (mx_domain.len < cur_len) {
+            const shorten_len: usize = cur_len - mx_domain.len;
+
+            const end = offset + mx_domain.len;
+
+            try self.owner.shorten_buffer(end, shorten_len);
+
+            self.length -= shorten_len;
+
+            var next_rec = self.next_answer;
+
+            while (next_rec) |rr| {
+                rr.set_offset(rr.get_offset() - shorten_len);
+                next_rec = rr.get_next_record();
+            }
+        }
+
+        std.mem.writeInt(
+            u16,
+            @ptrCast(self.get_data_mut()[rd_len_offset .. rd_len_offset + RD_LENGTH].ptr),
+            @intCast(mx_domain.len),
+            .big,
+        );
+
+        @memmove(self.get_data_mut()[offset .. offset + mx_domain.len], mx_domain);
+    }
+
+    pub fn deinit(self: *MXRecord) void {
+        self.owner.deinit();
     }
 };
 

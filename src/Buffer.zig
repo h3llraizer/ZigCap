@@ -52,6 +52,7 @@ pub const Buffer = struct {
     }
 
     /// shortens the buffer at the offset by length.
+    /// end = offset + length
     /// e.g. start at offset 10 and length 4 decreases by 4
     pub fn shorten(self: *Buffer, offset: usize, length: usize) Allocator.Error!void {
         const end = offset + length;
