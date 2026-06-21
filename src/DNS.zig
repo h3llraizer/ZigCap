@@ -10,6 +10,7 @@ const init_layer = @import("LayerIface.zig").init_layer;
 const Buffer = @import("Buffer.zig").Buffer;
 const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
+const IPAddress = @import("IPAddress.zig").IPAddress;
 const DNSEnums = @import("DNSEnums.zig");
 const DNSRecordTypes = @import("DNSRecordTypes.zig");
 
@@ -1293,6 +1294,120 @@ pub const Queries = struct {
         self.query_count = 0;
     }
 };
+
+pub const ipv4_ptr_query_trailer = ".in-addr.arpa";
+
+pub const ipv6_ptr_query_trailer = ".ip6.arpa";
+
+/// Encode IP (IPv4Address) into DNS Wire Formatted ptr query ready for DNS request transmission
+/// examples:
+/// calling with IPv4Address 142.251.30.113 encodes and returns "113.30.251.142.in-addr.arpa" encoded
+/// calling with IPv6Address 2a00:1450:4009:0c17:0000:0000:0000:0065 returns "5.6.0.0.0.0.0.0.0.0.0.0.0.0.0.0.7.1.c.0.9.0.0.4.0.5.4.1.0.0.a.2.ip6.arpa"
+/// Caller must free the returned name.
+pub fn encode_ip_ptr_query(ip: IPAddress, allocator: Allocator) Allocator.Error![]const u8 {
+    const ip_str = try ip.to_string(allocator);
+    defer allocator.free(ip_str);
+
+    var rvrs_ip_str: std.ArrayList(u8) = try .initCapacity(allocator, ip_str.len);
+    defer rvrs_ip_str.deinit(allocator);
+
+    var delimeter: u8 = '.';
+
+    if (std.meta.activeTag(ip) == IPAddress.ipv6) delimeter = ':';
+
+    var it = std.mem.splitBackwardsScalar(u8, ip_str, delimeter);
+
+    if (std.meta.activeTag(ip) == IPAddress.ipv4) {
+        while (it.next()) |oct| {
+            try rvrs_ip_str.appendSlice(allocator, oct);
+            try rvrs_ip_str.append(allocator, '.');
+        }
+
+        try rvrs_ip_str.appendSlice(allocator, ipv4_ptr_query_trailer[1..]);
+    }
+
+    if (std.meta.activeTag(ip) == IPAddress.ipv6) {
+        while (it.next()) |hextet| {
+            var it0 = std.mem.reverseIterator(hextet);
+            while (it0.next()) |digit| {
+                try rvrs_ip_str.append(allocator, digit);
+                try rvrs_ip_str.append(allocator, '.');
+            }
+        }
+
+        try rvrs_ip_str.appendSlice(allocator, ipv6_ptr_query_trailer[1..]);
+    }
+
+    return try encode_name(rvrs_ip_str.items, allocator);
+}
+
+/// Decodes a ptr query string.
+/// example return is 113.30.251.142.in-addr.arpa
+pub fn decode_ip_ptr_query(ptr_str: []const u8, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
+    return try decode_name(allocator, ptr_str);
+}
+
+/// return IPaddress from decoded ptr query string
+/// examples:
+/// "5.6.0.0.0.0.0.0.0.0.0.0.0.0.0.0.7.1.c.0.9.0.0.4.0.5.4.1.0.0.a.2.ip6.arpa" will return IPAddress with IPv6Address "2a00:1450:4009:0c17:0000:0000:0000:0065" as active tag
+/// "113.30.251.142.in-addr.arpa" will return IPAddress with IPv4Address "142.251.30.113" as active tag
+pub fn extract_ip_from_ptr(ptr_str: []const u8) (std.fmt.ParseIntError || DNSLayer.DNSParseError || IPv4.IPv4Address.Error || Allocator.Error)!IPAddress {
+    if (ptr_str.len < 15) {
+        return IPv4.IPv4Address.Error.TooFewOctets;
+    }
+
+    var ip_end: usize = 0;
+
+    if (std.mem.indexOf(u8, ptr_str, ipv4_ptr_query_trailer)) |idx| {
+        ip_end = idx;
+
+        var it = std.mem.splitBackwardsScalar(u8, ptr_str[0..ip_end], '.');
+
+        var ip_buf: [4]u8 = .{0} ** 4;
+
+        var oct_count: usize = 0;
+
+        while (it.next()) |oct| {
+            if (oct_count > ip_buf.len - 1) break;
+            ip_buf[oct_count] = try std.fmt.parseInt(u8, oct, 10);
+            oct_count += 1;
+        }
+
+        return IPAddress{ .ipv4 = IPv4.IPv4Address.init_from_array(ip_buf) };
+    }
+    if (std.mem.indexOf(u8, ptr_str, ipv6_ptr_query_trailer)) |idx| {
+        ip_end = idx;
+
+        var it = std.mem.splitBackwardsScalar(u8, ptr_str[0..ip_end], '.');
+
+        var ip_buf: [16]u8 = .{0} ** 16;
+
+        var hextet: u16 = 0;
+        var nibble_count: u3 = 0;
+        var ip_index: usize = 0;
+
+        while (it.next()) |digit| {
+            const v = try std.fmt.parseInt(u8, digit, 16);
+
+            hextet = (hextet << 4) | v;
+            nibble_count += 1;
+
+            if (nibble_count == 4) {
+                std.mem.writeInt(u16, @ptrCast(ip_buf[ip_index .. ip_index + 1].ptr), hextet, .big);
+
+                ip_index += 2;
+                hextet = 0;
+                nibble_count = 0;
+            }
+        }
+
+        return IPAddress{
+            .ipv6 = IPv6.IPv6Address.init_from_array(ip_buf),
+        };
+    } else {
+        return DNSLayer.DNSParseError.LabelTooShort;
+    }
+}
 
 /// Encode names (domain names) into DNS Wire Format for DNS Layer.
 /// Caller must free the returned name.

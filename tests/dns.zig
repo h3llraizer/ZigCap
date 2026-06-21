@@ -17,6 +17,7 @@ const tcp_ip_protocol = zigcap.tcp_ip_protocol;
 const IPProtocol = zigcap.ProtocolEnums.IPProtocol;
 const IPv4 = zigcap.IPv4;
 const IPv6 = zigcap.IPv6;
+const IPAddress = zigcap.IPAddress;
 
 const LayerIface = zigcap.LayerIface;
 
@@ -246,13 +247,6 @@ test "dns build" {
     try dns_layer.add_query(&ziggit_dev_query);
 
     try expect(dns_header.get_qdcount() == 1);
-
-    //  try expect(dns_layer.first_query != null);
-    //  if (dns_layer.first_query) |first| {
-    //      const qname = try first.decode_qname(allocator);
-    //      defer allocator.free(qname);
-    //      try expect(std.mem.eql(u8, qname, ziggit_dev_domain));
-    //  }
 
     const google_domain: []const u8 = try DNS.encode_name("google.com", allocator);
     defer allocator.free(google_domain);
@@ -581,10 +575,10 @@ test "build txt record" {
     const txt_dec = try record.get_txt(allocator);
     defer allocator.free(txt_dec);
 
-    //  const cf_name = try DNS.encode_name("cloudflare.com", allocator);
-    //  defer allocator.free(cf_name);
+    const cf_name = try DNS.encode_name("cloudflare.com", allocator);
+    defer allocator.free(cf_name);
 
-    //  try record.set_name(cf_name);
+    try record.set_name(cf_name);
 
     try expect(eql(u8, txt_dec, "asv=894f6d1f9f83bcf44e4b1bc40bc1c4aa"));
 
@@ -686,6 +680,56 @@ test "build mx record" {
     record.set_preference(10);
 
     try expect(record.get_preference() == 10);
+}
+
+test "build ipv4 ptr query name" {
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+
+    const allocator = debug_allocator.allocator();
+
+    const ip = try IPv4.IPv4Address.init_from_string("142.251.30.113");
+
+    const ip_ptr = try DNS.encode_ip_ptr_query(IPAddress{ .ipv4 = ip }, allocator);
+    defer allocator.free(ip_ptr);
+
+    const ip_ptr_dec = try DNS.decode_ip_ptr_query(ip_ptr, allocator);
+    defer allocator.free(ip_ptr_dec);
+
+    try expect(eql(u8, ip_ptr_dec, "113.30.251.142.in-addr.arpa"));
+
+    const ip_from_ptr = try DNS.extract_ip_from_ptr(ip_ptr_dec);
+
+    try expect(eql(u8, &ip.array, &ip_from_ptr.ipv4.array));
+
+    const ip_str = try ip_from_ptr.to_string(allocator);
+    defer allocator.free(ip_str);
+}
+
+test "build ipv6 ptr query name" {
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+
+    const allocator = debug_allocator.allocator();
+
+    const ip = try IPv6.IPv6Address.init_from_string("2a00:1450:4009:0c17:0000:0000:0000:0065");
+    const ip_str = try ip.to_string(allocator);
+    defer allocator.free(ip_str);
+
+    const ip_ptr = try DNS.encode_ip_ptr_query(IPAddress{ .ipv6 = ip }, allocator);
+    defer allocator.free(ip_ptr);
+
+    const ip_ptr_dec = try DNS.decode_ip_ptr_query(ip_ptr, allocator);
+    defer allocator.free(ip_ptr_dec);
+
+    try expect(eql(u8, ip_ptr_dec, "5.6.0.0.0.0.0.0.0.0.0.0.0.0.0.0.7.1.c.0.9.0.0.4.0.5.4.1.0.0.a.2.ip6.arpa"));
+
+    const ip_from_ptr = try DNS.extract_ip_from_ptr(ip_ptr_dec);
+
+    const ipv6_str = try ip_from_ptr.to_string(allocator);
+    defer allocator.free(ipv6_str);
+
+    try expect(eql(u8, &ip.array, &ip_from_ptr.ipv6.array));
 }
 
 test "parse dns A response raw" {
@@ -1250,12 +1294,12 @@ test "parse PTR record response" {
         try expect(ttl == 920);
 
         if (ans.get_rr_type() == DNS.QueryType.PTR) {
-            const domain = try ans.ptr.get_name(allocator);
+            const domain = try ans.ptr.get_domain(allocator);
             defer allocator.free(domain);
 
-            try expect(std.mem.eql(u8, domain, "yulhrs-in-f139.1e100.net"));
-
             //print("domain: {s} \n", .{domain});
+
+            try expect(std.mem.eql(u8, domain, "yulhrs-in-f139.1e100.net"));
         }
 
         answer = ans.get_next_record();

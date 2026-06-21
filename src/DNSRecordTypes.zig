@@ -913,6 +913,10 @@ pub const ARecord = struct {
         //return try decode_name(self.owner.get_data(), data, allocator);
     }
 
+    pub fn get_rr_type(self: *ARecord) QueryType {
+        return get_q_type(self.get_data());
+    }
+
     pub fn get_class(self: *ARecord) DnsClass {
         return get_dns_class(self.get_data());
     }
@@ -985,10 +989,6 @@ pub const ARecord = struct {
         try list.appendSlice(allocator, ip);
 
         return try list.toOwnedSlice(allocator);
-    }
-
-    pub fn get_rr_type(self: *ARecord) QueryType {
-        return get_q_type(self.get_data());
     }
 
     pub fn deinit(self: *ARecord) void {
@@ -1749,6 +1749,40 @@ pub const PTRRecord = struct {
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
+    pub fn init(name: []const u8, class: DnsClass, ttl: u32, domain_name: []const u8, allocator: Allocator) Allocator.Error!PTRRecord {
+        var owner = try init_record(name, .PTR, class, allocator);
+
+        var offset: usize = 0;
+
+        advance_past_name(owner.get_data(), &offset);
+
+        offset += GenericRecord.TTL_OFFSET_FROM_NAME;
+
+        std.mem.writeInt(
+            u32,
+            @ptrCast(owner.get_data()[offset .. offset + TTL_LENGTH].ptr),
+            ttl,
+            .big,
+        );
+
+        offset += TTL_LENGTH;
+
+        std.mem.writeInt(u16, @ptrCast(owner.get_data()[offset .. offset + RD_LENGTH].ptr), @intCast(domain_name.len), .big);
+
+        offset += RD_LENGTH;
+
+        @memmove(owner.get_data()[offset .. offset + domain_name.len], domain_name);
+
+        const rec = PTRRecord{
+            .offset = 0,
+            .length = owner.get_data().len,
+            .qclass = class,
+            .owner = owner,
+        };
+
+        return rec;
+    }
+
     pub fn get_data(self: *PTRRecord) []const u8 {
         return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
@@ -1758,11 +1792,45 @@ pub const PTRRecord = struct {
     }
 
     pub fn get_name(self: *PTRRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
-        return try decode_name(self.owner.get_data(), self.get_data()[12..], allocator);
+        var grec: *GenericRecord = @ptrCast(self);
+        return try grec.get_name(allocator);
     }
 
-    pub fn get_rr_type(self: PTRRecord) QueryType {
+    pub fn set_name(self: *PTRRecord, name: []const u8) Allocator.Error!void {
+        var grec: *GenericRecord = @ptrCast(self);
+        try grec.set_name(name);
+    }
+
+    pub fn get_rr_type(self: *PTRRecord) QueryType {
         return get_q_type(self.get_data());
+    }
+
+    pub fn get_class(self: *PTRRecord) DnsClass {
+        return get_dns_class(self.get_data());
+    }
+
+    pub fn set_class(self: *PTRRecord, class: DnsClass) void {
+        return set_dns_class(self.get_data_mut(), class);
+    }
+
+    pub fn get_ttl(self: *PTRRecord) u32 {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.get_ttl();
+    }
+
+    pub fn set_ttl(self: *PTRRecord, ttl: u32) void {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.set_ttl(ttl);
+    }
+
+    pub fn get_domain(self: *PTRRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
+        var grec: *GenericRecord = @ptrCast(self);
+        const rdata = grec.get_rdata();
+        return try decode_name(self.owner.get_data(), rdata, allocator);
+    }
+
+    pub fn deinit(self: *PTRRecord) void {
+        self.owner.deinit();
     }
 };
 

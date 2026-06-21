@@ -745,28 +745,45 @@ pub const IPv6Address = struct {
     }
 
     pub fn to_string(self: IPv6Address, allocator: std.mem.Allocator) ![]u8 {
-        var groups: [8]u16 = undefined;
-
-        // Convert bytes → 8 u16 groups
-        for (0..8) |i| {
-            const hi: u16 = self.array[i * 2];
-            const lo: u16 = self.array[i * 2 + 1];
-            groups[i] = (hi << 8) | lo;
-        }
-
         return std.fmt.allocPrint(
             allocator,
             "{x}:{x}:{x}:{x}:{x}:{x}:{x}:{x}",
             .{
-                groups[0],
-                groups[1],
-                groups[2],
-                groups[3],
-                groups[4],
-                groups[5],
-                groups[6],
-                groups[7],
+                self.array[0..2],
+                self.array[2..4],
+                self.array[4..6],
+                self.array[6..8],
+                self.array[8..10],
+                self.array[10..12],
+                self.array[12..14],
+                self.array[14..16],
             },
         );
     }
+
+    //   pub fn to_string(self: IPv6Address, allocator: std.mem.Allocator) ![]u8 {
+    //       var groups: [8]u16 = undefined;
+    //
+    //       // Convert bytes → 8 u16 groups
+    //       for (0..8) |i| {
+    //           const hi: u16 = self.array[i * 2];
+    //           const lo: u16 = self.array[i * 2 + 1];
+    //           groups[i] = (hi << 8) | lo;
+    //       }
+    //
+    //       return std.fmt.allocPrint(
+    //           allocator,
+    //           "{x}:{x}:{x}:{x}:{x}:{x}:{x}:{x}",
+    //           .{
+    //               groups[0],
+    //               groups[1],
+    //               groups[2],
+    //               groups[3],
+    //               groups[4],
+    //               groups[5],
+    //               groups[6],
+    //               groups[7],
+    //           },
+    //       );
+    //   }
 };

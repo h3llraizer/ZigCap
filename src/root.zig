@@ -23,6 +23,7 @@ pub const ICMP = @import("ICMP.zig");
 pub const IGMP = @import("IGMP.zig");
 pub const IPv4 = @import("IPv4.zig");
 pub const IPv6 = @import("IPv6.zig");
+pub const IPAddress = @import("IPAddress.zig").IPAddress;
 pub const Packet = @import("Packet.zig");
 pub const TCP = @import("TCP.zig");
 pub const UDP = @import("UDP.zig");
