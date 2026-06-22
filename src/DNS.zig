@@ -1311,13 +1311,9 @@ pub fn encode_ip_ptr_query(ip: IPAddress, allocator: Allocator) Allocator.Error!
     var rvrs_ip_str: std.ArrayList(u8) = try .initCapacity(allocator, ip_str.len);
     defer rvrs_ip_str.deinit(allocator);
 
-    var delimeter: u8 = '.';
-
-    if (std.meta.activeTag(ip) == IPAddress.ipv6) delimeter = ':';
-
-    var it = std.mem.splitBackwardsScalar(u8, ip_str, delimeter);
-
     if (std.meta.activeTag(ip) == IPAddress.ipv4) {
+        var it = std.mem.splitBackwardsScalar(u8, ip_str, '.');
+
         while (it.next()) |oct| {
             try rvrs_ip_str.appendSlice(allocator, oct);
             try rvrs_ip_str.append(allocator, '.');
@@ -1327,6 +1323,7 @@ pub fn encode_ip_ptr_query(ip: IPAddress, allocator: Allocator) Allocator.Error!
     }
 
     if (std.meta.activeTag(ip) == IPAddress.ipv6) {
+        var it = std.mem.splitBackwardsScalar(u8, ip_str, ':');
         while (it.next()) |hextet| {
             var it0 = std.mem.reverseIterator(hextet);
             while (it0.next()) |digit| {

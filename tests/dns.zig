@@ -57,6 +57,9 @@ test "generic record" {
 
     try grec.set_rdata(&ip.array);
 
+    const str = try grec.to_string(allocator);
+    defer allocator.free(str);
+
     try expect(eql(u8, grec.get_rdata(), &ip.array));
 
     try expect(grec.get_rr_type() == .A);
@@ -355,7 +358,7 @@ test "build a record" {
 
     const allocator = debug_allocator.allocator();
 
-    const name = try DNS.encode_name("google.com", allocator);
+    const name = try DNS.encode_name("dns.google.com", allocator);
     defer allocator.free(name);
 
     const ip = try IPv4.IPv4Address.init_from_string("8.8.8.8");
@@ -371,10 +374,42 @@ test "build a record" {
 
     const decoded_name = try record.get_name(allocator);
     defer allocator.free(decoded_name);
-    try expect(eql(u8, decoded_name, "google.com"));
+    try expect(eql(u8, decoded_name, "dns.google.com"));
 
     const str = try record.to_string(allocator);
-    //print("{s}\n", .{str});
+    //   print("{s}\n", .{str});
+    allocator.free(str);
+}
+
+test "build aaaa record" {
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+
+    const allocator = debug_allocator.allocator();
+
+    const name = try DNS.encode_name("dns.google.com", allocator);
+    defer allocator.free(name);
+
+    const ip = try IPv6.IPv6Address.init_from_string("2001:4860:4860:0000:0000:0000:0000:8888");
+
+    var record = try DNS.AAAARecord.init(name, .IN, 300, ip, allocator);
+    defer record.deinit();
+
+    try expect(record.get_rr_type() == .AAAA);
+    try expect(record.get_class() == .IN);
+    try expect(record.get_ttl() == 300);
+
+    const ip_str = try record.get_ipv6().to_string(allocator);
+    defer allocator.free(ip_str);
+
+    try expect(eql(u8, &record.get_ipv6().array, &ip.array));
+
+    const decoded_name = try record.get_name(allocator);
+    defer allocator.free(decoded_name);
+    try expect(eql(u8, decoded_name, "dns.google.com"));
+
+    const str = try record.to_string(allocator);
+    //    print("{s}\n", .{str});
     allocator.free(str);
 }
 
@@ -488,6 +523,10 @@ test "build soa record" {
     try expect(record.get_retry_interval() == retry_interval);
     try expect(record.get_expire_limit() == expire_limit);
     try expect(record.get_minimum_ttl() == min_ttl);
+
+    const str = try record.to_string(allocator);
+    defer allocator.free(str);
+    print("{s}\n", .{str});
 }
 
 test "build ns record" {
@@ -550,6 +589,10 @@ test "build ns record" {
 
     try expect(record.get_class() == .ANY);
     try expect(record.get_ttl() == 600);
+
+    const str = try record.to_string(allocator);
+    defer allocator.free(str);
+    print("{s}\n", .{str});
 }
 
 test "build txt record" {
@@ -589,6 +632,10 @@ test "build txt record" {
     try expect(record.get_txt_len() == txt_rec.len);
 
     try expect(record.get_rd_len() == txt_rec.len + 1);
+
+    const str = try record.to_string(allocator);
+    defer allocator.free(str);
+    print("{s}\n", .{str});
 }
 
 test "build mx record" {
@@ -680,6 +727,10 @@ test "build mx record" {
     record.set_preference(10);
 
     try expect(record.get_preference() == 10);
+
+    const str = try record.to_string(allocator);
+    defer allocator.free(str);
+    print("{s}\n", .{str});
 }
 
 test "build ipv4 ptr query name" {
@@ -730,6 +781,151 @@ test "build ipv6 ptr query name" {
     defer allocator.free(ipv6_str);
 
     try expect(eql(u8, &ip.array, &ip_from_ptr.ipv6.array));
+}
+
+test "build ptr record" {
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+
+    const allocator = debug_allocator.allocator();
+
+    const ip = try IPv4.IPv4Address.init_from_string("142.251.30.113");
+
+    const ip_ptr = try DNS.encode_ip_ptr_query(IPAddress{ .ipv4 = ip }, allocator);
+    defer allocator.free(ip_ptr);
+
+    const domain = try DNS.encode_name("sv-in-f113.1e100.net", allocator);
+    defer allocator.free(domain);
+
+    var record = try DNS.PTRRecord.init(ip_ptr, .IN, 300, domain, allocator);
+    defer record.deinit();
+
+    const domain_dec = try record.get_domain(allocator);
+    defer allocator.free(domain_dec);
+
+    try expect(eql(u8, domain_dec, "sv-in-f113.1e100.net"));
+
+    const ptr_name_dec = try record.get_name(allocator);
+    defer allocator.free(ptr_name_dec);
+
+    const ip_from_ptr: IPAddress = try DNS.extract_ip_from_ptr(ptr_name_dec);
+
+    const ip_str = try ip_from_ptr.ipv4.to_string(allocator);
+    defer allocator.free(ip_str);
+
+    try expect(record.get_rr_type() == .PTR);
+    try expect(record.get_class() == .IN);
+    try expect(record.get_ttl() == 300);
+    try expect(record.get_rd_len() == domain.len);
+
+    const ziggit_domain = try DNS.encode_name("ziggit.dev", allocator);
+    defer allocator.free(ziggit_domain);
+
+    try record.set_domain(ziggit_domain);
+
+    const ziggit_domain_dec = try record.get_domain(allocator);
+    defer allocator.free(ziggit_domain_dec);
+
+    try expect(eql(u8, ziggit_domain_dec, "ziggit.dev"));
+
+    try expect(record.get_rr_type() == .PTR);
+    try expect(record.get_class() == .IN);
+    try expect(record.get_ttl() == 300);
+    try expect(record.get_rd_len() == ziggit_domain.len);
+
+    const ziggit_ip = IPAddress{ .ipv4 = try IPv4.IPv4Address.init_from_string("170.187.203.77") };
+
+    const ziggit_ip_ptr_q = try DNS.encode_ip_ptr_query(ziggit_ip, allocator);
+    defer allocator.free(ziggit_ip_ptr_q);
+
+    try record.set_name(ziggit_ip_ptr_q);
+
+    const ziggit_ptr_name_dec = try record.get_name(allocator);
+    defer allocator.free(ziggit_ptr_name_dec);
+
+    const ziggit_ip_from_decoded = try DNS.extract_ip_from_ptr(ziggit_ptr_name_dec);
+
+    try expect(eql(u8, &ziggit_ip.ipv4.array, &ziggit_ip_from_decoded.ipv4.array));
+
+    const str = try record.to_string(allocator);
+    defer allocator.free(str);
+    print("{s}\n", .{str});
+}
+
+test "build cname record" {
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+
+    const allocator = debug_allocator.allocator();
+
+    const name = try DNS.encode_name("idcta.api.bbc.co.uk", allocator);
+    defer allocator.free(name);
+
+    const cname = try DNS.encode_name("idcta-cdn.api.bbc.co.uk.edgekey.net", allocator);
+    defer allocator.free(cname);
+
+    var record = try DNS.CNAMERecord.init(name, .IN, 300, cname, allocator);
+    defer record.deinit();
+
+    const name_dec = try record.get_name(allocator);
+    defer allocator.free(name_dec);
+
+    try expect(eql(u8, name_dec, "idcta.api.bbc.co.uk"));
+
+    try expect(record.get_rr_type() == .CNAME);
+    try expect(record.get_class() == .IN);
+    try expect(record.get_ttl() == 300);
+    try expect(record.get_rd_len() == cname.len);
+
+    const cname_dec = try record.get_cname(allocator);
+    defer allocator.free(cname_dec);
+
+    try expect(eql(u8, cname_dec, "idcta-cdn.api.bbc.co.uk.edgekey.net"));
+
+    const bbc_cname = try DNS.encode_name("www.bbc.co.uk.pri.bbc.co.uk", allocator);
+    defer allocator.free(bbc_cname);
+
+    try record.set_cname(bbc_cname);
+
+    const bbc_cname_dec = try record.get_cname(allocator);
+    defer allocator.free(bbc_cname_dec);
+
+    try expect(eql(u8, bbc_cname_dec, "www.bbc.co.uk.pri.bbc.co.uk"));
+
+    try expect(eql(u8, name_dec, "idcta.api.bbc.co.uk"));
+
+    try expect(record.get_rr_type() == .CNAME);
+    try expect(record.get_class() == .IN);
+    try expect(record.get_ttl() == 300);
+    try expect(record.get_rd_len() == bbc_cname.len);
+
+    const bbc_name = try DNS.encode_name("bbc.co.uk", allocator);
+    defer allocator.free(bbc_name);
+
+    try record.set_name(bbc_name);
+
+    const bbc_name_dec = try record.get_name(allocator);
+    defer allocator.free(bbc_name_dec);
+
+    try expect(eql(u8, bbc_name_dec, "bbc.co.uk"));
+
+    try expect(record.get_rr_type() == .CNAME);
+    try expect(record.get_class() == .IN);
+    try expect(record.get_ttl() == 300);
+    try expect(record.get_rd_len() == bbc_cname.len);
+
+    record.set_ttl(200);
+    record.set_class(.ANY);
+
+    try expect(record.get_rr_type() == .CNAME);
+    try expect(record.get_class() == .ANY);
+    try expect(record.get_ttl() == 200);
+    try expect(record.get_rd_len() == bbc_cname.len);
+
+    const str = try record.to_string(allocator);
+    defer allocator.free(str);
+
+    //print("{s}\n", .{str});
 }
 
 test "parse dns A response raw" {
@@ -1040,7 +1236,7 @@ test "parse ebay CNAME response" {
     while (answer) |ans| {
         if (ans.get_rr_type() == DNS.QueryType.CNAME) {
             cname_count += 1;
-            const cname = try ans.cname.decode_cname(allocator);
+            const cname = try ans.cname.get_cname(allocator);
             defer allocator.free(cname);
 
             if (cname_count == 1) {

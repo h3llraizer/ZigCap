@@ -21,8 +21,6 @@ pub const CLASS_TYPE_LENGTH = DNS.CLASS_TYPE_LENGTH;
 pub const TTL_LENGTH = DNS.TTL_LENGTH;
 pub const RD_LENGTH = DNS.RD_LENGTH;
 
-const TXT_LENGTH = @sizeOf(u8);
-
 const COMPRESSION_PTR_LENGTH = @sizeOf(u8) * 2;
 
 /// This tagged union is an interface over the concrete Answer Record Types.
@@ -491,7 +489,7 @@ fn init_record(name: []const u8, qtype: QueryType, class: DnsClass, allocator: A
 
         },
         .TXT => {
-            rd_len += TXT_LENGTH; // 1 byte
+            rd_len += TXTRecord.TXT_LENGTH; // 1 byte
         },
         .A => rd_len += @sizeOf(IPv4Address), // 4 bytes
         .AAAA => rd_len += @sizeOf(IPv6Address), // 16 bytes
@@ -816,6 +814,30 @@ pub const GenericRecord = struct {
         return data[offset..self.length];
     }
 
+    pub fn to_string(self: *GenericRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]const u8 {
+        var list: std.ArrayList(u8) = .empty;
+
+        const name = try self.get_name(allocator);
+        defer allocator.free(name);
+        const type_s = @tagName(self.get_rr_type());
+        const class_s = @tagName(self.get_class());
+        const rdata = self.get_rdata();
+
+        const space = ". ";
+        const dot = '.';
+
+        try list.appendSlice(allocator, name);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, type_s);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, class_s);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, rdata);
+        try list.append(allocator, dot);
+
+        return try list.toOwnedSlice(allocator);
+    }
+
     /// experimental
     pub fn as(self: *GenericRecord, rr_type: anytype) *rr_type {
         return @ptrCast(self);
@@ -978,7 +1000,8 @@ pub const ARecord = struct {
         const ip = try self.get_ip().to_string(allocator);
         defer allocator.free(ip);
 
-        const space = " ";
+        const space = ". ";
+        const dot = '.';
 
         try list.appendSlice(allocator, name);
         try list.appendSlice(allocator, space);
@@ -987,6 +1010,7 @@ pub const ARecord = struct {
         try list.appendSlice(allocator, class_s);
         try list.appendSlice(allocator, space);
         try list.appendSlice(allocator, ip);
+        try list.append(allocator, dot);
 
         return try list.toOwnedSlice(allocator);
     }
@@ -1005,7 +1029,7 @@ pub const AAAARecord = struct {
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
-    pub fn init(name: []const u8, class: DnsClass, allocator: Allocator) Allocator.Error!ARecord {
+    pub fn init(name: []const u8, class: DnsClass, ttl: u32, ip: IPv6Address, allocator: Allocator) Allocator.Error!AAAARecord {
         var owner: TLVOwner = try init_record(
             name,
             .AAAA,
@@ -1022,6 +1046,23 @@ pub const AAAARecord = struct {
             .owner = owner,
         };
 
+        var offset: usize = 0;
+
+        advance_past_name(owner.get_data(), &offset);
+
+        offset += GenericRecord.TTL_OFFSET_FROM_NAME;
+
+        std.mem.writeInt(
+            u32,
+            @ptrCast(owner.get_data()[offset .. offset + TTL_LENGTH].ptr),
+            ttl,
+            .big,
+        );
+
+        offset += (TTL_LENGTH + RD_LENGTH);
+
+        @memmove(owner.get_data()[offset .. offset + ip.array.len], &ip.array);
+
         return rec;
     }
 
@@ -1031,6 +1072,39 @@ pub const AAAARecord = struct {
 
     pub fn get_data_mut(self: *AAAARecord) []u8 {
         return self.owner.get_data()[self.offset .. self.offset + self.length];
+    }
+
+    pub fn set_name(self: *AAAARecord, name: []const u8) Allocator.Error!void {
+        var grec: *GenericRecord = @ptrCast(self);
+        return try grec.set_name(name);
+    }
+
+    pub fn get_name(self: *AAAARecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
+        var grec: *GenericRecord = @ptrCast(self);
+        return try grec.get_name(allocator);
+    }
+
+    pub fn get_rr_type(self: *AAAARecord) QueryType {
+        return get_q_type(self.get_data());
+    }
+
+    pub fn get_class(self: *AAAARecord) DnsClass {
+        return get_dns_class(self.get_data());
+    }
+
+    pub fn set_class(self: *AAAARecord, class: DnsClass) void {
+        return set_dns_class(self.get_data_mut(), class);
+    }
+
+    pub fn get_ttl(self: *AAAARecord) u32 {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.get_ttl();
+    }
+
+    pub fn set_ttl(self: *AAAARecord, ttl: u32) void {
+        var grec: *GenericRecord = @ptrCast(self);
+
+        return grec.set_ttl(ttl);
     }
 
     /// returns the IPv6 address of the AAAA record by creating a copy of the IPv6 start to len bytes and init'ing the IPv6 address from it.
@@ -1058,20 +1132,43 @@ pub const AAAARecord = struct {
 
         std.debug.assert(data.len >= 28);
 
-        if (data.len >= 28) {
-            var offset: usize = 0;
+        var offset: usize = 0;
 
-            advance_past_name(data, &offset);
+        advance_past_name(data, &offset);
 
-            offset += GenericRecord.RDATA_OFFSET_FROM_NAME;
+        offset += GenericRecord.RDATA_OFFSET_FROM_NAME;
 
-            var ipv6_arr: [16]u8 = ipv6.array;
-            @memmove(data[offset .. offset + @sizeOf(IPv6Address)], ipv6_arr[0..]);
-        }
+        var ipv6_arr: [16]u8 = ipv6.array;
+        @memmove(data[offset .. offset + @sizeOf(IPv6Address)], ipv6_arr[0..]);
     }
 
-    pub fn get_rr_type(self: AAAARecord) QueryType {
-        return get_q_type(self.get_data());
+    pub fn to_string(self: *AAAARecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]const u8 {
+        var list: std.ArrayList(u8) = .empty;
+
+        const name = try self.get_name(allocator);
+        defer allocator.free(name);
+        const type_s = @tagName(self.get_rr_type());
+        const class_s = @tagName(self.qclass);
+        const ip = try self.get_ipv6().to_string(allocator);
+        defer allocator.free(ip);
+
+        const space = ". ";
+        const dot = '.';
+
+        try list.appendSlice(allocator, name);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, type_s);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, class_s);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, ip);
+        try list.append(allocator, dot);
+
+        return try list.toOwnedSlice(allocator);
+    }
+
+    pub fn deinit(self: *AAAARecord) void {
+        self.owner.deinit();
     }
 };
 
@@ -1208,9 +1305,9 @@ pub const NSRecord = struct {
 
         const name = try self.get_name(allocator);
         defer allocator.free(name);
-        const type_s = @tagName(self.qtype);
-        const class_s = @tagName(self.qclass);
-        const cname = try self.decode_cname(allocator);
+        const type_s = @tagName(self.get_rr_type());
+        const class_s = @tagName(self.get_class());
+        const cname = try self.decode_ns_name(allocator);
         defer allocator.free(cname);
 
         const space = " ";
@@ -1240,6 +1337,58 @@ pub const CNAMERecord = struct {
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
+    pub fn init(
+        name: []const u8,
+        class: DnsClass,
+        ttl: u32,
+        cname: []const u8,
+        allocator: Allocator,
+    ) Allocator.Error!CNAMERecord {
+        var owner: TLVOwner = try init_record(name, .CNAME, class, allocator);
+
+        const cur_len = owner.get_data().len;
+
+        const extend_len = cname.len - COMPRESSION_PTR_LENGTH;
+
+        _ = owner.extend_buffer(cur_len, extend_len) catch |err| {
+            owner.deinit();
+            return err;
+        };
+
+        var offset: usize = 0;
+
+        advance_past_name(owner.get_data(), &offset);
+
+        offset += GenericRecord.TTL_OFFSET_FROM_NAME;
+
+        std.mem.writeInt(
+            u32,
+            @ptrCast(owner.get_data()[offset .. offset + TTL_LENGTH].ptr),
+            ttl,
+            .big,
+        );
+
+        offset += TTL_LENGTH;
+
+        std.mem.writeInt(
+            u16,
+            @ptrCast(owner.get_data()[offset .. offset + RD_LENGTH].ptr),
+            @intCast(cname.len),
+            .big,
+        );
+
+        offset += RD_LENGTH;
+
+        @memmove(owner.get_data()[offset .. offset + cname.len], cname);
+
+        return .{
+            .offset = 0,
+            .length = owner.get_data().len,
+            .qclass = class,
+            .owner = owner,
+        };
+    }
+
     pub fn get_data(self: *CNAMERecord) []const u8 {
         return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
@@ -1248,13 +1397,45 @@ pub const CNAMERecord = struct {
         return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
-    pub fn get_name(self: *CNAMERecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
-        const data = self.get_data(); // the length of the name is not known so just take use the offset of this RR
-
-        return try decode_name(self.owner.get_data(), data, allocator);
+    pub fn set_name(self: *CNAMERecord, name: []const u8) Allocator.Error!void {
+        var grec: *GenericRecord = @ptrCast(self);
+        return try grec.set_name(name);
     }
 
-    pub fn decode_cname(self: *CNAMERecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
+    pub fn get_name(self: *CNAMERecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
+        var grec: *GenericRecord = @ptrCast(self);
+        return try grec.get_name(allocator);
+    }
+
+    pub fn get_rr_type(self: *CNAMERecord) QueryType {
+        return get_q_type(self.get_data());
+    }
+
+    pub fn get_class(self: *CNAMERecord) DnsClass {
+        return get_dns_class(self.get_data());
+    }
+
+    pub fn set_class(self: *CNAMERecord, class: DnsClass) void {
+        return set_dns_class(self.get_data_mut(), class);
+    }
+
+    pub fn get_ttl(self: *CNAMERecord) u32 {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.get_ttl();
+    }
+
+    pub fn set_ttl(self: *CNAMERecord, ttl: u32) void {
+        var grec: *GenericRecord = @ptrCast(self);
+
+        return grec.set_ttl(ttl);
+    }
+
+    pub fn get_rd_len(self: *CNAMERecord) u16 {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.get_rd_len();
+    }
+
+    pub fn get_cname(self: *CNAMERecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         if (self.get_data().len < 12) { // TODO: remove temp magic number
             return DNSLayer.DNSParseError.RecordTooShort;
         }
@@ -1264,9 +1445,14 @@ pub const CNAMERecord = struct {
         advance_past_name(self.get_data(), &offset);
 
         //  rrtype (2 bytes), class (2bytes), ttl (4bytes), data length (2bytes)
-        offset += (QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH);
+        offset += GenericRecord.RDATA_OFFSET_FROM_NAME;
 
         return try decode_name(self.owner.get_data(), self.get_data()[offset..], allocator);
+    }
+
+    pub fn set_cname(self: *CNAMERecord, cname: []const u8) (Allocator.Error)!void {
+        var grec: *GenericRecord = @ptrCast(self);
+        try grec.set_rdata(cname);
     }
 
     pub fn to_string(self: *CNAMERecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]const u8 {
@@ -1274,12 +1460,13 @@ pub const CNAMERecord = struct {
 
         const name = try self.get_name(allocator);
         defer allocator.free(name);
-        const type_s = @tagName(self.qtype);
-        const class_s = @tagName(self.qclass);
-        const cname = try self.decode_cname(allocator);
+        const type_s = @tagName(self.get_rr_type());
+        const class_s = @tagName(self.get_class());
+        const cname = try self.get_cname(allocator);
         defer allocator.free(cname);
 
-        const space = " ";
+        const space = ". ";
+        const dot = '.';
 
         try list.appendSlice(allocator, name);
         try list.appendSlice(allocator, space);
@@ -1288,12 +1475,13 @@ pub const CNAMERecord = struct {
         try list.appendSlice(allocator, class_s);
         try list.appendSlice(allocator, space);
         try list.appendSlice(allocator, cname);
+        try list.append(allocator, dot);
 
         return try list.toOwnedSlice(allocator);
     }
 
-    pub fn get_rr_type(self: CNAMERecord) QueryType {
-        return get_q_type(self.get_data());
+    pub fn deinit(self: *CNAMERecord) void {
+        self.owner.deinit();
     }
 };
 
@@ -1305,6 +1493,8 @@ pub const TXTRecord = struct {
     owner: TLVOwner,
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
+
+    const TXT_LENGTH = @sizeOf(u8);
 
     const TXT_STRING_OFFSET_FROM_NAME = QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH + TTL_LENGTH + RD_LENGTH + TXT_LENGTH;
 
@@ -1486,6 +1676,31 @@ pub const TXTRecord = struct {
         );
 
         @memmove(self.get_data_mut()[offset..str.len], str);
+    }
+
+    pub fn to_string(self: *TXTRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]const u8 {
+        var list: std.ArrayList(u8) = .empty;
+
+        const name = try self.get_name(allocator);
+        defer allocator.free(name);
+        const type_s = @tagName(self.get_rr_type());
+        const class_s = @tagName(self.get_class());
+        const txt = try self.get_txt(allocator);
+        defer allocator.free(txt);
+
+        const space = ". ";
+        const dot = '.';
+
+        try list.appendSlice(allocator, name);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, type_s);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, class_s);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, txt);
+        try list.append(allocator, dot);
+
+        return try list.toOwnedSlice(allocator);
     }
 
     pub fn deinit(self: *TXTRecord) void {
@@ -1736,6 +1951,31 @@ pub const MXRecord = struct {
         @memmove(self.get_data_mut()[offset .. offset + mx_domain.len], mx_domain);
     }
 
+    pub fn to_string(self: *MXRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]const u8 {
+        var list: std.ArrayList(u8) = .empty;
+
+        const name = try self.get_name(allocator);
+        defer allocator.free(name);
+        const type_s = @tagName(self.get_rr_type());
+        const class_s = @tagName(self.get_class());
+        const mx = try self.get_mx_domain(allocator);
+        defer allocator.free(mx);
+
+        const space = ". ";
+        const dot = '.';
+
+        try list.appendSlice(allocator, name);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, type_s);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, class_s);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, mx);
+        try list.append(allocator, dot);
+
+        return try list.toOwnedSlice(allocator);
+    }
+
     pub fn deinit(self: *MXRecord) void {
         self.owner.deinit();
     }
@@ -1751,6 +1991,8 @@ pub const PTRRecord = struct {
 
     pub fn init(name: []const u8, class: DnsClass, ttl: u32, domain_name: []const u8, allocator: Allocator) Allocator.Error!PTRRecord {
         var owner = try init_record(name, .PTR, class, allocator);
+
+        _ = try owner.extend_buffer(owner.get_data().len, domain_name.len - COMPRESSION_PTR_LENGTH);
 
         var offset: usize = 0;
 
@@ -1791,11 +2033,16 @@ pub const PTRRecord = struct {
         return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
+    /// returns the PTR Name. e.g. "113.30.251.142.in-addr.arpa"
     pub fn get_name(self: *PTRRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
-        var grec: *GenericRecord = @ptrCast(self);
-        return try grec.get_name(allocator);
+        var offset: usize = 0;
+
+        advance_past_name(self.get_data(), &offset);
+
+        return try decode_name(self.owner.get_data(), self.get_data()[0..offset], allocator);
     }
 
+    /// sets the PTR Name. e.g. name="113.30.251.142.in-addr.arpa"
     pub fn set_name(self: *PTRRecord, name: []const u8) Allocator.Error!void {
         var grec: *GenericRecord = @ptrCast(self);
         try grec.set_name(name);
@@ -1823,10 +2070,46 @@ pub const PTRRecord = struct {
         return grec.set_ttl(ttl);
     }
 
+    pub fn get_rd_len(self: *PTRRecord) u16 {
+        var grec: *GenericRecord = @ptrCast(self);
+        return grec.get_rd_len();
+    }
+
     pub fn get_domain(self: *PTRRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]u8 {
         var grec: *GenericRecord = @ptrCast(self);
         const rdata = grec.get_rdata();
         return try decode_name(self.owner.get_data(), rdata, allocator);
+    }
+
+    /// set the rdata (domain part) of the record to the domain provided
+    pub fn set_domain(self: *PTRRecord, domain: []const u8) Allocator.Error!void {
+        var grec: *GenericRecord = @ptrCast(self);
+        try grec.set_rdata(domain);
+    }
+
+    pub fn to_string(self: *PTRRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]const u8 {
+        var list: std.ArrayList(u8) = .empty;
+
+        const name = try self.get_name(allocator);
+        defer allocator.free(name);
+        const type_s = @tagName(self.get_rr_type());
+        const class_s = @tagName(self.get_class());
+        const domain = try self.get_domain(allocator);
+        defer allocator.free(domain);
+
+        const space = ". ";
+        const dot = '.';
+
+        try list.appendSlice(allocator, name);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, type_s);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, class_s);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, domain);
+        try list.append(allocator, dot);
+
+        return try list.toOwnedSlice(allocator);
     }
 
     pub fn deinit(self: *PTRRecord) void {
@@ -2304,6 +2587,35 @@ pub const SOARecord = struct {
             @ptrCast(data[offset .. offset + MIN_TTL_LENGTH].ptr),
             .big,
         );
+    }
+
+    pub fn to_string(self: *SOARecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]const u8 {
+        var list: std.ArrayList(u8) = .empty;
+
+        const name = try self.get_name(allocator);
+        defer allocator.free(name);
+        const type_s = @tagName(self.get_rr_type());
+        const class_s = @tagName(self.get_class());
+        const rname = try self.get_rname(allocator);
+        defer allocator.free(rname);
+        const mname = try self.get_mname(allocator);
+        defer allocator.free(mname);
+
+        const space = ". ";
+        const dot = '.';
+
+        try list.appendSlice(allocator, name);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, type_s);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, class_s);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, mname);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, rname);
+        try list.append(allocator, dot);
+
+        return try list.toOwnedSlice(allocator);
     }
 
     pub fn deinit(self: *SOARecord) void {

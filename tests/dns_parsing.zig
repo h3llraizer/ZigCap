@@ -117,7 +117,7 @@ test "build dns response layer" {
         //      print("{s} {any} {any} ttl: {} ", .{ name, ans.get_rr_type(), ans.get_class_type(), ans.get_ttl() });
 
         if (ans.get_rr_type() == DNS.QueryType.CNAME) {
-            const cname = ans.cname.decode_cname(allocator) catch |err| {
+            const cname = ans.cname.get_cname(allocator) catch |err| {
                 print("({s})\n", .{@errorName(err)});
                 //                print("raw: ({}) {x}\n", .{ ans.get_data().len, ans.get_data() });
                 cur = ans.get_next_record();
@@ -336,7 +336,7 @@ test "parse cname response" {
             const name = try ans.get_name(allocator);
             defer allocator.free(name);
 
-            const cname = ans.cname.decode_cname(allocator) catch {
+            const cname = ans.cname.get_cname(allocator) catch {
                 cur = ans.get_next_record();
                 continue;
             };

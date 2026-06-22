@@ -279,6 +279,9 @@ pub const Packet = struct {
             return null;
         };
 
+        // TODO: investigate using active_tag of the Layer's LayerIface instead of get_layer_type_enum
+        // e.g std.meta.activeTag(layer.layeriface) == layertype
+
         const layer: ?*Layer = self.search_layers(layer_type_enum);
 
         if (layer) |b| {
