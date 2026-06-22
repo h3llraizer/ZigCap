@@ -334,7 +334,7 @@ test "parse dns query raw" {
 
     while (query) |q| {
         const str = try q.decode_qname(allocator);
-        //print("{s} {any} {any} \n", .{ str, q.qtype, q.qclass });
+        ////print("{s} {any} {any} \n", .{ str, q.qtype, q.qclass });
         allocator.free(str);
         query = q.next_query;
     }
@@ -377,7 +377,7 @@ test "build a record" {
     try expect(eql(u8, decoded_name, "dns.google.com"));
 
     const str = try record.to_string(allocator);
-    //   print("{s}\n", .{str});
+    //   //print("{s}\n", .{str});
     allocator.free(str);
 }
 
@@ -409,7 +409,7 @@ test "build aaaa record" {
     try expect(eql(u8, decoded_name, "dns.google.com"));
 
     const str = try record.to_string(allocator);
-    //    print("{s}\n", .{str});
+    //    //print("{s}\n", .{str});
     allocator.free(str);
 }
 
@@ -526,7 +526,7 @@ test "build soa record" {
 
     const str = try record.to_string(allocator);
     defer allocator.free(str);
-    print("{s}\n", .{str});
+    //print("{s}\n", .{str});
 }
 
 test "build ns record" {
@@ -592,7 +592,7 @@ test "build ns record" {
 
     const str = try record.to_string(allocator);
     defer allocator.free(str);
-    print("{s}\n", .{str});
+    //print("{s}\n", .{str});
 }
 
 test "build txt record" {
@@ -635,7 +635,7 @@ test "build txt record" {
 
     const str = try record.to_string(allocator);
     defer allocator.free(str);
-    print("{s}\n", .{str});
+    //print("{s}\n", .{str});
 }
 
 test "build mx record" {
@@ -730,7 +730,7 @@ test "build mx record" {
 
     const str = try record.to_string(allocator);
     defer allocator.free(str);
-    print("{s}\n", .{str});
+    //print("{s}\n", .{str});
 }
 
 test "build ipv4 ptr query name" {
@@ -849,7 +849,7 @@ test "build ptr record" {
 
     const str = try record.to_string(allocator);
     defer allocator.free(str);
-    print("{s}\n", .{str});
+    //print("{s}\n", .{str});
 }
 
 test "build cname record" {
@@ -925,13 +925,13 @@ test "build cname record" {
     const str = try record.to_string(allocator);
     defer allocator.free(str);
 
-    //print("{s}\n", .{str});
+    ////print("{s}\n", .{str});
 }
 
 test "parse dns A response raw" {
     const google_a_resp: [135]u8 = [_]u8{ 0x72, 0x43, 0x81, 0x80, 0x0, 0x1, 0x0, 0x6, 0x0, 0x0, 0x0, 0x1, 0x6, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x3, 0x63, 0x6f, 0x6d, 0x0, 0x0, 0x1, 0x0, 0x1, 0xc0, 0xc, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x45, 0x0, 0x4, 0x8e, 0xfa, 0x81, 0x8b, 0xc0, 0xc, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x45, 0x0, 0x4, 0x8e, 0xfa, 0x81, 0x66, 0xc0, 0xc, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x45, 0x0, 0x4, 0x8e, 0xfa, 0x81, 0x8a, 0xc0, 0xc, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x45, 0x0, 0x4, 0x8e, 0xfa, 0x81, 0x64, 0xc0, 0xc, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x45, 0x0, 0x4, 0x8e, 0xfa, 0x81, 0x71, 0xc0, 0xc, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x45, 0x0, 0x4, 0x8e, 0xfa, 0x81, 0x65, 0x0, 0x0, 0x29, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
 
-    //    print("parsing google A response.\n", .{});
+    //    //print("parsing google A response.\n", .{});
 
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.deinit();
@@ -972,7 +972,7 @@ test "parse dns A response raw" {
         const qname = try q.decode_qname(allocator);
         defer allocator.free(qname);
 
-        //       print("{s}\n", .{qname});
+        //       //print("{s}\n", .{qname});
         query = q.next_query;
     }
 
@@ -1075,13 +1075,13 @@ test "parse dns AAAA response raw" {
 
     var answer = answers.first;
     while (answer) |ans| {
-        //print("answer: offset={} length={} {any} {any}\n", .{ ans.get_offset(), ans.get_length(), ans.get_rr_type(), ans.get_class_type() });
+        ////print("answer: offset={} length={} {any} {any}\n", .{ ans.get_offset(), ans.get_length(), ans.get_rr_type(), ans.get_class_type() });
 
         const ipv6 = ans.aaaa.get_ipv6();
         const ip_str = try ipv6.to_string(allocator);
         defer allocator.free(ip_str);
 
-        //   print("{s}\n", .{ip_str});
+        //   //print("{s}\n", .{ip_str});
 
         const new_ipv6 = IPv6.IPv6Address.init_from_array(.{ 0x26, 0x20, 0x1, 0xec, 0x0, 0x50, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x12 });
 
@@ -1180,7 +1180,7 @@ test "parse ebay CNAME response" {
         0x2, 0x13, 0xf8, 0x97, // IP: 2.19.248.151
     };
 
-    //print("parsing ebay CNAME response.\n", .{});
+    ////print("parsing ebay CNAME response.\n", .{});
 
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.deinit();
@@ -1199,7 +1199,7 @@ test "parse ebay CNAME response" {
 
     try expect(dns_header.get_qdcount() == 1);
 
-    // print("{x}\n", .{dns_layer.get_data()});
+    // //print("{x}\n", .{dns_layer.get_data()});
 
     var queries = try dns_layer.dnsLayer.get_queries(allocator) orelse {
         try expect(false); // failed to get queries
@@ -1287,7 +1287,7 @@ test "parse ebay CNAME response" {
 test "parse dns txt record response" {
     const random_org_txt_resp: [217]u8 = [_]u8{ 0xbd, 0x6c, 0x81, 0x80, 0x0, 0x1, 0x0, 0x2, 0x0, 0x0, 0x0, 0x1, 0x6, 0x72, 0x61, 0x6e, 0x64, 0x6f, 0x6d, 0x3, 0x6f, 0x72, 0x67, 0x0, 0x0, 0x10, 0x0, 0x1, 0xc0, 0xc, 0x0, 0x10, 0x0, 0x1, 0x0, 0x0, 0x1, 0x2c, 0x0, 0x55, 0x54, 0x76, 0x3d, 0x73, 0x70, 0x66, 0x31, 0x20, 0x69, 0x6e, 0x63, 0x6c, 0x75, 0x64, 0x65, 0x3a, 0x5f, 0x73, 0x70, 0x66, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x63, 0x6f, 0x6d, 0x20, 0x69, 0x6e, 0x63, 0x6c, 0x75, 0x64, 0x65, 0x3a, 0x73, 0x70, 0x66, 0x2e, 0x6d, 0x74, 0x61, 0x73, 0x76, 0x2e, 0x6e, 0x65, 0x74, 0x20, 0x69, 0x6e, 0x63, 0x6c, 0x75, 0x64, 0x65, 0x3a, 0x5f, 0x73, 0x70, 0x66, 0x2e, 0x72, 0x61, 0x6e, 0x64, 0x6f, 0x6d, 0x2e, 0x6f, 0x72, 0x67, 0x20, 0x6d, 0x78, 0x20, 0x2d, 0x61, 0x6c, 0x6c, 0xc0, 0xc, 0x0, 0x10, 0x0, 0x1, 0x0, 0x0, 0x1, 0x2c, 0x0, 0x45, 0x44, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2d, 0x73, 0x69, 0x74, 0x65, 0x2d, 0x76, 0x65, 0x72, 0x69, 0x66, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x3d, 0x48, 0x75, 0x49, 0x47, 0x43, 0x4e, 0x6b, 0x76, 0x58, 0x4c, 0x6f, 0x4a, 0x45, 0x65, 0x5f, 0x6c, 0x68, 0x35, 0x4a, 0x36, 0x35, 0x4b, 0x72, 0x6f, 0x32, 0x48, 0x74, 0x7a, 0x59, 0x78, 0x65, 0x71, 0x36, 0x62, 0x4d, 0x57, 0x47, 0x2d, 0x78, 0x4d, 0x51, 0x78, 0x49, 0x0, 0x0, 0x29, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
 
-    //    print("parsing random.org txt request response.\n", .{});
+    //    //print("parsing random.org txt request response.\n", .{});
 
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.deinit();
@@ -1327,7 +1327,7 @@ test "parse dns txt record response" {
         const qname = try q.decode_qname(allocator);
         defer allocator.free(qname);
 
-        //print("{s}\n", .{qname});
+        ////print("{s}\n", .{qname});
         query = q.next_query;
     }
 
@@ -1337,7 +1337,7 @@ test "parse dns txt record response" {
 
     var answer = answers.first;
     while (answer) |ans| {
-        //  print("answer: offset={} length={} {any} {any}\n", .{
+        //  //print("answer: offset={} length={} {any} {any}\n", .{
         //      ans.get_offset(),
         //      ans.get_length(),
         //      ans.get_rr_type(),
@@ -1347,11 +1347,11 @@ test "parse dns txt record response" {
         try expect(ans.get_ttl() == 300);
 
         if (ans.get_rr_type() == DNS.QueryType.TXT) {
-            //      print("txt record: {s} \n", .{ans.txt.get_record_str()});
+            //      //print("txt record: {s} \n", .{ans.txt.get_record_str()});
 
             const name = try ans.txt.get_name(allocator);
             defer allocator.free(name);
-            //     print("name: {s}\n", .{name});
+            //     //print("name: {s}\n", .{name});
         }
 
         answer = ans.get_next_record();
@@ -1361,7 +1361,7 @@ test "parse dns txt record response" {
 test "parse MX record response" {
     const google_mx_resp: [60]u8 = [_]u8{ 0x3a, 0x98, 0x81, 0x80, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x1, 0x6, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x3, 0x63, 0x6f, 0x6d, 0x0, 0x0, 0xf, 0x0, 0x1, 0xc0, 0xc, 0x0, 0xf, 0x0, 0x1, 0x0, 0x0, 0x1, 0x2c, 0x0, 0x9, 0x0, 0xa, 0x4, 0x73, 0x6d, 0x74, 0x70, 0xc0, 0xc, 0x0, 0x0, 0x29, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
 
-    //   print("parsing google mx request response.\n", .{});
+    //   //print("parsing google mx request response.\n", .{});
 
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.deinit();
@@ -1401,13 +1401,13 @@ test "parse MX record response" {
         const qname = try q.decode_qname(allocator);
         defer allocator.free(qname);
 
-        //      print("{s}\n", .{qname});
+        //      //print("{s}\n", .{qname});
         query = q.next_query;
     }
 
     var answer = answers.first;
     while (answer) |ans| {
-        //       print("answer: offset={} length={} {any} {any}\n", .{
+        //       //print("answer: offset={} length={} {any} {any}\n", .{
         //           ans.get_offset(),
         //           ans.get_length(),
         //           ans.get_rr_type(),
@@ -1420,11 +1420,11 @@ test "parse MX record response" {
             const mx_domain = try ans.mx.get_mx_domain(allocator);
             defer allocator.free(mx_domain);
 
-            //print("mx domain: {s}\n", .{mx_domain});
+            ////print("mx domain: {s}\n", .{mx_domain});
 
             try expect(std.mem.eql(u8, mx_domain, "smtp.google.com"));
 
-            //           print("mx domain: {s} \n", .{mx_domain});
+            //           //print("mx domain: {s} \n", .{mx_domain});
         }
 
         answer = ans.get_next_record();
@@ -1472,13 +1472,13 @@ test "parse PTR record response" {
         const qname = try q.decode_qname(allocator);
         defer allocator.free(qname);
 
-        //        print("{s}\n", .{qname});
+        //        //print("{s}\n", .{qname});
         query = q.next_query;
     }
 
     var answer = answers.first;
     while (answer) |ans| {
-        //    print("answer: offset={} length={} {any} {any}\n", .{
+        //    //print("answer: offset={} length={} {any} {any}\n", .{
         //        ans.get_offset(),
         //        ans.get_length(),
         //        ans.get_rr_type(),
@@ -1486,14 +1486,14 @@ test "parse PTR record response" {
         //    });
 
         const ttl = ans.get_ttl();
-        //    print("ttl : {}\n", .{ttl});
+        //    //print("ttl : {}\n", .{ttl});
         try expect(ttl == 920);
 
         if (ans.get_rr_type() == DNS.QueryType.PTR) {
             const domain = try ans.ptr.get_domain(allocator);
             defer allocator.free(domain);
 
-            //print("domain: {s} \n", .{domain});
+            ////print("domain: {s} \n", .{domain});
 
             try expect(std.mem.eql(u8, domain, "yulhrs-in-f139.1e100.net"));
         }
