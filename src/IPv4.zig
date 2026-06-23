@@ -9,6 +9,7 @@ const LayerOwner = @import("Owner.zig").LayerOwner;
 const TLVOwner = @import("Owner.zig").TLVOwner;
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const init_layer = @import("LayerIface.zig").init_layer;
+const initLayerFromSlice = @import("LayerIface.zig").initFromSlice;
 
 const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
 pub const IPv4_Options = @import("IPv4_Options.zig");
@@ -209,8 +210,19 @@ pub const IPv4Header = extern struct {
 pub const IPv4Layer = struct {
     owner: LayerOwner,
 
-    pub fn init(owner: LayerOwner) LayerError!IPv4Layer {
-        return try init_layer(IPv4Layer, owner, IPv4Header, default_hdr);
+    /// init's new IPv4Layer.
+    pub fn init(allocator: Allocator) LayerError!IPv4Layer {
+        return try init_layer(IPv4Layer, allocator, IPv4Header, default_hdr);
+    }
+
+    /// copies IPv4 header from the slice provided.
+    /// Any additional
+    pub fn initFromSlice(slice: []u8, allocator: Allocator) LayerError!IPv4Layer {
+        if (slice.len < MinHeaderLength) return LayerError.BufferTooSmall;
+        const ipv4_header: *IPv4Header = @ptrCast(slice);
+        const header_len = ipv4_header.get_ihl() * 4;
+
+        return try initLayerFromSlice(slice, IPv4Layer, header_len, MinHeaderLength, MaxHeaderLength, allocator);
     }
 
     /// use this when you want to zero the header to default values.
@@ -549,23 +561,23 @@ pub const IPv4Layer = struct {
         const hdr = self.get_immutable_header();
 
         const ip_protocol = std.enums.fromInt(IPProtocol, hdr.protocol) orelse {
-            return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
+            return LayerIface{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } };
         };
 
         switch (ip_protocol) {
             IPProtocol.ICMP => {
-                return try LayerIface.init(ICMP.ICMPLayer, LayerOwner{ .packet_layer = layer });
+                return LayerIface{ .icmpLayer = .{ .owner = .{ .packet_layer = layer } } };
             },
 
             IPProtocol.TCP => {
-                return try LayerIface.init(TCP.TCPLayer, LayerOwner{ .packet_layer = layer });
+                return LayerIface{ .tcpLayer = .{ .owner = .{ .packet_layer = layer } } };
             },
             IPProtocol.UDP => {
-                return try LayerIface.init(UDP.UDPLayer, LayerOwner{ .packet_layer = layer });
+                return LayerIface{ .udpLayer = .{ .owner = .{ .packet_layer = layer } } };
             },
             // TODO: handle IGMP - peak the buffer to find the version
             else => {
-                return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
+                return LayerIface{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } };
             },
         }
     }

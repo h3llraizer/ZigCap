@@ -21,8 +21,6 @@ test "build rr opt" {
 
     const allocator = debug_allocator.allocator();
 
-    const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-
     const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
 
     var rr = try IPv4.IPv4_Options.RecordRoute.init(tlv_owner);
@@ -71,7 +69,7 @@ test "build rr opt" {
 
     var opt = IPv4.IPv4Option{ .record_route = rr };
 
-    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
+    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(allocator);
     defer ipv4_layer.deinit();
 
     try ipv4_layer.add_option(&opt);
@@ -145,8 +143,6 @@ test "build lsr opt" {
 
     const allocator = debug_allocator.allocator();
 
-    const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-
     const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
 
     var lsr = try IPv4.IPv4_Options.LooseSourceRoute.init(tlv_owner);
@@ -183,7 +179,7 @@ test "build lsr opt" {
 
     var opt = IPv4.IPv4Option{ .loose_route = lsr };
 
-    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
+    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(allocator);
     defer ipv4_layer.deinit();
 
     try ipv4_layer.add_option(&opt);
@@ -219,8 +215,6 @@ test "build ssr opt" {
     defer _ = debug_allocator.detectLeaks();
 
     const allocator = debug_allocator.allocator();
-
-    const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
 
     const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
 
@@ -258,7 +252,7 @@ test "build ssr opt" {
 
     var opt = IPv4.IPv4Option{ .strict_route = ssr };
 
-    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
+    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(allocator);
     defer ipv4_layer.deinit();
 
     try ipv4_layer.add_option(&opt);
@@ -295,9 +289,6 @@ test "build ra opt" {
     const allocator = debug_allocator.allocator();
 
     const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
-    var tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-
-    defer tmp_owner.deinit();
 
     var ra = try IPv4.IPv4_Options.RouterAlert.init(tlv_owner);
     defer ra.deinit();
@@ -306,7 +297,7 @@ test "build ra opt" {
 
     var opt = IPv4.IPv4Option{ .router_alert = ra };
 
-    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
+    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(allocator);
     defer ipv4_layer.deinit();
 
     try ipv4_layer.add_option(&opt);
@@ -333,7 +324,6 @@ test "build timestamp opt" {
     const allocator = debug_allocator.allocator();
 
     const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
-    const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
 
     var ts_opt = try IPv4.IPv4_Options.Timestamp.init(tlv_owner);
     defer ts_opt.deinit();
@@ -381,7 +371,7 @@ test "build timestamp opt" {
 
     //print("ts_data: ({}) {x}\n", .{ ts_opt.get_data().len, ts_opt.get_data() });
 
-    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
+    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(allocator);
     defer ipv4_layer.deinit();
 
     var opt = IPv4.IPv4Option{ .timestamp = ts_opt };
@@ -458,9 +448,6 @@ test "build timestamp opt in packet" {
     const allocator = debug_allocator.allocator();
 
     const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
-    var tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-
-    defer tmp_owner.deinit();
 
     var ts_opt = try IPv4.IPv4_Options.Timestamp.init(tlv_owner);
     defer ts_opt.deinit();
@@ -502,7 +489,7 @@ test "build timestamp opt in packet" {
 
     var opt = IPv4.IPv4Option{ .timestamp = ts_opt };
 
-    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
+    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(allocator);
     defer ipv4_layer.deinit();
 
     try ipv4_layer.add_option(&opt);
@@ -557,7 +544,7 @@ test "build timestamp opt in packet" {
     var packet = Packet.create(allocator, allocator);
     defer packet.deinit();
 
-    var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, ipv4_layer.owner);
+    var ipv4_layer_iface: LayerIface = LayerIface{ .ipv4Layer = ipv4_layer };
 
     _ = try packet.add_layer(&ipv4_layer_iface);
 
@@ -584,7 +571,6 @@ test "build multiple options" {
     const allocator = debug_allocator.allocator();
 
     const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
-    const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
 
     var ts_opt = try IPv4.IPv4_Options.Timestamp.init(tlv_owner);
     defer ts_opt.deinit();
@@ -626,7 +612,7 @@ test "build multiple options" {
 
     records.deinit(allocator);
 
-    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
+    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(allocator);
     defer ipv4_layer.deinit();
 
     var opt = IPv4.IPv4Option{ .timestamp = ts_opt };
@@ -741,9 +727,7 @@ test "build timestamp option" {
 
     records.deinit(allocator);
 
-    const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-
-    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
+    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(allocator);
     defer ipv4_layer.deinit();
 
     var opt = IPv4.IPv4Option{ .timestamp = ts_opt };
@@ -770,9 +754,7 @@ test "build router alert option" {
 
     try expect(ra_opt.get_data().len == 4);
 
-    const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-
-    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
+    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(allocator);
     defer ipv4_layer.deinit();
 
     var opt = IPv4.IPv4Option{ .router_alert = ra_opt };
@@ -801,9 +783,7 @@ test "build generic option" {
 
     try expect(go_opt.get_data().len == 2);
 
-    const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-
-    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
+    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(allocator);
     defer ipv4_layer.deinit();
 
     var opt = IPv4.IPv4Option{ .generic = go_opt };
@@ -825,8 +805,6 @@ test "build recr opt" {
     defer _ = debug_allocator.detectLeaks();
 
     const allocator = debug_allocator.allocator();
-
-    const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
 
     const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
 
@@ -872,7 +850,7 @@ test "build recr opt" {
 
     var opt = IPv4.IPv4Option{ .record_route = rr };
 
-    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
+    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(allocator);
     defer ipv4_layer.deinit();
 
     //print("Adding Record Route Option.\n", .{});
@@ -1004,8 +982,6 @@ test "build rr opt for packet" {
 
     const allocator = debug_allocator.allocator();
 
-    const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-
     const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
 
     var rr = try IPv4.IPv4_Options.RecordRoute.init(tlv_owner);
@@ -1054,7 +1030,7 @@ test "build rr opt for packet" {
 
     var opt = IPv4.IPv4Option{ .record_route = rr };
 
-    var ip_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
+    var ip_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(allocator);
     defer ip_layer.deinit();
 
     const ipv4_hdr = ip_layer.get_mutable_header();
@@ -1064,7 +1040,7 @@ test "build rr opt for packet" {
 
     try ip_layer.add_option(&opt);
 
-    var eth_layer_iface = try LayerIface.init(Eth.EthLayer, tmp_owner);
+    var eth_layer_iface = try LayerIface.init(Eth.EthLayer, allocator);
     defer eth_layer_iface.deinit();
 
     const eth_hdr = eth_layer_iface.ethLayer.get_mutable_header();
@@ -1072,9 +1048,9 @@ test "build rr opt for packet" {
     eth_hdr.set_dst_mac(try Eth.MacAddress.init_from_string("9F:9E:9D:9C:9B:9A"));
     eth_hdr.set_eth_type(Eth.EthType.IP);
 
-    var ip_layer_iface = try LayerIface.init(IPv4.IPv4Layer, ip_layer.owner);
+    var ip_layer_iface = LayerIface{ .ipv4Layer = ip_layer };
 
-    var udp_layer_face = try LayerIface.init(UDP.UDPLayer, tmp_owner);
+    var udp_layer_face = try LayerIface.init(UDP.UDPLayer, allocator);
     defer udp_layer_face.deinit();
 
     const udp_hdr = udp_layer_face.udpLayer.get_mutable_header();
@@ -1208,8 +1184,6 @@ test "remove rr opt in layer" {
 
     const allocator = debug_allocator.allocator();
 
-    const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-
     const tlv_owner = TLVOwner{ .owned_buffer = .init_empty(allocator) };
 
     var rr = try IPv4.IPv4_Options.RecordRoute.init(tlv_owner);
@@ -1258,7 +1232,7 @@ test "remove rr opt in layer" {
 
     var opt = IPv4.IPv4Option{ .record_route = rr };
 
-    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
+    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(allocator);
     defer ipv4_layer.deinit();
 
     const ipv4_hdr = ipv4_layer.get_mutable_header();

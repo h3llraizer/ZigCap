@@ -18,9 +18,7 @@ test "build igmp layer" {
 
     const allocator = debug_allocator.allocator();
 
-    const owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-
-    var igmp_layer_iface: LayerIface = try LayerIface.init(IGMP.IGMPv3Layer, owner);
+    var igmp_layer_iface: LayerIface = try LayerIface.init(IGMP.IGMPv3Layer, allocator);
     defer igmp_layer_iface.deinit();
 
     const igmp_type: IGMP.IGMPType = igmp_layer_iface.igmpv3Layer.get_type();

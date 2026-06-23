@@ -5,6 +5,7 @@ const LayerError = @import("ProtocolEnums.zig").LayerError;
 const NullLinkType = @import("ProtocolEnums.zig").NullLinkType;
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const init_layer = @import("LayerIface.zig").init_layer;
+const initLayerFromSlice = @import("LayerIface.zig").initFromSlice;
 const IPVersion = @import("ProtocolEnums.zig").IPVersions;
 const IPv4Layer = @import("IPv4.zig").IPv4Layer;
 const IPv4Header = @import("IPv4.zig").IPv4Header;
@@ -43,8 +44,16 @@ pub const LoopbackLayer = struct {
     owner: LayerOwner,
     const Protocol = tcp_ip_protocol.loopback;
 
-    pub fn init(owner: LayerOwner) LayerError!LoopbackLayer {
-        return try init_layer(LoopbackLayer, owner, LoopbackHeader, default_hdr);
+    pub fn init(allocator: Allocator) LayerError!LoopbackLayer {
+        return try init_layer(LoopbackLayer, allocator, LoopbackHeader, default_hdr);
+    }
+
+    pub fn initFromSlice(slice: []u8, allocator: Allocator) LayerError!LoopbackLayer {
+        if (slice.len < LoopbackHeaderSize) return LayerError.BufferTooSmall;
+
+        const hdr_len = LoopbackHeaderSize;
+
+        return try initLayerFromSlice(slice, LoopbackLayer, hdr_len, LoopbackHeaderSize, LoopbackHeaderSize, allocator);
     }
 
     fn get_mutable_header(self: *const LoopbackLayer) *LoopbackHeader {
@@ -82,8 +91,6 @@ pub const LoopbackLayer = struct {
 
         const data = self.get_data();
 
-        print("{x}\n", .{data});
-
         switch (protocol_type) {
             .IPv4 => {
                 if (data.len <= LoopbackHeaderSize) {
@@ -96,10 +103,10 @@ pub const LoopbackLayer = struct {
 
                 if (ip_version == @intFromEnum(IPVersion.IPv4)) {
                     if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) {
-                        return try LayerIface.init(GenericLayer.ApplicationLayer, LayerOwner{ .packet_layer = layer });
+                        return LayerIface{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } };
                     }
 
-                    return try LayerIface.init(IPv4.IPv4Layer, LayerOwner{ .packet_layer = layer });
+                    return LayerIface{ .ipv4Layer = .{ .owner = .{ .packet_layer = layer } } };
                 }
 
                 if (ip_version == @intFromEnum(IPVersion.IPv6)) {

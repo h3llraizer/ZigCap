@@ -7,6 +7,7 @@ const TLVOwner = Owner.TLVOwner;
 const Layer = @import("Packet.zig").Layer;
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const init_layer = @import("LayerIface.zig").init_layer;
+const initLayerFromSlice = @import("LayerIface.zig").initFromSlice;
 const Buffer = @import("Buffer.zig").Buffer;
 const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
@@ -253,8 +254,16 @@ pub const DNSHeader = extern struct {
 pub const DNSLayer = struct {
     owner: LayerOwner,
 
-    pub fn init(owner: LayerOwner) (LayerError || Allocator.Error)!DNSLayer {
-        return try init_layer(DNSLayer, owner, DNSHeader, default_hdr);
+    pub fn init(allocator: Allocator) (LayerError || Allocator.Error)!DNSLayer {
+        return try init_layer(DNSLayer, allocator, DNSHeader, default_hdr);
+    }
+
+    pub fn initFromSlice(slice: []u8, allocator: Allocator) LayerError!DNSLayer {
+        if (slice.len < DNSHeaderSize) return LayerError.BufferTooSmall;
+
+        const hdr_len = slice.len;
+
+        return try initLayerFromSlice(slice, DNSLayer, hdr_len, DNSHeaderSize, slice.len, allocator);
     }
 
     pub fn get_data(self: *const DNSLayer) []u8 {

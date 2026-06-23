@@ -6,6 +6,7 @@ const LayerOwner = @import("Owner.zig").LayerOwner;
 const LayerError = @import("ProtocolEnums.zig").LayerError;
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const init_layer = @import("LayerIface.zig").init_layer;
+const initLayerFromSlice = @import("LayerIface.zig").initFromSlice;
 const Layer = @import("Packet.zig").Layer;
 
 const Allocator = std.mem.Allocator;
@@ -204,8 +205,16 @@ pub const ARPLayer = struct {
     owner: LayerOwner,
     const Protocol = tcp_ip_protocol.arp;
 
-    pub fn init(owner: LayerOwner) LayerError!ARPLayer {
-        return try init_layer(ARPLayer, owner, ARPHeader, default_hdr);
+    pub fn init(allocator: Allocator) LayerError!ARPLayer {
+        return try init_layer(ARPLayer, allocator, ARPHeader, default_hdr);
+    }
+
+    pub fn initFromSlice(slice: []u8, allocator: Allocator) LayerError!ARPLayer {
+        if (slice.len < ARPHeaderSize) return LayerError.BufferTooSmall;
+
+        const hdr_len = ARPHeaderSize;
+
+        return try initLayerFromSlice(slice, ARPLayer, hdr_len, ARPHeaderSize, ARPHeaderSize, allocator);
     }
 
     pub fn get_mutable_header(self: *ARPLayer) *ARPHeader {

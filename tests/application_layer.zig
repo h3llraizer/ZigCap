@@ -11,12 +11,13 @@ const ApplicationLayer = zigcap.ApplicationLayer;
 test "build generic layer independant" {
     //  print("========================== START ==========================\n", .{});
     //  print("build generic layer independant\n", .{});
-    const page_allocator = std.heap.page_allocator;
-    var app_layer_owner = LayerOwner{ .owned_buffer = .init_empty(page_allocator) };
+    var dba: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = dba.detectLeaks();
 
-    defer app_layer_owner.owned_buffer.buffer.deinit(std.heap.page_allocator);
+    const allocator = dba.allocator();
 
-    var app_layer_iface: LayerIface = try LayerIface.init(ApplicationLayer, app_layer_owner);
+    var app_layer_iface: LayerIface = try LayerIface.init(ApplicationLayer, allocator);
+    defer app_layer_iface.deinit();
 
     try app_layer_iface.genericAppLayer.set_payload("hello");
 

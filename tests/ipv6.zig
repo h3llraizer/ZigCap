@@ -16,48 +16,39 @@ const IPv6 = zigcap.IPv6;
 const IPv6Address = IPv6.IPv6Address;
 
 test "parse ipv6 with hop-by-hop ext and ICMPv6 listen report" {
-    const ipv6_hbh_icmpv6: [48]u8 = [_]u8{ 0x60, 0x0, 0x0, 0x0, 0x0, 0x24, 0x0, 0x1, 0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xa6, 0x61, 0x8f, 0x26, 0x87, 0xeb, 0xbe, 0x60, 0xff, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x16, 0x3a, 0x0, 0x5, 0x2, 0x0, 0x0, 0x1, 0x0 };
+    var ipv6_hbh_icmpv6 = [_]u8{ 0x60, 0x0, 0x0, 0x0, 0x0, 0x24, 0x0, 0x1, 0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xa6, 0x61, 0x8f, 0x26, 0x87, 0xeb, 0xbe, 0x60, 0xff, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x16, 0x3a, 0x0, 0x5, 0x2, 0x0, 0x0, 0x1, 0x0 };
+
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.detectLeaks();
 
     const allocator = debug_allocator.allocator();
 
-    const raw_layer_buffer: []u8 = try allocator.alloc(u8, ipv6_hbh_icmpv6.len);
+    var ipv6_layer = try IPv6.IPv6Layer.initFromSlice(ipv6_hbh_icmpv6[0..], allocator);
+    defer ipv6_layer.deinit();
 
-    @memmove(raw_layer_buffer, &ipv6_hbh_icmpv6);
-
-    const tmp_owner = LayerOwner{ .owned_buffer = try .init(raw_layer_buffer, allocator) };
-
-    var ipv6_layer_iface: LayerIface = try LayerIface.init(IPv6.IPv6Layer, tmp_owner);
-    defer ipv6_layer_iface.deinit();
-
-    const src = try ipv6_layer_iface.ipv6Layer.get_immutable_header().get_src_ip().to_string(allocator);
+    const src = try ipv6_layer.get_immutable_header().get_src_ip().to_string(allocator);
     defer allocator.free(src);
-    //print("src: {s}\n", .{src});
 
-    const dst = try ipv6_layer_iface.ipv6Layer.get_immutable_header().get_dst_ip().to_string(allocator);
+    const dst = try ipv6_layer.get_immutable_header().get_dst_ip().to_string(allocator);
     defer allocator.free(dst);
-    //print("dst: {s}\n", .{dst});
 
-    var extensions = try ipv6_layer_iface.ipv6Layer.get_extensions(allocator) orelse {
+    var extensions = try ipv6_layer.get_extensions(allocator) orelse {
         try expect(false); // failed to get extension headers
         return;
     };
 
     defer extensions.deinit(allocator);
 
-    //print("ipv6 layer: ({}) {x}\n", .{ ipv6_layer_iface.get_data().len, ipv6_layer_iface.get_data() });
-
     try expect(extensions.ext_header_count == 1);
 
-    try expect(ipv6_layer_iface.ipv6Layer.get_immutable_header().get_next_header() == .HopByHop);
+    try expect(ipv6_layer.get_immutable_header().get_next_header() == .HopByHop);
 
     var cur = extensions.first;
     while (cur) |ext| {
         //print("{any}\n", .{ext.get_type()});
         //print("data: {x}\n", .{ext.hop_by_hop.get_data()});
         //print("offset: {}\n", .{ext.hop_by_hop.get_offset()});
-        //print("ipv6 ext buf: {x}\n", .{ipv6_layer_iface.get_data()[ext.hop_by_hop.get_offset()..]});
+        //print("ipv6 ext buf: {x}\n", .ipv6_layer.get_data()[ext.hop_by_hop.get_offset()..]});
         //print("{any}\n", .{ext.hop_by_hop.get_opt_type()});
         //print("opt len: {}\n", .{ext.hop_by_hop.get_opt_len()});
         //print("opt value: {}\n", .{ext.hop_by_hop.get_opt_value()});
@@ -69,11 +60,11 @@ test "parse ipv6 with hop-by-hop ext and ICMPv6 listen report" {
         cur = ext.get_next();
     }
 
-    try ipv6_layer_iface.ipv6Layer.remove_extension(extensions.first.?);
+    try ipv6_layer.remove_extension(extensions.first.?);
 
-    //print("ipv6 layer: ({}) {x}\n", .{ ipv6_layer_iface.get_data().len, ipv6_layer_iface.get_data() });
+    //print("ipv6 layer: ({}) {x}\n", .{ipv6_layer.get_data().len,ipv6_layer.get_data() });
 
-    try expect(ipv6_layer_iface.ipv6Layer.get_immutable_header().get_next_header() == .ICMPv6);
+    try expect(ipv6_layer.get_immutable_header().get_next_header() == .ICMPv6);
 }
 
 test "parse ipv6 packet" {
@@ -101,22 +92,17 @@ test "parse ipv6 packet" {
 }
 
 test "parse ipv6 layer" {
-    const ipv6_raw_layer: [48]u8 = [_]u8{ 0x60, 0x0, 0x0, 0x0, 0x0, 0x10, 0x0, 0x40, 0x2a, 0x0, 0x23, 0xc8, 0x73, 0xa8, 0xc1, 0x1, 0xf2, 0xce, 0xcb, 0xf2, 0x41, 0x11, 0xc5, 0x54, 0x20, 0x1, 0xd, 0xb8, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x3a, 0x0, 0x0, 0x1, 0x3, 0x0, 0x0, 0x0 };
+    var ipv6_raw_layer = [_]u8{ 0x60, 0x0, 0x0, 0x0, 0x0, 0x10, 0x0, 0x40, 0x2a, 0x0, 0x23, 0xc8, 0x73, 0xa8, 0xc1, 0x1, 0xf2, 0xce, 0xcb, 0xf2, 0x41, 0x11, 0xc5, 0x54, 0x20, 0x1, 0xd, 0xb8, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x3a, 0x0, 0x0, 0x1, 0x3, 0x0, 0x0, 0x0 };
 
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.deinit();
 
     const allocator = debug_allocator.allocator();
 
-    const ipv6_bytes = try allocator.alloc(u8, ipv6_raw_layer.len);
-    @memmove(ipv6_bytes, ipv6_raw_layer[0..]);
+    var ipv6_layer = try IPv6.IPv6Layer.initFromSlice(ipv6_raw_layer[0..], allocator);
+    defer ipv6_layer.deinit();
 
-    const buf: LayerOwner = LayerOwner{ .owned_buffer = try .init(ipv6_bytes, allocator) };
-
-    var ipv6_iface = try LayerIface.init(IPv6.IPv6Layer, buf);
-    defer ipv6_iface.deinit();
-
-    const hdr = ipv6_iface.ipv6Layer.get_mutable_header();
+    const hdr = ipv6_layer.get_mutable_header();
 
     const src_str = try hdr.get_src_ip().to_string(allocator);
     defer allocator.free(src_str);
@@ -124,7 +110,7 @@ test "parse ipv6 layer" {
     const dst_ip = try hdr.get_dst_ip().to_string(allocator);
     defer allocator.free(dst_ip);
 
-    var extensions = try ipv6_iface.ipv6Layer.get_extensions(allocator) orelse {
+    var extensions = try ipv6_layer.get_extensions(allocator) orelse {
         print("no extension headers.\n", .{});
         return;
     };
@@ -144,10 +130,7 @@ test "build ipv6 layer" {
 
     const allocator = debug_allocator.allocator();
 
-    const tmp_buf: LayerOwner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-    //    defer _ = tmp_buf.owned_buffer.deinit();
-
-    var ipv6_iface = try LayerIface.init(IPv6.IPv6Layer, tmp_buf);
+    var ipv6_iface = try LayerIface.init(IPv6.IPv6Layer, allocator);
     defer ipv6_iface.deinit();
 
     const hdr = ipv6_iface.ipv6Layer.get_mutable_header();
@@ -161,9 +144,7 @@ test "ipv6 header getters/setters" {
 
     const allocator = debug_allocator.allocator();
 
-    const tmp_buf: LayerOwner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-
-    var ipv6_iface = try LayerIface.init(IPv6.IPv6Layer, tmp_buf);
+    var ipv6_iface = try LayerIface.init(IPv6.IPv6Layer, allocator);
     defer ipv6_iface.deinit();
 
     const hdr = ipv6_iface.ipv6Layer.get_mutable_header();

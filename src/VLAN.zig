@@ -4,6 +4,7 @@ const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const ProtocolEnums = @import("ProtocolEnums.zig");
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const init_layer = @import("LayerIface.zig").init_layer;
+const initLayerFromSlice = @import("LayerIface.zig").initFromSlice;
 const IPv4 = @import("IPv4.zig");
 const IPv6 = @import("IPv6.zig");
 const ARP = @import("ARP.zig");
@@ -62,8 +63,16 @@ pub const VLANHeader = extern struct {
 pub const VLANLayer = struct {
     owner: LayerOwner,
 
-    pub fn init(owner: LayerOwner) LayerError!VLANLayer {
-        return try init_layer(VLANLayer, owner, VLANHeader, default_hdr);
+    pub fn init(allocator: Allocator) LayerError!VLANLayer {
+        return try init_layer(VLANLayer, allocator, VLANHeader, default_hdr);
+    }
+
+    pub fn initFromSlice(slice: []u8, allocator: Allocator) LayerError!VLANLayer {
+        if (slice.len < VLANHeaderSize) return LayerError.BufferTooSmall;
+
+        const header_len = VLANHeaderSize;
+
+        return try initLayerFromSlice(slice, VLANLayer, header_len, VLANHeaderSize, VLANHeaderSize, allocator);
     }
 
     pub fn zero_hdr() []u8 {
@@ -160,10 +169,10 @@ pub const VLANLayer = struct {
 
                 if (ip_version == @intFromEnum(IPVersion.IPv4)) {
                     if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) {
-                        return try LayerIface.init(GenericLayer.ApplicationLayer, LayerOwner{ .packet_layer = layer });
+                        return LayerIface{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } };
                     }
 
-                    return try LayerIface.init(IPv4.IPv4Layer, LayerOwner{ .packet_layer = layer });
+                    return LayerIface{ .ipv4Layer = .{ .owner = .{ .packet_layer = layer } } };
                 }
 
                 if (ip_version == @intFromEnum(IPVersion.IPv6)) {
@@ -174,10 +183,10 @@ pub const VLANLayer = struct {
                 }
             },
             EthType.IPV6 => {
-                return try LayerIface.init(IPv6.IPv6Layer, LayerOwner{ .packet_layer = layer });
+                return LayerIface{ .ipv6Layer = .{ .owner = .{ .packet_layer = layer } } };
             },
             EthType.ARP => {
-                return try LayerIface.init(ARP.ARPLayer, LayerOwner{ .packet_layer = layer });
+                return LayerIface{ .arpLayer = .{ .owner = .{ .packet_layer = layer } } };
             },
             else => {
                 print("couldn't get Eth {any} protocol.\n", .{eth_type});

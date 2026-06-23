@@ -5,6 +5,7 @@ const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerError = ProtocolEnums.LayerError;
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const init_layer = @import("LayerIface.zig").init_layer;
+const initLayerFromSlice = @import("LayerIface.zig").initFromSlice;
 const LayerOwner = @import("Owner.zig").LayerOwner;
 const Packet = @import("Packet.zig");
 const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
@@ -263,8 +264,18 @@ pub const TCPLayer = struct {
     owner: LayerOwner,
 
     /// Creates layer from ptr to minimum 20 byte length buffer
-    pub fn init(owner: LayerOwner) LayerError!TCPLayer {
-        return try init_layer(TCPLayer, owner, TCPHeader, default_hdr);
+    pub fn init(allocator: Allocator) LayerError!TCPLayer {
+        return try init_layer(TCPLayer, allocator, TCPHeader, default_hdr);
+    }
+
+    pub fn initFromSlice(slice: []u8, allocator: Allocator) LayerError!TCPLayer {
+        if (slice.len < TCPHeaderMinSize) return LayerError.BufferTooSmall;
+
+        const hdr: *TCPHeader = @ptrCast(slice[0..].ptr);
+
+        const hdr_len = hdr.get_hdr_length();
+
+        return try initLayerFromSlice(slice, TCPLayer, hdr_len, TCPHeaderMinSize, TCPHeaderMaxSize, allocator);
     }
 
     /// Calculate the checksum of the TCPHeader - not yet implemented
@@ -629,7 +640,7 @@ pub const TCPLayer = struct {
         }
 
         if (self.get_payload().len > 0) {
-            return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
+            return LayerIface{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } };
         }
 
         return null;

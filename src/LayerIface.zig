@@ -20,30 +20,36 @@ const LayerOwner = @import("Owner.zig").LayerOwner;
 
 const Allocator = std.mem.Allocator;
 
-pub fn init_layer(concrete_type: anytype, owner: LayerOwner, header: anytype, default_hdr: anytype) !concrete_type {
-    switch (owner) {
-        .packet_layer => {
-            return concrete_type{
-                .owner = owner,
-            };
-        },
-        .owned_buffer => {
-            var self = concrete_type{ .owner = owner };
-            const buffer_len = owner.get_data().len;
+/// TODO: move allocator to end of args
+pub fn init_layer(concrete_type: anytype, allocator: Allocator, header: anytype, default_hdr: anytype) !concrete_type {
+    var owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
 
-            if (buffer_len < @sizeOf(header)) {
-                const diff = @sizeOf(header) - buffer_len;
+    const header_bytes = try owner.extend_layer(0, @sizeOf(header));
 
-                const ipv4_data = try self.owner.extend_layer(buffer_len, diff);
+    @memset(header_bytes, 0);
 
-                @memset(ipv4_data, 0);
+    @memcpy(header_bytes[0..@sizeOf(header)], std.mem.asBytes(&default_hdr));
 
-                @memcpy(ipv4_data[0..@sizeOf(header)], std.mem.asBytes(&default_hdr));
-            }
+    const self = concrete_type{ .owner = owner };
 
-            return self;
-        },
-    }
+    return self;
+}
+
+/// copies header from slice
+pub fn initFromSlice(
+    slice: []u8,
+    layer_type: anytype,
+    actual_hdr_len: usize,
+    min_header: usize,
+    max_header: usize,
+    allocator: Allocator,
+) LayerError!layer_type {
+    if (slice.len < min_header) return LayerError.BufferTooSmall;
+    if (actual_hdr_len > max_header or actual_hdr_len > slice.len) return LayerError.LayerMalformed;
+    var owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
+    const hdr_bytes = try owner.extend_layer(0, actual_hdr_len);
+    @memmove(hdr_bytes[0..actual_hdr_len], slice[0..actual_hdr_len]);
+    return .{ .owner = owner };
 }
 
 pub fn get_mutable_header(header: anytype, data: []u8) *header {
@@ -67,41 +73,60 @@ pub const LayerIface = union(enum) {
     genericAppLayer: GenericLayer.ApplicationLayer,
 
     /// inits the layer
-    /// copies the owner struct - dont try to get the layer buffer from your original owner struct
-    pub fn init(choice: type, owner: LayerOwner) LayerError!LayerIface {
+    /// TODO: maybe use tcp_ip_protocol instead of type
+    pub fn init(choice: type, allocator: Allocator) LayerError!LayerIface {
         switch (choice) {
-            Loopback.LoopbackLayer => return LayerIface{ .loopbackLayer = try Loopback.LoopbackLayer.init(owner) },
-            Eth.EthLayer => return LayerIface{ .ethLayer = try Eth.EthLayer.init(owner) },
-            VLAN.VLANLayer => return LayerIface{ .vlanLayer = try VLAN.VLANLayer.init(owner) },
-            IPv4.IPv4Layer => return LayerIface{ .ipv4Layer = try IPv4.IPv4Layer.init(owner) },
-            IPv6.IPv6Layer => return LayerIface{ .ipv6Layer = try IPv6.IPv6Layer.init(owner) },
-            UDP.UDPLayer => return LayerIface{ .udpLayer = try UDP.UDPLayer.init(owner) },
-            TCP.TCPLayer => return LayerIface{ .tcpLayer = try TCP.TCPLayer.init(owner) },
-            ARP.ARPLayer => return LayerIface{ .arpLayer = try ARP.ARPLayer.init(owner) },
-            ICMP.ICMPLayer => return LayerIface{ .icmpLayer = try ICMP.ICMPLayer.init(owner) },
-            DNS.DNSLayer => return LayerIface{ .dnsLayer = try DNS.DNSLayer.init(owner) },
-            DHCP.DHCPLayer => return LayerIface{ .dhcpLayer = try DHCP.DHCPLayer.init(owner) },
-            IGMP.IGMPv3Layer => return LayerIface{ .igmpv3Layer = try IGMP.IGMPv3Layer.init(owner) },
-            GenericLayer.ApplicationLayer => return LayerIface{ .genericAppLayer = try GenericLayer.ApplicationLayer.init(owner) },
+            Loopback.LoopbackLayer => return LayerIface{ .loopbackLayer = try Loopback.LoopbackLayer.init(allocator) },
+            Eth.EthLayer => return LayerIface{ .ethLayer = try Eth.EthLayer.init(allocator) },
+            VLAN.VLANLayer => return LayerIface{ .vlanLayer = try VLAN.VLANLayer.init(allocator) },
+            IPv4.IPv4Layer => return LayerIface{ .ipv4Layer = try IPv4.IPv4Layer.init(allocator) },
+            IPv6.IPv6Layer => return LayerIface{ .ipv6Layer = try IPv6.IPv6Layer.init(allocator) },
+            UDP.UDPLayer => return LayerIface{ .udpLayer = try UDP.UDPLayer.init(allocator) },
+            TCP.TCPLayer => return LayerIface{ .tcpLayer = try TCP.TCPLayer.init(allocator) },
+            ARP.ARPLayer => return LayerIface{ .arpLayer = try ARP.ARPLayer.init(allocator) },
+            ICMP.ICMPLayer => return LayerIface{ .icmpLayer = try ICMP.ICMPLayer.init(allocator) },
+            DNS.DNSLayer => return LayerIface{ .dnsLayer = try DNS.DNSLayer.init(allocator) },
+            DHCP.DHCPLayer => return LayerIface{ .dhcpLayer = try DHCP.DHCPLayer.init(allocator) },
+            IGMP.IGMPv3Layer => return LayerIface{ .igmpv3Layer = try IGMP.IGMPv3Layer.init(allocator) },
+            GenericLayer.ApplicationLayer => return LayerIface{ .genericAppLayer = try GenericLayer.ApplicationLayer.init(allocator) },
+            else => return LayerError.LayerInvalid,
+        }
+    }
+
+    pub fn initFromSlice(choice: type, slice: []u8, allocator: Allocator) LayerError!LayerIface {
+        switch (choice) {
+            Loopback.LoopbackLayer => return LayerIface{ .loopbackLayer = try Loopback.LoopbackLayer.initFromSlice(slice, allocator) },
+            Eth.EthLayer => return LayerIface{ .ethLayer = try Eth.EthLayer.initFromSlice(slice, allocator) },
+            VLAN.VLANLayer => return LayerIface{ .vlanLayer = try VLAN.VLANLayer.initFromSlice(slice, allocator) },
+            IPv4.IPv4Layer => return LayerIface{ .ipv4Layer = try IPv4.IPv4Layer.initFromSlice(slice, allocator) },
+            IPv6.IPv6Layer => return LayerIface{ .ipv6Layer = try IPv6.IPv6Layer.initFromSlice(slice, allocator) },
+            UDP.UDPLayer => return LayerIface{ .udpLayer = try UDP.UDPLayer.initFromSlice(slice, allocator) },
+            TCP.TCPLayer => return LayerIface{ .tcpLayer = try TCP.TCPLayer.initFromSlice(slice, allocator) },
+            ARP.ARPLayer => return LayerIface{ .arpLayer = try ARP.ARPLayer.initFromSlice(slice, allocator) },
+            ICMP.ICMPLayer => return LayerIface{ .icmpLayer = try ICMP.ICMPLayer.initFromSlice(slice, allocator) },
+            DNS.DNSLayer => return LayerIface{ .dnsLayer = try DNS.DNSLayer.initFromSlice(slice, allocator) },
+            DHCP.DHCPLayer => return LayerIface{ .dhcpLayer = try DHCP.DHCPLayer.initFromSlice(slice, allocator) },
+            IGMP.IGMPv3Layer => return LayerIface{ .igmpv3Layer = try IGMP.IGMPv3Layer.initFromSlice(slice, allocator) },
+            GenericLayer.ApplicationLayer => return LayerIface{ .genericAppLayer = try GenericLayer.ApplicationLayer.initFromSlice(slice, allocator) },
             else => return LayerError.LayerInvalid,
         }
     }
 
     pub fn reinit(self: *LayerIface, owner: LayerOwner) LayerError!void {
         const new_instance = switch (self.*) {
-            .loopbackLayer => LayerIface{ .loopbackLayer = try Loopback.LoopbackLayer.init(owner) },
-            .ethLayer => LayerIface{ .ethLayer = try Eth.EthLayer.init(owner) },
-            .vlanLayer => LayerIface{ .vlanLayer = try VLAN.VLANLayer.init(owner) },
-            .ipv4Layer => LayerIface{ .ipv4Layer = try IPv4.IPv4Layer.init(owner) },
-            .ipv6Layer => LayerIface{ .ipv6Layer = try IPv6.IPv6Layer.init(owner) },
-            .udpLayer => LayerIface{ .udpLayer = try UDP.UDPLayer.init(owner) },
-            .tcpLayer => LayerIface{ .tcpLayer = try TCP.TCPLayer.init(owner) },
-            .arpLayer => LayerIface{ .arpLayer = try ARP.ARPLayer.init(owner) },
-            .icmpLayer => LayerIface{ .icmpLayer = try ICMP.ICMPLayer.init(owner) },
-            .dnsLayer => LayerIface{ .dnsLayer = try DNS.DNSLayer.init(owner) },
-            .dhcpLayer => LayerIface{ .dhcpLayer = try DHCP.DHCPLayer.init(owner) },
-            .igmpv3Layer => LayerIface{ .igmpv3Layer = try IGMP.IGMPv3Layer.init(owner) },
-            .genericAppLayer => LayerIface{ .genericAppLayer = try GenericLayer.ApplicationLayer.init(owner) },
+            .loopbackLayer => LayerIface{ .loopbackLayer = .{ .owner = owner } },
+            .ethLayer => LayerIface{ .ethLayer = .{ .owner = owner } },
+            .vlanLayer => LayerIface{ .vlanLayer = .{ .owner = owner } },
+            .ipv4Layer => LayerIface{ .ipv4Layer = .{ .owner = owner } },
+            .ipv6Layer => LayerIface{ .ipv6Layer = .{ .owner = owner } },
+            .udpLayer => LayerIface{ .udpLayer = .{ .owner = owner } },
+            .tcpLayer => LayerIface{ .tcpLayer = .{ .owner = owner } },
+            .arpLayer => LayerIface{ .arpLayer = .{ .owner = owner } },
+            .icmpLayer => LayerIface{ .icmpLayer = .{ .owner = owner } },
+            .dnsLayer => LayerIface{ .dnsLayer = .{ .owner = owner } },
+            .dhcpLayer => LayerIface{ .dhcpLayer = .{ .owner = owner } },
+            .igmpv3Layer => LayerIface{ .igmpv3Layer = .{ .owner = owner } },
+            .genericAppLayer => LayerIface{ .genericAppLayer = .{ .owner = owner } },
         };
         self.* = new_instance;
     }

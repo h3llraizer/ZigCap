@@ -50,12 +50,10 @@ test "build" {
 
     try expect(hbh.get_pad_len() == 0);
 
-    const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-
-    var ipv6_layer_iface = try LayerIface.init(IPv6.IPv6Layer, tmp_owner);
+    var ipv6_layer_iface = try LayerIface.init(IPv6.IPv6Layer, allocator);
     defer ipv6_layer_iface.deinit();
 
-    var udp_layer_iface = try LayerIface.init(UDP.UDPLayer, tmp_owner);
+    var udp_layer_iface = try LayerIface.init(UDP.UDPLayer, allocator);
     defer udp_layer_iface.deinit();
 
     udp_layer_iface.udpLayer.get_mutable_header().set_src_port(1234);

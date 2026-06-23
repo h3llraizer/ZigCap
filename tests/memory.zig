@@ -36,10 +36,9 @@ test "layer owner" {
 
     const allocator = debug_allocator.allocator();
 
-    const tmp_buf = LayerOwner{ .owned_buffer = .init_empty(allocator) };
     //defer tmp_buf.deinit();
 
-    var eth_layer_iface: LayerIface = try LayerIface.init(Eth.EthLayer, tmp_buf);
+    var eth_layer_iface: LayerIface = try LayerIface.init(Eth.EthLayer, allocator);
     defer eth_layer_iface.deinit();
 
     var eth_hdr: *Eth.EthHeader = eth_layer_iface.ethLayer.get_mutable_header();

@@ -8,12 +8,33 @@ const LayerOwner = zigcap.Owner.LayerOwner;
 const LayerIface = zigcap.LayerIface;
 const Eth = zigcap.Eth;
 
+test "init ethlayer from slice" {
+    var data = [_]u8{ 0xf0, 0x68, 0xe3, 0x5a, 0xac, 0x9e, 0x38, 0x6, 0xe6, 0x92, 0x63, 0xac, 0x8, 0x0, 0x45, 0x0, 0x0, 0x89, 0x52, 0xfa, 0x0, 0x0, 0x79, 0x6, 0x32, 0xb3, 0xac, 0xd9, 0x4c, 0x5f, 0xc0, 0xa8, 0x1, 0xe1 };
+
+    var dba: std.heap.DebugAllocator(.{}) = .init;
+    _ = dba.detectLeaks();
+
+    const allocator = dba.allocator();
+
+    var eth_layer: Eth.EthLayer = try Eth.EthLayer.initFromSlice(data[0..], allocator);
+    defer eth_layer.deinit();
+
+    const hdr = eth_layer.get_immutable_header();
+
+    try expect(hdr.get_eth_type() == .IP);
+
+    try expect(std.mem.eql(u8, &hdr.get_dst_mac().addr, &(try Eth.MacAddress.init_from_string("f0:68:e3:5a:ac:9e")).addr));
+
+    try expect(std.mem.eql(u8, &hdr.get_src_mac().addr, &(try Eth.MacAddress.init_from_string("38:06:e6:92:63:ac")).addr));
+}
+
 test "build independant eth layer" {
-    var eth_layer_owner = LayerOwner{ .owned_buffer = .init_empty(std.heap.page_allocator) };
+    var dba: std.heap.DebugAllocator(.{}) = .init;
+    _ = dba.detectLeaks();
 
-    defer eth_layer_owner.owned_buffer.buffer.deinit(std.heap.page_allocator);
+    const allocator = dba.allocator();
 
-    var eth_layer: Eth.EthLayer = try Eth.EthLayer.init(eth_layer_owner);
+    var eth_layer: Eth.EthLayer = try Eth.EthLayer.init(allocator);
 
     var eth_hdr = eth_layer.get_mutable_header();
 

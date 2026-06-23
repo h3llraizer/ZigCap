@@ -17,23 +17,25 @@ const expect = std.testing.expect;
 test "sizes" {
     const layeriface = @sizeOf(LayerIface);
 
-    print("layeriface: {}\n", .{layeriface});
+    _ = layeriface;
+    //print("layeriface: {}\n", .{layeriface});
 
     inline for (std.meta.fields(LayerIface)) |field| {
-        std.debug.print(
-            "name={s}, type={any} size={}\n",
-            .{ field.name, field.type, @sizeOf(field.type) },
-        );
+        _ = field;
+        //print( "name={s}, type={any} size={}\n", .{ field.name, field.type, @sizeOf(field.type) },);
     }
 
     const layerowner = @sizeOf(LayerOwner);
-    print("layer owner: {}\n", .{layerowner});
+    _ = layerowner;
+    //print("layer owner: {}\n", .{layerowner});
 
     const packet = @sizeOf(Packet);
-    print("packet: {}\n", .{packet});
+    _ = packet;
+    //print("packet: {}\n", .{packet});
 
     const layer = @sizeOf(Layer);
-    print("layer: {}\n", .{layer});
+    _ = layer;
+    //print("layer: {}\n", .{layer});
 
-    print("ARecord: {}\n", .{@sizeOf(DNS.ARecord)});
+    //print("ARecord: {}\n", .{@sizeOf(DNS.ARecord)});
 }

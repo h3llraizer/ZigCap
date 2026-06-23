@@ -5,6 +5,7 @@ const LayerOwner = @import("Owner.zig").LayerOwner;
 const LayerError = @import("ProtocolEnums.zig").LayerError;
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const init_layer = @import("LayerIface.zig").init_layer;
+const initLayerFromSlice = @import("LayerIface.zig").initFromSlice;
 const Layer = @import("Packet.zig").Layer;
 const IPv4Address = @import("IPv4.zig").IPv4Address;
 const Eth = @import("Eth.zig");
@@ -535,8 +536,16 @@ pub const DHCPLayer = struct {
     owner: LayerOwner,
     const Protocol = tcp_ip_protocol.dhcp;
 
-    pub fn init(owner: LayerOwner) (LayerError || Allocator.Error)!DHCPLayer {
-        return try init_layer(DHCPLayer, owner, DHCPHeader, default_hdr);
+    pub fn init(allocator: Allocator) (LayerError || Allocator.Error)!DHCPLayer {
+        return try init_layer(DHCPLayer, allocator, DHCPHeader, default_hdr);
+    }
+
+    pub fn initFromSlice(slice: []u8, allocator: Allocator) LayerError!DHCPLayer {
+        if (slice.len < DHCPHeaderSize) return LayerError.BufferTooSmall;
+
+        const hdr_len = slice.len;
+
+        return try initLayerFromSlice(slice, DHCPLayer, hdr_len, DHCPHeaderSize, slice.len, allocator);
     }
 
     pub fn get_mutable_header(self: *DHCPLayer) *DHCPHeader {

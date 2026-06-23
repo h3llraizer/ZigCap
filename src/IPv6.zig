@@ -3,6 +3,7 @@ const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerError = @import("ProtocolEnums.zig").LayerError;
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const init_layer = @import("LayerIface.zig").init_layer;
+const initLayerFromSlice = @import("LayerIface.zig").initFromSlice;
 const IPProtocol = @import("ProtocolEnums.zig").IPProtocol;
 const ICMP = @import("ICMP.zig");
 const TCP = @import("TCP.zig");
@@ -142,8 +143,28 @@ const IPv6LayerMeta = struct {
 pub const IPv6Layer = struct {
     owner: LayerOwner,
 
-    pub fn init(owner: LayerOwner) LayerError!IPv6Layer {
-        return try init_layer(IPv6Layer, owner, IPv6Header, default_hdr);
+    pub fn init(allocator: Allocator) LayerError!IPv6Layer {
+        return try init_layer(IPv6Layer, allocator, IPv6Header, default_hdr);
+    }
+
+    pub fn initFromSlice(slice: []u8, allocator: Allocator) LayerError!IPv6Layer {
+        if (slice.len < IPv6HeaderSize) return LayerError.BufferTooSmall;
+
+        var hdr: *IPv6Header = @ptrCast(slice[0..]);
+
+        const current_next = hdr.get_next_header();
+
+        var found: bool = false;
+        for (std.enums.values(NextHeader)) |nh| {
+            if (current_next == nh) {
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) return LayerError.LayerMalformed;
+
+        return try initLayerFromSlice(slice, IPv6Layer, slice.len, IPv6HeaderSize, slice.len, allocator);
     }
 
     pub fn get_mutable_header(self: *IPv6Layer) *IPv6Header {
@@ -569,6 +590,7 @@ pub const IPv6Layer = struct {
     //       _ = self;
     //   }
 
+    /// TODO: finish setting next layer type in the IPv6 header when owned by packet
     pub fn validate_layer(self: *IPv6Layer) void {
         if (self.owner.is_packet_owned()) {
             if (self.owner.packet_layer.next_layer) |next_layer| {
@@ -637,15 +659,15 @@ pub const IPv6Layer = struct {
 
         switch (ip_proto) {
             .ICMP => {
-                return try LayerIface.init(ICMP.ICMPLayer, LayerOwner{ .packet_layer = layer });
+                return LayerIface{ .icmpLayer = .{ .owner = .{ .packet_layer = layer } } };
             },
             .TCP => {
-                return try LayerIface.init(TCP.TCPLayer, LayerOwner{ .packet_layer = layer });
+                return LayerIface{ .tcpLayer = .{ .owner = .{ .packet_layer = layer } } };
             },
             .UDP => {
-                return try LayerIface.init(UDP.UDPLayer, LayerOwner{ .packet_layer = layer });
+                return LayerIface{ .udpLayer = .{ .owner = .{ .packet_layer = layer } } };
             },
-            else => return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer }),
+            else => return LayerIface{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } },
         }
     }
 

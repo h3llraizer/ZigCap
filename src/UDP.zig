@@ -10,6 +10,7 @@ const LayerOwner = @import("Owner.zig").LayerOwner;
 const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const init_layer = @import("LayerIface.zig").init_layer;
+const initLayerFromSlice = @import("LayerIface.zig").initFromSlice;
 
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
@@ -179,8 +180,16 @@ pub const UDPLayer = struct {
 
     const Protocol = tcp_ip_protocol.udp;
 
-    pub fn init(owner: LayerOwner) LayerError!UDPLayer {
-        return try init_layer(UDPLayer, owner, UDPHeader, default_hdr);
+    pub fn init(allocator: Allocator) LayerError!UDPLayer {
+        return try init_layer(UDPLayer, allocator, UDPHeader, default_hdr);
+    }
+
+    pub fn initFromSlice(slice: []u8, allocator: Allocator) LayerError!UDPLayer {
+        if (slice.len < UDPHeaderSize) return LayerError.BufferTooSmall;
+
+        const hdr_len = UDPHeaderSize;
+
+        return try initLayerFromSlice(slice, UDPLayer, hdr_len, UDPHeaderSize, UDPHeaderSize, allocator);
     }
 
     pub fn zero_hdr() []u8 {
@@ -312,14 +321,14 @@ pub const UDPLayer = struct {
         // check header length of expected protocol
 
         if ((hdr.get_dst_port() == 53 or hdr.get_src_port() == 53) and self.get_payload().len >= DNS.DNSHeaderSize) {
-            return try LayerIface.init(DNS.DNSLayer, LayerOwner{ .packet_layer = layer });
+            return LayerIface{ .dnsLayer = .{ .owner = .{ .packet_layer = layer } } };
         }
 
         if ((hdr.get_dst_port() == 67 or hdr.get_src_port() == 68) and self.get_payload().len >= DHCP.DHCPHeaderSize) {
-            return try LayerIface.init(DHCP.DHCPLayer, LayerOwner{ .packet_layer = layer });
+            return LayerIface{ .dhcpLayer = .{ .owner = .{ .packet_layer = layer } } };
         }
 
-        return try LayerIface.init(ApplicationLayer, LayerOwner{ .packet_layer = layer });
+        return LayerIface{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } };
     }
 
     pub fn get_protocol(self: *UDPLayer) tcp_ip_protocol {

@@ -6,6 +6,9 @@ const Layer = @import("Packet.zig").Layer;
 const IPv4 = @import("IPv4.zig");
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 
+const init_layer = @import("LayerIface.zig").init_layer;
+const initLayerFromSlice = @import("LayerIface.zig").initFromSlice;
+
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 const panic = std.debug.panic;
@@ -243,30 +246,16 @@ pub const IGMP_type = union(enum) {
 pub const IGMPv3Layer = struct {
     owner: LayerOwner,
 
-    pub fn init(owner: LayerOwner) LayerError!IGMPv3Layer {
-        switch (owner) {
-            .packet_layer => {
-                return IGMPv3Layer{
-                    .owner = owner,
-                };
-            },
-            .owned_buffer => {
-                var self = IGMPv3Layer{ .owner = owner };
-                const buffer_len = self.owner.owned_buffer.buffer.items.len;
-                if (buffer_len < IGMPHeaderSize + 4) {
-                    const diff = (IGMPHeaderSize + 4) - buffer_len;
-                    const igmp_data = try self.owner.owned_buffer.extend(buffer_len, diff);
+    pub fn init(allocator: Allocator) LayerError!IGMPv3Layer {
+        return try init_layer(IGMPv3Layer, allocator, IGMPv3Header, IGMPv3Header.init_default());
+    }
 
-                    @memset(igmp_data, 0);
+    pub fn initFromSlice(slice: []u8, allocator: Allocator) LayerError!IGMPv3Layer {
+        if (slice.len < IGMPHeaderSize) return LayerError.BufferTooSmall;
 
-                    var header = IGMPv3Header.init_default(); // creates the IGMP Base Header default
+        const hdr_len = IGMPHeaderSize;
 
-                    @memmove(igmp_data[0..@sizeOf(IGMPv3Header)], std.mem.asBytes(&header));
-                }
-
-                return self;
-            },
-        }
+        return try initLayerFromSlice(slice, IGMPv3Layer, hdr_len, IGMPHeaderSize, IGMPHeaderSize, allocator);
     }
 
     pub fn get_mutable_header(self: *const IGMPv3Layer) *IGMPv3Header {

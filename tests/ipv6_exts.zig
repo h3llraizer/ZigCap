@@ -47,9 +47,7 @@ test "hop-by-hop" {
 
     try expect(hbh.get_pad_len() == 0);
 
-    const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-
-    var ipv6_layer = try IPv6.IPv6Layer.init(tmp_owner);
+    var ipv6_layer = try IPv6.IPv6Layer.init(allocator);
     defer ipv6_layer.deinit();
 
     var hbh_ext = IPv6.ExtensionHeader{ .hop_by_hop = hbh };
@@ -130,9 +128,7 @@ test "hop-by-hop & destination opts" {
 
     try expect(dest_opts.get_pad_len() == 0);
 
-    const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-
-    var ipv6_layer = try IPv6.IPv6Layer.init(tmp_owner);
+    var ipv6_layer = try IPv6.IPv6Layer.init(allocator);
     defer ipv6_layer.deinit();
 
     var hbh_ext = IPv6.ExtensionHeader{ .hop_by_hop = hbh };
@@ -227,12 +223,10 @@ test "hop-by-hop & destination opts in packet" {
 
     try expect(dest_opts.get_pad_len() == 0);
 
-    const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-
-    var ipv6_layer_iface = try LayerIface.init(IPv6.IPv6Layer, tmp_owner);
+    var ipv6_layer_iface = try LayerIface.init(IPv6.IPv6Layer, allocator);
     defer ipv6_layer_iface.deinit();
 
-    var udp_layer_iface = try LayerIface.init(UDP.UDPLayer, tmp_owner);
+    var udp_layer_iface = try LayerIface.init(UDP.UDPLayer, allocator);
     defer udp_layer_iface.deinit();
 
     udp_layer_iface.udpLayer.get_mutable_header().set_src_port(1234);
@@ -327,9 +321,7 @@ test "ipv6 esp" {
 
     @memmove(raw_layer_buffer, &ipv6_hdr);
 
-    const tmp_owner = LayerOwner{ .owned_buffer = try .init(raw_layer_buffer, allocator) };
-
-    var ipv6_layer_iface: LayerIface = try LayerIface.init(IPv6.IPv6Layer, tmp_owner);
+    var ipv6_layer_iface: LayerIface = try LayerIface.init(IPv6.IPv6Layer, allocator);
     defer ipv6_layer_iface.deinit();
 
     const ipv6_header: *const IPv6.IPv6Header = ipv6_layer_iface.ipv6Layer.get_immutable_header();

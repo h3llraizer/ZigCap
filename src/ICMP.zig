@@ -2,6 +2,7 @@ const std = @import("std");
 const ProtocolEnums = @import("ProtocolEnums.zig");
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const init_layer = @import("LayerIface.zig").init_layer;
+const initLayerFromSlice = @import("LayerIface.zig").initFromSlice;
 const LayerOwner = @import("Owner.zig").LayerOwner;
 const Layer = @import("Packet.zig").Layer;
 const IPv4 = @import("IPv4.zig");
@@ -142,30 +143,20 @@ pub const ICMPLayer = struct {
     owner: LayerOwner,
     pub const protocol = tcp_ip_protocol.icmp;
 
-    pub fn init(owner: LayerOwner) LayerError!ICMPLayer {
-        switch (owner) {
-            .packet_layer => {
-                return ICMPLayer{
-                    .owner = owner,
-                };
-            },
-            .owned_buffer => {
-                var self = ICMPLayer{ .owner = owner };
-                const buffer_len = self.owner.owned_buffer.buffer.items.len;
-                if (buffer_len < ICMPHeaderSize) {
-                    const diff = ICMPHeaderSize - buffer_len;
-                    const icmp_data = try self.owner.owned_buffer.extend(buffer_len, diff);
+    pub fn init(allocator: Allocator) LayerError!ICMPLayer {
+        var owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
 
-                    @memset(icmp_data, 0);
+        _ = try owner.extend_layer(0, @sizeOf(ICMPHeader) * 2);
 
-                    var header = ICMPHeader.init_default(); // creates the ICMP Base Header default
+        return .{ .owner = owner };
+    }
 
-                    @memmove(icmp_data[0..BaseHeaderSize], std.mem.asBytes(&header));
-                }
+    pub fn initFromSlice(slice: []u8, allocator: Allocator) LayerError!ICMPLayer {
+        if (slice.len < ICMPHeaderSize) return LayerError.BufferTooSmall;
 
-                return self;
-            },
-        }
+        const hdr_len = slice.len;
+
+        return try initLayerFromSlice(slice, ICMPLayer, hdr_len, ICMPHeaderSize, hdr_len, allocator);
     }
 
     pub fn get_icmp_type_hdr(self: *ICMPLayer) ?ICMP_type {

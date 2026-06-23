@@ -6,6 +6,8 @@ const LayerError = @import("ProtocolEnums.zig").LayerError;
 const LayerIface = @import("LayerIface.zig").LayerIface;
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 
+const initLayerFromSlice = @import("LayerIface.zig").initFromSlice;
+
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
@@ -13,19 +15,18 @@ pub const ApplicationLayer = struct {
     owner: LayerOwner,
     const Protocol = tcp_ip_protocol.generic;
 
-    pub fn init(owner: LayerOwner) LayerError!ApplicationLayer {
-        switch (owner) {
-            .packet_layer => {
-                return ApplicationLayer{
-                    .owner = owner,
-                };
-            },
-            .owned_buffer => {
-                const self = ApplicationLayer{ .owner = owner };
+    pub fn init(allocator: Allocator) LayerError!ApplicationLayer {
+        const owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
 
-                return self;
-            },
-        }
+        const self = ApplicationLayer{ .owner = owner };
+
+        return self;
+    }
+
+    pub fn initFromSlice(slice: []u8, allocator: Allocator) LayerError!ApplicationLayer {
+        const hdr_len = slice.len;
+
+        return try initLayerFromSlice(slice, ApplicationLayer, hdr_len, slice.len, hdr_len, allocator);
     }
 
     pub fn get_next_layer_type(self: *const ApplicationLayer, layer: *Layer) LayerError!?LayerIface {

@@ -26,9 +26,7 @@ test "ipv4 init" {
 
     const allocator = debug_allocator.allocator();
 
-    const tmp_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
-
-    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(tmp_owner);
+    var ipv4_layer: IPv4.IPv4Layer = try IPv4.IPv4Layer.init(allocator);
 
     defer ipv4_layer.deinit();
 
@@ -40,7 +38,7 @@ test "ipv4 init" {
     //print("{s}\n", .{str});
     allocator.free(str);
 
-    var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, tmp_owner);
+    var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, allocator);
 
     defer ipv4_layer_iface.deinit();
 

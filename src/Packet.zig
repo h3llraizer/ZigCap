@@ -147,11 +147,11 @@ pub const Packet = struct {
         if (ip_version == @intFromEnum(IPVersions.IPv4)) {
             const hdr_len = (ihl_byte & 0x0F) * 4;
             if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) {
-                return try LayerIface.init(GenericLayer.ApplicationLayer, LayerOwner{ .packet_layer = layer });
+                return LayerIface{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } };
             }
 
             layer.length = IPv4.MinHeaderLength;
-            return try LayerIface.init(IPv4.IPv4Layer, LayerOwner{ .packet_layer = layer });
+            return LayerIface{ .ipv4Layer = .{ .owner = .{ .packet_layer = layer } } };
         }
 
         if (ip_version == @intFromEnum(IPVersions.IPv6)) {
@@ -159,7 +159,7 @@ pub const Packet = struct {
                 return LayerError.LayerInvalid;
             }
             layer.length = IPv6.IPv6HeaderSize;
-            return try LayerIface.init(IPv6.IPv6Layer, LayerOwner{ .packet_layer = layer });
+            return LayerIface{ .ipv6Layer = .{ .owner = .{ .packet_layer = layer } } };
         } else {
             print("Unknown link type.\n", .{});
             return null;
@@ -170,13 +170,13 @@ pub const Packet = struct {
         switch (link_type) {
             .ETHERNET => {
                 layer.length = Eth.EthHeaderSize;
-                return try LayerIface.init(Eth.EthLayer, LayerOwner{ .packet_layer = layer });
+                return LayerIface{ .ethLayer = .{ .owner = .{ .packet_layer = layer } } };
             },
             .RAW => {
                 return try create_ip_layer(raw, layer);
             },
             .LOOP, .NULL => {
-                return try LayerIface.init(Loopback.LoopbackLayer, LayerOwner{ .packet_layer = layer });
+                return LayerIface{ .loopbackLayer = .{ .owner = .{ .packet_layer = layer } } };
             },
             else => {
                 return InitError.LinkLayerNotHandled;
