@@ -57,6 +57,7 @@ pub fn get_mutable_header(header: anytype, data: []u8) *header {
     return @ptrCast(aligned_ptr);
 }
 
+/// TODO: Rename to Layer - rename Layer in Packet to something else?
 pub const LayerIface = union(enum) {
     ethLayer: Eth.EthLayer,
     vlanLayer: VLAN.VLANLayer,
@@ -88,7 +89,9 @@ pub const LayerIface = union(enum) {
             DNS.DNSLayer => return LayerIface{ .dnsLayer = try DNS.DNSLayer.init(allocator) },
             DHCP.DHCPLayer => return LayerIface{ .dhcpLayer = try DHCP.DHCPLayer.init(allocator) },
             IGMP.IGMPv3Layer => return LayerIface{ .igmpv3Layer = try IGMP.IGMPv3Layer.init(allocator) },
-            GenericLayer.ApplicationLayer => return LayerIface{ .genericAppLayer = try GenericLayer.ApplicationLayer.init(allocator) },
+            GenericLayer.ApplicationLayer => return LayerIface{
+                .genericAppLayer = try GenericLayer.ApplicationLayer.init(allocator),
+            },
             else => return LayerError.LayerInvalid,
         }
     }
@@ -107,7 +110,9 @@ pub const LayerIface = union(enum) {
             DNS.DNSLayer => return LayerIface{ .dnsLayer = try DNS.DNSLayer.initFromSlice(slice, allocator) },
             DHCP.DHCPLayer => return LayerIface{ .dhcpLayer = try DHCP.DHCPLayer.initFromSlice(slice, allocator) },
             IGMP.IGMPv3Layer => return LayerIface{ .igmpv3Layer = try IGMP.IGMPv3Layer.initFromSlice(slice, allocator) },
-            GenericLayer.ApplicationLayer => return LayerIface{ .genericAppLayer = try GenericLayer.ApplicationLayer.initFromSlice(slice, allocator) },
+            GenericLayer.ApplicationLayer => return LayerIface{
+                .genericAppLayer = try GenericLayer.ApplicationLayer.initFromSlice(slice, allocator),
+            },
             else => return LayerError.LayerInvalid,
         }
     }

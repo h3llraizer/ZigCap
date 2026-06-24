@@ -12,7 +12,7 @@ const DNS = @import("DNS.zig");
 const DHCP = @import("DHCP.zig");
 const IGMP = @import("IGMP.zig");
 
-pub const tcp_ip_protocol = enum(u32) {
+pub const tcp_ip_protocol = enum(u8) {
     generic = 0,
     eth = 1,
     vlan = 2,
@@ -22,7 +22,7 @@ pub const tcp_ip_protocol = enum(u32) {
     ipv6 = 6,
     arp = 7,
 
-    http = 8,
+    //http = 8,
     dns = 9,
 
     tcp = 10,

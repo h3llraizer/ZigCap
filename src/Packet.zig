@@ -22,6 +22,7 @@ const tcp_ip_protocol = tcp_ip_protocols.tcp_ip_protocol;
 const get_layer_type_enum = tcp_ip_protocols.get_layer_type_enum;
 
 /// Do NOT change the offset and lengths manually - there is no need to. They are public by default but let the Packet manage these members
+/// TODO: Rename or make out of scope
 pub const Layer = struct {
     offset: usize, // absolute offset in the owning packet
     length: usize,
@@ -31,7 +32,12 @@ pub const Layer = struct {
     prev_layer: ?*Layer = null,
 
     pub fn init(offset: usize, length: usize, layer_iface: LayerIface, packet: *Packet) Layer {
-        return Layer{ .offset = offset, .length = length, .layer_iface = layer_iface, .packet = packet };
+        return Layer{
+            .offset = offset,
+            .length = length,
+            .layer_iface = layer_iface,
+            .packet = packet,
+        };
     }
 
     /// Returns data from first byte of header to last byte of packet
@@ -84,6 +90,7 @@ pub const Packet = struct {
     /// Parses a packet from an existing slice (data).
     /// Each layer is parsed until optional tcp_ip_protocol specified or until last layer in packet.
     /// Takes ownership of the buffer provided.
+    /// Must call Packet.create first.
     pub fn from_raw(
         self: *Packet,
         allocator: Allocator,
@@ -94,33 +101,9 @@ pub const Packet = struct {
         if (self.buffer.buffer.items.len > 0) {
             return InitError.PacketBufferNotEmpty;
         }
+
         // Take ownership of the ArrayList's memory
         self.buffer = try Buffer.init(try buffer.toOwnedSlice(allocator), allocator);
-
-        const first_layer = try self.layer_allocator.create(Layer);
-        const link_layer = try create_first_layer(self.buffer.buffer.items, link_type, first_layer) orelse {
-            return InitError.LinkLayerCreationFailed;
-        };
-
-        first_layer.* = Layer.init(0, self.buffer.buffer.items.len, link_layer, self);
-        self.first_layer = first_layer;
-
-        try self.accumulate_layers(parse_until);
-    }
-
-    pub fn from_slice(
-        self: *Packet,
-        allocator: Allocator,
-        buffer: []u8,
-        link_type: link_layer_type,
-        parse_until: ?tcp_ip_protocol,
-    ) (InitError || LayerError || Allocator.Error)!void {
-        if (self.buffer.buffer.items.len > 0) {
-            return InitError.PacketBufferNotEmpty;
-        }
-        self.buffer = Buffer.init_empty(allocator);
-
-        self.buffer.buffer.items = buffer;
 
         const first_layer = try self.layer_allocator.create(Layer);
         const link_layer = try create_first_layer(self.buffer.buffer.items, link_type, first_layer) orelse {
@@ -324,9 +307,7 @@ pub const Packet = struct {
     }
 
     pub fn extend_layer(self: *Packet, layer: *Layer, offset: usize, length: usize) Allocator.Error![]u8 {
-        // TODO: call proceeding layers calculate_length
         // TODO: ensure layer cannot be shorten beyond its Minimum or fixed header header length
-
         const extend_offset = layer.offset + offset; // absolute position in packet
 
         const buf = try self.buffer.extend(extend_offset, length);
@@ -409,14 +390,6 @@ pub const Packet = struct {
         return false;
     }
 
-    pub fn print_layers(self: *Packet) void {
-        var cur = self.first_layer;
-        while (cur) |layer| {
-            print("{any} {x}\n", .{ layer.layer_iface.get_protocol(), layer.get_data().get_immutable() });
-            cur = layer.next_layer;
-        }
-    }
-
     pub fn extract_layer(self: *Packet, layer: *Layer, owner: *LayerOwner) (LayerError || Allocator.Error)!?LayerIface {
         try self.buffer.cutRange(&owner.owned_buffer, layer.offset, layer.length);
 
@@ -492,7 +465,8 @@ pub const Packet = struct {
         return true;
     }
 
-    pub fn print_layers_meta(self: *Packet) void {
+    /// prints each layers index, offset, length, end position, bytes and byte len, from the packet
+    pub fn print_layers(self: *Packet) void {
         var count: usize = 0;
         var cur = self.first_layer;
         while (cur) |layer| {

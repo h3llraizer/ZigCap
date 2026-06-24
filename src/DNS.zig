@@ -581,21 +581,37 @@ pub const DNSLayer = struct {
             _ = advance_past_name(data, &offset);
 
             // Parse TYPE
-            const rtype = std.mem.readInt(u16, @ptrCast(data[offset .. offset + QUERY_TYPE_LENGTH].ptr), .big);
+            const rtype = std.mem.readInt(
+                u16,
+                @ptrCast(data[offset .. offset + QUERY_TYPE_LENGTH].ptr),
+                .big,
+            );
             offset += QUERY_TYPE_LENGTH;
 
             // Parse CLASS
-            const rclass = std.mem.readInt(u16, @ptrCast(data[offset .. offset + CLASS_TYPE_LENGTH].ptr), .big);
+            const rclass = std.mem.readInt(
+                u16,
+                @ptrCast(data[offset .. offset + CLASS_TYPE_LENGTH].ptr),
+                .big,
+            );
             offset += CLASS_TYPE_LENGTH;
 
             // Parse TTL
-            const ttl = std.mem.readInt(u32, @ptrCast(data[offset .. offset + TTL_LENGTH].ptr), .big);
+            const ttl = std.mem.readInt(
+                u32,
+                @ptrCast(data[offset .. offset + TTL_LENGTH].ptr),
+                .big,
+            );
             offset += TTL_LENGTH;
 
             _ = ttl;
 
             // Parse RDLENGTH
-            const rdlength = std.mem.readInt(u16, @ptrCast(data[offset .. offset + RD_LENGTH].ptr), .big);
+            const rdlength = std.mem.readInt(
+                u16,
+                @ptrCast(data[offset .. offset + RD_LENGTH].ptr),
+                .big,
+            );
             offset += RD_LENGTH;
 
             if (offset + rdlength > data.len) {
@@ -665,7 +681,11 @@ pub const DNSLayer = struct {
             offset += TTL_LENGTH;
 
             // RDLENGTH
-            const rdlength = std.mem.readInt(u16, @ptrCast(data[offset .. offset + RD_LENGTH].ptr), .big);
+            const rdlength = std.mem.readInt(
+                u16,
+                @ptrCast(data[offset .. offset + RD_LENGTH].ptr),
+                .big,
+            );
             offset += RD_LENGTH;
 
             if (offset + rdlength > data.len) {
@@ -701,7 +721,14 @@ pub const DNSLayer = struct {
     /// all values will be copied
     /// Note: Compression pointer support not yet implemented
     /// Note: SOA records need to be built manually and passed as a slice (answer) - helper implmentation coming soon
-    pub fn add_answer(self: *DNSLayer, name: []const u8, qtype: QueryType, qclass: DnsClass, ttl: u32, answer: []const u8) (LayerError || Allocator.Error || DNSParseError)!void {
+    pub fn add_answer(
+        self: *DNSLayer,
+        name: []const u8,
+        qtype: QueryType,
+        qclass: DnsClass,
+        ttl: u32,
+        answer: []const u8,
+    ) (LayerError || Allocator.Error || DNSParseError)!void {
         var start_offset: usize = DNSHeaderSize;
 
         if (try self.get_last_answer_offset()) |off| {
@@ -757,20 +784,40 @@ pub const DNSLayer = struct {
         buf_offset += 1;
 
         // Write QTYPE
-        std.mem.writeInt(u16, abuffer[buf_offset .. buf_offset + QUERY_TYPE_LENGTH][0..2], @intFromEnum(qtype), .big);
+        std.mem.writeInt(
+            u16,
+            abuffer[buf_offset .. buf_offset + QUERY_TYPE_LENGTH][0..2],
+            @intFromEnum(qtype),
+            .big,
+        );
         buf_offset += QUERY_TYPE_LENGTH;
 
         // Write QCLASS
-        std.mem.writeInt(u16, abuffer[buf_offset .. buf_offset + CLASS_TYPE_LENGTH][0..2], @intFromEnum(qclass), .big);
+        std.mem.writeInt(
+            u16,
+            abuffer[buf_offset .. buf_offset + CLASS_TYPE_LENGTH][0..2],
+            @intFromEnum(qclass),
+            .big,
+        );
         buf_offset += CLASS_TYPE_LENGTH;
 
         // Write TTL
-        std.mem.writeInt(u32, abuffer[buf_offset .. buf_offset + TTL_LENGTH][0..4], ttl, .big);
+        std.mem.writeInt(
+            u32,
+            abuffer[buf_offset .. buf_offset + TTL_LENGTH][0..4],
+            ttl,
+            .big,
+        );
         buf_offset += TTL_LENGTH;
 
         // Write RD LENGTH (length of encoded answer)
         const rdlength: u16 = @intCast(dns_encoded_answer_len);
-        std.mem.writeInt(u16, abuffer[buf_offset .. buf_offset + RD_LENGTH][0..2], rdlength, .big);
+        std.mem.writeInt(
+            u16,
+            abuffer[buf_offset .. buf_offset + RD_LENGTH][0..2],
+            rdlength,
+            .big,
+        );
         buf_offset += RD_LENGTH;
 
         // handle record type
@@ -828,7 +875,11 @@ pub const DNSLayer = struct {
             offset += TTL_LENGTH;
 
             // RDLENGTH
-            const rdlength = std.mem.readInt(u16, @ptrCast(data[offset .. offset + RD_LENGTH].ptr), .big);
+            const rdlength = std.mem.readInt(
+                u16,
+                @ptrCast(data[offset .. offset + RD_LENGTH].ptr),
+                .big,
+            );
             offset += RD_LENGTH;
 
             if (offset + rdlength > data.len) {
@@ -878,21 +929,37 @@ pub const DNSLayer = struct {
             advance_past_name(data, &offset);
 
             // Parse TYPE
-            const rtype = std.mem.readInt(u16, @ptrCast(data[offset .. offset + QUERY_TYPE_LENGTH].ptr), .big);
+            const rtype = std.mem.readInt(
+                u16,
+                @ptrCast(data[offset .. offset + QUERY_TYPE_LENGTH].ptr),
+                .big,
+            );
             offset += QUERY_TYPE_LENGTH;
 
             // Parse CLASS
-            const rclass = std.mem.readInt(u16, @ptrCast(data[offset .. offset + CLASS_TYPE_LENGTH].ptr), .big);
+            const rclass = std.mem.readInt(
+                u16,
+                @ptrCast(data[offset .. offset + CLASS_TYPE_LENGTH].ptr),
+                .big,
+            );
             offset += CLASS_TYPE_LENGTH;
 
             // Parse TTL
-            const ttl = std.mem.readInt(u32, @ptrCast(data[offset .. offset + TTL_LENGTH].ptr), .big);
+            const ttl = std.mem.readInt(
+                u32,
+                @ptrCast(data[offset .. offset + TTL_LENGTH].ptr),
+                .big,
+            );
             offset += TTL_LENGTH;
 
             _ = ttl;
 
             // Parse RDLENGTH
-            const rdlength = std.mem.readInt(u16, @ptrCast(data[offset .. offset + RD_LENGTH].ptr), .big);
+            const rdlength = std.mem.readInt(
+                u16,
+                @ptrCast(data[offset .. offset + RD_LENGTH].ptr),
+                .big,
+            );
             offset += RD_LENGTH;
 
             if (offset + rdlength > data.len) {
