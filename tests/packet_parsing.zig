@@ -97,7 +97,7 @@ test "parse udp packet" {
 
     if (packet.last_layer) |last| {
         try expect(last.get_data().len == 9);
-        try expect(try packet.delete_layer(last));
+        try expect(try packet.delete_layer(&last.layer_iface));
         try expect(packet.get_layer_count() == 3);
         try expect(packet.get_raw().len == original_raw_packet_buffer_len - 9);
     }

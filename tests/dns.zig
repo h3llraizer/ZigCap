@@ -11,7 +11,6 @@ const Allocator = std.mem.Allocator;
 const DNS = zigcap.DNS;
 const Packet = zigcap.Packet.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
-const Layer = zigcap.Packet.Layer;
 const LayerOwner = zigcap.Owner.LayerOwner;
 const tcp_ip_protocol = zigcap.tcp_ip_protocol;
 const IPProtocol = zigcap.ProtocolEnums.IPProtocol;
@@ -19,7 +18,7 @@ const IPv4 = zigcap.IPv4;
 const IPv6 = zigcap.IPv6;
 const IPAddress = zigcap.IPAddress;
 
-const LayerIface = zigcap.LayerIface;
+const Layer = zigcap.Layer;
 
 test "generic record" {
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;

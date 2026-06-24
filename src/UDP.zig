@@ -8,9 +8,11 @@ const ProtocolEnums = @import("ProtocolEnums.zig");
 const Packet = @import("Packet.zig");
 const LayerOwner = @import("Owner.zig").LayerOwner;
 const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
-const LayerIface = @import("LayerIface.zig").LayerIface;
+const Layer = @import("LayerIface.zig").Layer;
 const init_layer = @import("LayerIface.zig").init_layer;
 const initLayerFromSlice = @import("LayerIface.zig").initFromSlice;
+
+const PacketLayer = @import("PacketLayer.zig").Layer;
 
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
@@ -255,7 +257,7 @@ pub const UDPLayer = struct {
             .packet_layer => |layer| {
                 if (layer.prev_layer) |prev_layer| {
                     if (prev_layer.layer_iface.get_protocol() == tcp_ip_protocol.ipv4) {
-                        var ipv4_iface: *LayerIface = &prev_layer.layer_iface;
+                        var ipv4_iface: *Layer = &prev_layer.layer_iface;
                         var ipv4_layer: *IPv4.IPv4Layer = &ipv4_iface.ipv4Layer;
                         const ipv4_hdr: *const IPv4.IPv4Header = ipv4_layer.get_immutable_header();
 
@@ -286,7 +288,7 @@ pub const UDPLayer = struct {
             .packet_layer => |layer| {
                 if (layer.prev_layer) |prev_layer| {
                     if (prev_layer.layer_iface.get_protocol() == tcp_ip_protocol.ipv4) {
-                        var ipv4_iface: *LayerIface = &prev_layer.layer_iface;
+                        var ipv4_iface: *Layer = &prev_layer.layer_iface;
                         var ipv4_layer: *IPv4.IPv4Layer = &ipv4_iface.ipv4Layer;
                         const ipv4_hdr: *const IPv4.IPv4Header = ipv4_layer.get_immutable_header();
 
@@ -315,20 +317,20 @@ pub const UDPLayer = struct {
         return std.fmt.allocPrint(allocator, "UDP Layer: src_port: {} dst_port: {}\n", .{ src_port, dst_port }) catch return "";
     }
 
-    pub fn get_next_layer_type(self: *UDPLayer, layer: *Packet.Layer) LayerError!?LayerIface {
+    pub fn get_next_layer_type(self: *UDPLayer, layer: *PacketLayer) LayerError!?Layer {
         const hdr = self.get_immutable_header();
         // check src and dst ports
         // check header length of expected protocol
 
         if ((hdr.get_dst_port() == 53 or hdr.get_src_port() == 53) and self.get_payload().len >= DNS.DNSHeaderSize) {
-            return LayerIface{ .dnsLayer = .{ .owner = .{ .packet_layer = layer } } };
+            return Layer{ .dnsLayer = .{ .owner = .{ .packet_layer = layer } } };
         }
 
         if ((hdr.get_dst_port() == 67 or hdr.get_src_port() == 68) and self.get_payload().len >= DHCP.DHCPHeaderSize) {
-            return LayerIface{ .dhcpLayer = .{ .owner = .{ .packet_layer = layer } } };
+            return Layer{ .dhcpLayer = .{ .owner = .{ .packet_layer = layer } } };
         }
 
-        return LayerIface{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } };
+        return Layer{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } };
     }
 
     pub fn get_protocol(self: *UDPLayer) tcp_ip_protocol {

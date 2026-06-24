@@ -7,7 +7,7 @@ const expect = std.testing.expect;
 const Packet = zigcap.Packet.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
 const LayerOwner = zigcap.Owner.LayerOwner;
-const LayerIface = zigcap.LayerIface;
+const Layer = zigcap.Layer;
 const ARP = zigcap.ARP;
 const IPv4 = zigcap.IPv4;
 const Eth = zigcap.Eth;
@@ -22,12 +22,12 @@ test "owned_slice" {
 
     //  const allocator = debug_allocator.allocator();
 
-    //  var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, allocator);
+    //  var ipv4_layer_iface: Layer = try Layer.init(IPv4.IPv4Layer, allocator);
     //  defer ipv4_layer_iface.deinit();
 
     //  ipv4_layer_iface.ipv4Layer.get_mutable_header().set_protocol(IPProtocol.TCP);
 
-    //  var ipv4_layer_iface1: LayerIface = try LayerIface.init(IPv4.IPv4Layer, allocator);
+    //  var ipv4_layer_iface1: Layer = try Layer.init(IPv4.IPv4Layer, allocator);
     //  //defer ipv4_layer_iface1.deinit();
 
     //  ipv4_layer_iface1.ipv4Layer.get_mutable_header().set_protocol(IPProtocol.UDP);

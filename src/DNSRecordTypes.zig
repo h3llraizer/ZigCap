@@ -472,7 +472,7 @@ fn set_q_type(data: []u8, qtype: QueryType) void {
     );
 }
 
-fn init_record(name: []const u8, qtype: QueryType, class: DnsClass, allocator: Allocator) Allocator.Error!TLVOwner {
+fn init_record(name: []const u8, qtype: QueryType, class: DnsClass, allocator: Allocator) (LayerError || Allocator.Error)!TLVOwner {
     var initial_len: usize = name.len +
         QUERY_TYPE_LENGTH + // 2 bytes
         CLASS_TYPE_LENGTH + // 2 bytes
@@ -553,7 +553,7 @@ pub const GenericRecord = struct {
     /// Name provided must be an encoded name (use DNS.encode_name method).
     /// qtype and class are set to value 0 (not valid), rd length is set to 2.
     /// Allocates name length + 12 bytes (qtype, qclass, ttl, rd len, 2 byte rdata).
-    pub fn init(name: []const u8, allocator: Allocator) Allocator.Error!GenericRecord {
+    pub fn init(name: []const u8, allocator: Allocator) (LayerError || Allocator.Error)!GenericRecord {
         var owner: TLVOwner = try init_record(
             name,
             @enumFromInt(0),
@@ -589,7 +589,7 @@ pub const GenericRecord = struct {
     }
 
     /// Name provided must be an encoded name (use DNS.encode_name method).
-    pub fn set_name(self: *GenericRecord, name: []const u8) Allocator.Error!void {
+    pub fn set_name(self: *GenericRecord, name: []const u8) (LayerError || Allocator.Error)!void {
         const data = self.get_data();
 
         var offset: usize = 0;
@@ -749,7 +749,7 @@ pub const GenericRecord = struct {
     /// Caller needs to handle endiannes, name encoding, compression ptrs before calling the method.
     /// RD_LENGTH value is handled in the method
     /// If any proceeding layers, their offsets are adjusted
-    pub fn set_rdata(self: *GenericRecord, rdata: []const u8) Allocator.Error!void {
+    pub fn set_rdata(self: *GenericRecord, rdata: []const u8) (LayerError || Allocator.Error)!void {
         const data = self.get_data();
 
         var offset: usize = 0;
@@ -868,7 +868,7 @@ pub const ARecord = struct {
         ttl: u32,
         ip: IPv4Address,
         allocator: Allocator,
-    ) Allocator.Error!ARecord {
+    ) (LayerError || Allocator.Error)!ARecord {
         var owner: TLVOwner = try init_record(
             name,
             .A,
@@ -1025,7 +1025,7 @@ pub const AAAARecord = struct {
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
-    pub fn init(name: []const u8, class: DnsClass, ttl: u32, ip: IPv6Address, allocator: Allocator) Allocator.Error!AAAARecord {
+    pub fn init(name: []const u8, class: DnsClass, ttl: u32, ip: IPv6Address, allocator: Allocator) (LayerError || Allocator.Error)!AAAARecord {
         var owner: TLVOwner = try init_record(
             name,
             .AAAA,
@@ -1183,7 +1183,7 @@ pub const NSRecord = struct {
         ttl: u32,
         ns_name: []const u8,
         allocator: Allocator,
-    ) Allocator.Error!NSRecord {
+    ) (LayerError || Allocator.Error)!NSRecord {
         var owner: TLVOwner = try init_record(
             name,
             .NS,
@@ -1248,7 +1248,7 @@ pub const NSRecord = struct {
         return try decode_name(self.owner.get_data(), data, allocator);
     }
 
-    pub fn set_name(self: *NSRecord, name: []const u8) Allocator.Error!void {
+    pub fn set_name(self: *NSRecord, name: []const u8) (LayerError || Allocator.Error)!void {
         var grec: *GenericRecord = @ptrCast(self);
         return grec.set_name(name);
     }
@@ -1291,7 +1291,7 @@ pub const NSRecord = struct {
         return try decode_name(self.owner.get_data(), self.get_data()[offset..], allocator);
     }
 
-    pub fn set_ns_name(self: *NSRecord, server_name: []const u8) Allocator.Error!void {
+    pub fn set_ns_name(self: *NSRecord, server_name: []const u8) (LayerError || Allocator.Error)!void {
         var grec: *GenericRecord = @ptrCast(self);
         try grec.set_rdata(server_name);
     }
@@ -1339,7 +1339,7 @@ pub const CNAMERecord = struct {
         ttl: u32,
         cname: []const u8,
         allocator: Allocator,
-    ) Allocator.Error!CNAMERecord {
+    ) (LayerError || Allocator.Error)!CNAMERecord {
         var owner: TLVOwner = try init_record(name, .CNAME, class, allocator);
 
         const cur_len = owner.get_data().len;
@@ -1393,7 +1393,7 @@ pub const CNAMERecord = struct {
         return self.owner.get_data()[self.offset .. self.offset + self.length];
     }
 
-    pub fn set_name(self: *CNAMERecord, name: []const u8) Allocator.Error!void {
+    pub fn set_name(self: *CNAMERecord, name: []const u8) (LayerError || Allocator.Error)!void {
         var grec: *GenericRecord = @ptrCast(self);
         return try grec.set_name(name);
     }
@@ -1446,7 +1446,7 @@ pub const CNAMERecord = struct {
         return try decode_name(self.owner.get_data(), self.get_data()[offset..], allocator);
     }
 
-    pub fn set_cname(self: *CNAMERecord, cname: []const u8) (Allocator.Error)!void {
+    pub fn set_cname(self: *CNAMERecord, cname: []const u8) (LayerError || Allocator.Error)!void {
         var grec: *GenericRecord = @ptrCast(self);
         try grec.set_rdata(cname);
     }
@@ -1500,7 +1500,7 @@ pub const TXTRecord = struct {
         ttl: u32,
         txt_str: []const u8,
         allocator: Allocator,
-    ) Allocator.Error!TXTRecord {
+    ) (LayerError || Allocator.Error)!TXTRecord {
         var owner: TLVOwner = try init_record(
             name,
             .TXT,
@@ -1558,7 +1558,7 @@ pub const TXTRecord = struct {
         return try decode_name(self.owner.get_data(), data, allocator);
     }
 
-    pub fn set_name(self: *TXTRecord, name: []const u8) Allocator.Error!void {
+    pub fn set_name(self: *TXTRecord, name: []const u8) (LayerError || Allocator.Error)!void {
         var grec: *GenericRecord = @ptrCast(self);
         return grec.set_name(name);
     }
@@ -1715,7 +1715,14 @@ pub const MXRecord = struct {
 
     const MX_DOMAIN_OFFSET_FROM_NAME = MX_PREF_OFFSET_FROM_RD_LENGTH + MX_PREFERENCE_VALUE_LENGTH;
 
-    pub fn init(name: []const u8, class: DnsClass, ttl: u32, preference: u16, mx_domain: []const u8, allocator: Allocator) Allocator.Error!MXRecord {
+    pub fn init(
+        name: []const u8,
+        class: DnsClass,
+        ttl: u32,
+        preference: u16,
+        mx_domain: []const u8,
+        allocator: Allocator,
+    ) (LayerError || Allocator.Error)!MXRecord {
         var owner: TLVOwner = .{ .owned_buffer = .init_empty(allocator) };
 
         const initial_len = name.len +
@@ -1807,7 +1814,7 @@ pub const MXRecord = struct {
         return try grec.get_name(allocator);
     }
 
-    pub fn set_name(self: *MXRecord, name: []const u8) Allocator.Error!void {
+    pub fn set_name(self: *MXRecord, name: []const u8) (LayerError || Allocator.Error)!void {
         var grec: *GenericRecord = @ptrCast(self);
         return try grec.set_name(name);
     }
@@ -1885,7 +1892,7 @@ pub const MXRecord = struct {
         return try decode_name(self.owner.get_data(), domain_start, allocator);
     }
 
-    pub fn set_mx_domain(self: *MXRecord, mx_domain: []const u8) (DNSLayer.DNSParseError || Allocator.Error)!void {
+    pub fn set_mx_domain(self: *MXRecord, mx_domain: []const u8) (DNSLayer.DNSParseError || LayerError || Allocator.Error)!void {
         const data = self.get_data();
 
         var offset: usize = 0;
@@ -1979,7 +1986,13 @@ pub const PTRRecord = struct {
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
-    pub fn init(name: []const u8, class: DnsClass, ttl: u32, domain_name: []const u8, allocator: Allocator) Allocator.Error!PTRRecord {
+    pub fn init(
+        name: []const u8,
+        class: DnsClass,
+        ttl: u32,
+        domain_name: []const u8,
+        allocator: Allocator,
+    ) (LayerError || Allocator.Error)!PTRRecord {
         var owner = try init_record(name, .PTR, class, allocator);
 
         _ = try owner.extend_buffer(owner.get_data().len, domain_name.len - COMPRESSION_PTR_LENGTH);
@@ -2033,7 +2046,7 @@ pub const PTRRecord = struct {
     }
 
     /// sets the PTR Name. e.g. name="113.30.251.142.in-addr.arpa"
-    pub fn set_name(self: *PTRRecord, name: []const u8) Allocator.Error!void {
+    pub fn set_name(self: *PTRRecord, name: []const u8) (LayerError || Allocator.Error)!void {
         var grec: *GenericRecord = @ptrCast(self);
         try grec.set_name(name);
     }
@@ -2072,7 +2085,7 @@ pub const PTRRecord = struct {
     }
 
     /// set the rdata (domain part) of the record to the domain provided
-    pub fn set_domain(self: *PTRRecord, domain: []const u8) Allocator.Error!void {
+    pub fn set_domain(self: *PTRRecord, domain: []const u8) (LayerError || Allocator.Error)!void {
         var grec: *GenericRecord = @ptrCast(self);
         try grec.set_rdata(domain);
     }
@@ -2139,7 +2152,7 @@ pub const SOARecord = struct {
         expire_limit: u32,
         min_ttl: u32,
         allocator: Allocator,
-    ) Allocator.Error!SOARecord {
+    ) (LayerError || Allocator.Error)!SOARecord {
         const initial_len = name.len +
             QUERY_TYPE_LENGTH +
             CLASS_TYPE_LENGTH +
@@ -2270,7 +2283,7 @@ pub const SOARecord = struct {
         return try decode_name(self.owner.get_data(), self.get_data()[0..], allocator);
     }
 
-    pub fn set_name(self: *SOARecord, name: []const u8) Allocator.Error!void {
+    pub fn set_name(self: *SOARecord, name: []const u8) (LayerError || Allocator.Error)!void {
         var grec: *GenericRecord = @ptrCast(self);
         return grec.set_name(name);
     }
@@ -2303,7 +2316,7 @@ pub const SOARecord = struct {
         return grec.get_rd_len();
     }
 
-    fn set_soa_name(self: *SOARecord, offset: usize, rdata: []const u8) Allocator.Error!void {
+    fn set_soa_name(self: *SOARecord, offset: usize, rdata: []const u8) (LayerError || Allocator.Error)!void {
         const initial_offset: usize = offset;
         var length: usize = 0;
 
@@ -2372,7 +2385,7 @@ pub const SOARecord = struct {
         );
     }
 
-    pub fn set_mname(self: *SOARecord, mname: []const u8) Allocator.Error!void {
+    pub fn set_mname(self: *SOARecord, mname: []const u8) (LayerError || Allocator.Error)!void {
         var offset: usize = 0;
 
         advance_past_name(self.get_data(), &offset);
@@ -2397,7 +2410,7 @@ pub const SOARecord = struct {
         return try decode_name(self.owner.get_data(), self.get_data()[offset..], allocator);
     }
 
-    pub fn set_rname(self: *SOARecord, rname: []const u8) Allocator.Error!void {
+    pub fn set_rname(self: *SOARecord, rname: []const u8) (LayerError || Allocator.Error)!void {
         var offset: usize = 0;
 
         advance_past_name(self.get_data(), &offset);

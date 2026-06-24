@@ -10,7 +10,7 @@ const IPv4 = zigcap.IPv4;
 const Packet = zigcap.Packet.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
 const LayerOwner = zigcap.Owner.LayerOwner;
-const LayerIface = zigcap.LayerIface;
+const Layer = zigcap.Layer;
 
 test "build dns query layer" {
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
@@ -18,7 +18,7 @@ test "build dns query layer" {
 
     const allocator = debug_allocator.allocator();
 
-    var dns_layer_iface = try LayerIface.init(DNS.DNSLayer, allocator);
+    var dns_layer_iface = try Layer.init(DNS.DNSLayer, allocator);
     defer dns_layer_iface.deinit();
 
     const ziggit_dev_domain: []const u8 = try DNS.encode_name("ziggit.dev", allocator);
@@ -73,7 +73,7 @@ test "build dns response layer" {
 
     const allocator = debug_allocator.allocator();
 
-    var dns_layer_iface = try LayerIface.init(DNS.DNSLayer, allocator);
+    var dns_layer_iface = try Layer.init(DNS.DNSLayer, allocator);
     defer dns_layer_iface.deinit();
 
     const ebay_www_domain: []const u8 = try DNS.encode_name("www.ebay.com", allocator);
@@ -134,7 +134,7 @@ test "build dns a response layer" {
 
     const allocator = debug_allocator.allocator();
 
-    var dns_layer_iface = try LayerIface.init(DNS.DNSLayer, allocator);
+    var dns_layer_iface = try Layer.init(DNS.DNSLayer, allocator);
     defer dns_layer_iface.deinit();
 
     const ebay_www_domain: []const u8 = try DNS.encode_name("www.ebay.com", allocator);
@@ -427,7 +427,7 @@ test "build dns query soa layer" {
 
     const allocator = debug_allocator.allocator();
 
-    var dns_layer_iface = try LayerIface.init(DNS.DNSLayer, allocator);
+    var dns_layer_iface = try Layer.init(DNS.DNSLayer, allocator);
     defer dns_layer_iface.deinit();
 
     const ziggit_dev_domain: []const u8 = try DNS.encode_name("ziggit.dev", allocator);

@@ -4,8 +4,8 @@ const LayerError = @import("ProtocolEnums.zig").LayerError;
 const Owner = @import("Owner.zig");
 const LayerOwner = Owner.LayerOwner;
 const TLVOwner = Owner.TLVOwner;
-const Layer = @import("Packet.zig").Layer;
-const LayerIface = @import("LayerIface.zig").LayerIface;
+const PacketLayer = @import("PacketLayer.zig").Layer;
+const Layer = @import("LayerIface.zig").Layer;
 const init_layer = @import("LayerIface.zig").init_layer;
 const initLayerFromSlice = @import("LayerIface.zig").initFromSlice;
 const Buffer = @import("Buffer.zig").Buffer;
@@ -1069,7 +1069,7 @@ pub const DNSLayer = struct {
         return tcp_ip_protocol.dns;
     }
 
-    pub fn get_next_layer_type(self: *DNSLayer, layer: *Layer) LayerError!?LayerIface {
+    pub fn get_next_layer_type(self: *DNSLayer, layer: *PacketLayer) LayerError!?Layer {
         _ = self;
         _ = layer;
         return null;
@@ -1092,7 +1092,7 @@ pub const Query = struct {
     /// Init a new DNS Query.
     /// Name provided must be an encoded name (use DNS.encode_name method).
     /// Allocates name length + 4 bytes (qtype + qclass).
-    pub fn init(name: []const u8, qtype: QueryType, qclass: DnsClass, allocator: Allocator) Allocator.Error!Query {
+    pub fn init(name: []const u8, qtype: QueryType, qclass: DnsClass, allocator: Allocator) (LayerError || Allocator.Error)!Query {
         const initial_len = name.len + QUERY_TYPE_LENGTH + CLASS_TYPE_LENGTH;
 
         var query = Query{
@@ -1137,7 +1137,7 @@ pub const Query = struct {
     }
 
     /// Name provided must be an encoded name (use DNS.encode_name method).
-    pub fn set_name(self: *Query, name: []const u8) Allocator.Error!void {
+    pub fn set_name(self: *Query, name: []const u8) (LayerError || Allocator.Error)!void {
         const data = self.get_data();
 
         var offset: usize = 0;

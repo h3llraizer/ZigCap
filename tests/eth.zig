@@ -5,7 +5,7 @@ const expect = std.testing.expect;
 const zigcap = @import("zigcap");
 
 const LayerOwner = zigcap.Owner.LayerOwner;
-const LayerIface = zigcap.LayerIface;
+const Layer = zigcap.Layer;
 const Eth = zigcap.Eth;
 
 test "init ethlayer from slice" {

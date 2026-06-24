@@ -1,7 +1,7 @@
 const std = @import("std");
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerError = @import("ProtocolEnums.zig").LayerError;
-const LayerIface = @import("LayerIface.zig").LayerIface;
+const Layer = @import("LayerIface.zig").Layer;
 const init_layer = @import("LayerIface.zig").init_layer;
 const initLayerFromSlice = @import("LayerIface.zig").initFromSlice;
 const IPProtocol = @import("ProtocolEnums.zig").IPProtocol;
@@ -12,6 +12,8 @@ const GenericLayer = @import("GenericLayer.zig");
 const Packet = @import("Packet.zig");
 const Owner = @import("Owner.zig");
 const IPv6Ext = @import("IPv6_Ext.zig");
+
+const PacketLayer = @import("PacketLayer.zig").Layer;
 
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
@@ -481,7 +483,7 @@ pub const IPv6Layer = struct {
 
     /// This methods error union will be either a Modification Error (invalid extension being added)
     /// or an allocator error - OOM etc
-    pub fn add_extension(self: *IPv6Layer, ext: *ExtensionHeader) Allocator.Error!void {
+    pub fn add_extension(self: *IPv6Layer, ext: *ExtensionHeader) (LayerError || Allocator.Error)!void {
         const data = self.get_data();
 
         const len: usize = if (self.owner.is_packet_owned()) self.owner.packet_layer.length else data.len;
@@ -650,7 +652,7 @@ pub const IPv6Layer = struct {
         return IPProtocol.Unknown;
     }
 
-    pub fn get_next_layer_type(self: *const IPv6Layer, layer: *Packet.Layer) LayerError!?LayerIface {
+    pub fn get_next_layer_type(self: *const IPv6Layer, layer: *PacketLayer) LayerError!?Layer {
         const data = self.get_data();
 
         if (data.len < IPv6HeaderSize) return LayerError.BufferTooSmall;
@@ -659,15 +661,15 @@ pub const IPv6Layer = struct {
 
         switch (ip_proto) {
             .ICMP => {
-                return LayerIface{ .icmpLayer = .{ .owner = .{ .packet_layer = layer } } };
+                return Layer{ .icmpLayer = .{ .owner = .{ .packet_layer = layer } } };
             },
             .TCP => {
-                return LayerIface{ .tcpLayer = .{ .owner = .{ .packet_layer = layer } } };
+                return Layer{ .tcpLayer = .{ .owner = .{ .packet_layer = layer } } };
             },
             .UDP => {
-                return LayerIface{ .udpLayer = .{ .owner = .{ .packet_layer = layer } } };
+                return Layer{ .udpLayer = .{ .owner = .{ .packet_layer = layer } } };
             },
-            else => return LayerIface{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } },
+            else => return Layer{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } },
         }
     }
 

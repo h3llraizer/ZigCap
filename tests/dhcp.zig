@@ -5,7 +5,7 @@ const expect = std.testing.expect;
 const zigcap = @import("zigcap");
 
 const LayerOwner = zigcap.Owner.LayerOwner;
-const LayerIface = zigcap.LayerIface;
+const Layer = zigcap.Layer;
 const DHCP = zigcap.DHCP;
 const Eth = zigcap.Eth;
 const UDP = zigcap.UDP;
@@ -35,7 +35,7 @@ test "build dhcp layer" {
 
     const allocator = debug_allocator.allocator();
 
-    var dhcp_layer_iface: LayerIface = try LayerIface.init(DHCP.DHCPLayer, allocator);
+    var dhcp_layer_iface: Layer = try Layer.init(DHCP.DHCPLayer, allocator);
     defer dhcp_layer_iface.deinit();
 
     const dhcp_hdr: *const DHCP.DHCPHeader = dhcp_layer_iface.dhcpLayer.get_immutable_header();
@@ -50,14 +50,14 @@ test "build dhcp packet" {
 
     var packet = Packet.create(allocator, allocator);
 
-    var eth_iface = try LayerIface.init(Eth.EthLayer, allocator);
+    var eth_iface = try Layer.init(Eth.EthLayer, allocator);
     defer eth_iface.deinit();
     var eth_hdr = eth_iface.ethLayer.get_mutable_header();
     eth_hdr.set_eth_type(Eth.EthType.IP);
     eth_hdr.set_src_mac(try Eth.MacAddress.init_from_string("00:e0:4c:68:00:6c"));
     eth_hdr.set_dst_mac(try Eth.MacAddress.init_from_string("ff:ff:ff:ff:ff:ff"));
 
-    var ipv4_iface = try LayerIface.init(IPv4.IPv4Layer, allocator);
+    var ipv4_iface = try Layer.init(IPv4.IPv4Layer, allocator);
 
     ipv4_iface.ipv4Layer.set_ip_proto(IPProtocol.UDP);
     defer ipv4_iface.deinit();
@@ -65,13 +65,13 @@ test "build dhcp packet" {
     ipv4_hdr.set_src_ip(try IPv4.IPv4Address.init_from_string("192.168.0.2"));
     ipv4_hdr.set_dst_ip(try IPv4.IPv4Address.init_from_string("255.255.255.255"));
 
-    var udp_iface = try LayerIface.init(UDP.UDPLayer, allocator);
+    var udp_iface = try Layer.init(UDP.UDPLayer, allocator);
     defer udp_iface.deinit();
     var udp_hdr = udp_iface.udpLayer.get_mutable_header();
     udp_hdr.set_dst_port(67);
     udp_hdr.set_src_port(68);
 
-    var dhcp_layer_iface = try LayerIface.init(DHCP.DHCPLayer, allocator);
+    var dhcp_layer_iface = try Layer.init(DHCP.DHCPLayer, allocator);
 
     defer dhcp_layer_iface.deinit();
 

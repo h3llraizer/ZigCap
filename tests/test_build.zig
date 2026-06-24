@@ -11,7 +11,7 @@ const IPProtocol = ProtocolEnums.IPProtocol;
 const tcp_ip_protocol = zigcap.tcp_ip_protocol;
 const LayerOwner = zigcap.Owner.LayerOwner;
 const TLVOwner = zigcap.Owner.TLVOwner;
-const LayerIface = zigcap.LayerIface;
+const Layer = zigcap.Layer;
 
 const IPv6 = zigcap.IPv6;
 const IPv6Extensions = IPv6.IPv6Extensions;
@@ -50,10 +50,10 @@ test "build" {
 
     try expect(hbh.get_pad_len() == 0);
 
-    var ipv6_layer_iface = try LayerIface.init(IPv6.IPv6Layer, allocator);
+    var ipv6_layer_iface = try Layer.init(IPv6.IPv6Layer, allocator);
     defer ipv6_layer_iface.deinit();
 
-    var udp_layer_iface = try LayerIface.init(UDP.UDPLayer, allocator);
+    var udp_layer_iface = try Layer.init(UDP.UDPLayer, allocator);
     defer udp_layer_iface.deinit();
 
     udp_layer_iface.udpLayer.get_mutable_header().set_src_port(1234);

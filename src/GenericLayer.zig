@@ -1,9 +1,9 @@
 const std = @import("std");
 const Packet = @import("Packet.zig").Packet;
-const Layer = @import("Packet.zig").Layer;
+const PacketLayer = @import("PacketLayer.zig").Layer;
 const LayerOwner = @import("Owner.zig").LayerOwner;
 const LayerError = @import("ProtocolEnums.zig").LayerError;
-const LayerIface = @import("LayerIface.zig").LayerIface;
+const Layer = @import("LayerIface.zig").Layer;
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 
 const initLayerFromSlice = @import("LayerIface.zig").initFromSlice;
@@ -29,7 +29,7 @@ pub const ApplicationLayer = struct {
         return try initLayerFromSlice(slice, ApplicationLayer, hdr_len, slice.len, hdr_len, allocator);
     }
 
-    pub fn get_next_layer_type(self: *const ApplicationLayer, layer: *Layer) LayerError!?LayerIface {
+    pub fn get_next_layer_type(self: *const ApplicationLayer, layer: *PacketLayer) LayerError!?Layer {
         _ = self;
         _ = layer;
         return null;
@@ -45,27 +45,13 @@ pub const ApplicationLayer = struct {
         return payload;
     }
 
-    pub fn set_payload(self: *ApplicationLayer, data: []const u8) Allocator.Error!void {
-        switch (self.owner) {
-            .packet_layer => |layer| {
-                const buf = try layer.packet.extend_layer(layer, 0, data.len);
-                @memmove(buf, data);
-            },
-            .owned_buffer => |*buffer| { // Capture as pointer
-                try buffer.buffer.appendSlice(buffer.allocator, data);
-            },
-        }
+    pub fn set_payload(self: *ApplicationLayer, data: []const u8) (LayerError || Allocator.Error)!void {
+        const buf = try self.owner.extend_layer(0, data.len);
+        @memmove(buf, data);
     }
 
     pub fn delete_payload_data(self: *ApplicationLayer) Allocator.Error!void {
-        switch (self.owner) {
-            .packet_layer => |layer| {
-                try layer.packet.shorten_layer(layer, 0, self.get_data().len);
-            },
-            .owned_buffer => |*buffer| {
-                try buffer.shorten(0, self.get_data().len);
-            },
-        }
+        try self.owner.shorten_layer(self.get_data().len, self.get_data().len);
     }
 
     pub fn validate_layer(self: *ApplicationLayer) void {

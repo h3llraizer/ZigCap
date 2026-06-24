@@ -8,7 +8,7 @@ const Packet = zigcap.Packet.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
 const LayerOwner = zigcap.Owner.LayerOwner;
 const TLVOwner = zigcap.Owner.TLVOwner;
-const LayerIface = zigcap.LayerIface;
+const Layer = zigcap.Layer;
 const IPv4 = zigcap.IPv4;
 const Eth = zigcap.Eth;
 const UDP = zigcap.UDP;
@@ -544,7 +544,7 @@ test "build timestamp opt in packet" {
     var packet = Packet.create(allocator, allocator);
     defer packet.deinit();
 
-    var ipv4_layer_iface: LayerIface = LayerIface{ .ipv4Layer = ipv4_layer };
+    var ipv4_layer_iface: Layer = Layer{ .ipv4Layer = ipv4_layer };
 
     _ = try packet.add_layer(&ipv4_layer_iface);
 
@@ -1040,7 +1040,7 @@ test "build rr opt for packet" {
 
     try ip_layer.add_option(&opt);
 
-    var eth_layer_iface = try LayerIface.init(Eth.EthLayer, allocator);
+    var eth_layer_iface = try Layer.init(Eth.EthLayer, allocator);
     defer eth_layer_iface.deinit();
 
     const eth_hdr = eth_layer_iface.ethLayer.get_mutable_header();
@@ -1048,9 +1048,9 @@ test "build rr opt for packet" {
     eth_hdr.set_dst_mac(try Eth.MacAddress.init_from_string("9F:9E:9D:9C:9B:9A"));
     eth_hdr.set_eth_type(Eth.EthType.IP);
 
-    var ip_layer_iface = LayerIface{ .ipv4Layer = ip_layer };
+    var ip_layer_iface = Layer{ .ipv4Layer = ip_layer };
 
-    var udp_layer_face = try LayerIface.init(UDP.UDPLayer, allocator);
+    var udp_layer_face = try Layer.init(UDP.UDPLayer, allocator);
     defer udp_layer_face.deinit();
 
     const udp_hdr = udp_layer_face.udpLayer.get_mutable_header();

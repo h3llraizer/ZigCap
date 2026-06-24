@@ -6,7 +6,7 @@ const expect = std.testing.expect;
 const Packet = zigcap.Packet.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
 const LayerOwner = zigcap.Owner.LayerOwner;
-const LayerIface = zigcap.LayerIface;
+const Layer = zigcap.Layer;
 const ARP = zigcap.ARP;
 const IPv4 = zigcap.IPv4;
 const Eth = zigcap.Eth;
@@ -66,7 +66,7 @@ test "packet layer extract" {
 
     //    const ipv4_checksum = ipv4_layer.layer_iface.ipv4Layer.get_immutable_header().get_checksum();
 
-    var ipv4_layer_iface = try packet.extract_layer(ipv4_layer, &tmp_buf) orelse {
+    var ipv4_layer_iface = try packet.extract_layer(&ipv4_layer.layer_iface, &tmp_buf) orelse {
         try expect(false); // failed to extract ipv4 layer from packet
         return;
     };
@@ -82,7 +82,7 @@ test "packet layer extract" {
         return;
     };
 
-    _ = try packet.insert_layer(eth_layer, &ipv4_layer_iface);
+    _ = try packet.insert_layer(&eth_layer.layer_iface, &ipv4_layer_iface);
 
     const packet_buf_post_mod = std.hash.Wyhash.hash(0, packet.get_raw());
 
@@ -148,7 +148,7 @@ test "packet dissection" {
 
     //    const ipv4_checksum = ipv4_layer.layer_iface.ipv4Layer.get_immutable_header().get_checksum();
 
-    var ipv4_layer_iface = try packet.extract_layer(ipv4_layer, &tmp_buf) orelse {
+    var ipv4_layer_iface = try packet.extract_layer(&ipv4_layer.layer_iface, &tmp_buf) orelse {
         try expect(false); // failed to extract ipv4 layer from packet
         return;
     };
@@ -164,7 +164,7 @@ test "packet dissection" {
         return;
     };
 
-    _ = try packet.insert_layer(eth_layer, &ipv4_layer_iface);
+    _ = try packet.insert_layer(&eth_layer.layer_iface, &ipv4_layer_iface);
 
     const packet_buf_post_mod = std.hash.Wyhash.hash(0, packet.get_raw());
 
@@ -224,7 +224,7 @@ test "packet extract layers" {
         return;
     };
 
-    var dns_layer_iface: LayerIface = try packet.extract_layer(dns_layer, &tmp_buf) orelse {
+    var dns_layer_iface: Layer = try packet.extract_layer(&dns_layer.layer_iface, &tmp_buf) orelse {
         try expect(false); // failed to extract layer
         return;
     };
@@ -274,5 +274,5 @@ test "packet delete layers" {
         return;
     };
 
-    _ = try packet.delete_layer(dns_layer);
+    _ = try packet.delete_layer(&dns_layer.layer_iface);
 }

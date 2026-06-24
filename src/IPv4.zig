@@ -7,9 +7,11 @@ const TCP = @import("TCP.zig");
 const ICMP = @import("ICMP.zig");
 const LayerOwner = @import("Owner.zig").LayerOwner;
 const TLVOwner = @import("Owner.zig").TLVOwner;
-const LayerIface = @import("LayerIface.zig").LayerIface;
+const Layer = @import("LayerIface.zig").Layer;
 const init_layer = @import("LayerIface.zig").init_layer;
 const initLayerFromSlice = @import("LayerIface.zig").initFromSlice;
+
+const PacketLayer = @import("PacketLayer.zig").Layer;
 
 const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
 pub const IPv4_Options = @import("IPv4_Options.zig");
@@ -379,7 +381,7 @@ pub const IPv4Layer = struct {
         return ops_buf.len - offset;
     }
 
-    pub fn add_option(self: *IPv4Layer, option: *IPv4Option) Allocator.Error!void {
+    pub fn add_option(self: *IPv4Layer, option: *IPv4Option) (LayerError || Allocator.Error)!void {
         const new_option_bytes = option.get_data();
 
         const new_option_bytes_len: usize = new_option_bytes.len;
@@ -415,7 +417,7 @@ pub const IPv4Layer = struct {
         self.get_mutable_header().set_length(@intCast(self.get_data().len));
     }
 
-    pub fn remove_option(self: *IPv4Layer, option: *IPv4Option, allocator: Allocator) Allocator.Error!void {
+    pub fn remove_option(self: *IPv4Layer, option: *IPv4Option, allocator: Allocator) (LayerError || Allocator.Error)!void {
         const opt_buf = self.get_opt_buf();
 
         const opt_data = option.get_data();
@@ -553,7 +555,7 @@ pub const IPv4Layer = struct {
         return @ptrCast(data.ptr);
     }
 
-    pub fn get_next_layer_type(self: *const IPv4Layer, layer: *Packet.Layer) LayerError!?LayerIface {
+    pub fn get_next_layer_type(self: *const IPv4Layer, layer: *PacketLayer) LayerError!?Layer {
         const data = self.get_data();
 
         if (data.len < @sizeOf(IPv4Header)) return error.BufferTooSmall;
@@ -561,23 +563,23 @@ pub const IPv4Layer = struct {
         const hdr = self.get_immutable_header();
 
         const ip_protocol = std.enums.fromInt(IPProtocol, hdr.protocol) orelse {
-            return LayerIface{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } };
+            return Layer{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } };
         };
 
         switch (ip_protocol) {
             IPProtocol.ICMP => {
-                return LayerIface{ .icmpLayer = .{ .owner = .{ .packet_layer = layer } } };
+                return Layer{ .icmpLayer = .{ .owner = .{ .packet_layer = layer } } };
             },
 
             IPProtocol.TCP => {
-                return LayerIface{ .tcpLayer = .{ .owner = .{ .packet_layer = layer } } };
+                return Layer{ .tcpLayer = .{ .owner = .{ .packet_layer = layer } } };
             },
             IPProtocol.UDP => {
-                return LayerIface{ .udpLayer = .{ .owner = .{ .packet_layer = layer } } };
+                return Layer{ .udpLayer = .{ .owner = .{ .packet_layer = layer } } };
             },
             // TODO: handle IGMP - peak the buffer to find the version
             else => {
-                return LayerIface{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } };
+                return Layer{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } };
             },
         }
     }

@@ -5,7 +5,7 @@ const expect = std.testing.expect;
 const zigcap = @import("zigcap");
 
 const LayerOwner = zigcap.Owner.LayerOwner;
-const LayerIface = zigcap.LayerIface;
+const Layer = zigcap.Layer;
 const VLAN = zigcap.VLAN;
 const Eth = zigcap.Eth;
 const Packet = zigcap.Packet.Packet;
@@ -37,7 +37,7 @@ test "build independant vlan layer" {
 
     const allocator = debug_allocator.allocator();
 
-    var vlan_iface: LayerIface = try LayerIface.init(VLAN.VLANLayer, allocator);
+    var vlan_iface: Layer = try Layer.init(VLAN.VLANLayer, allocator);
     defer vlan_iface.deinit();
 
     var vlan_hdr = vlan_iface.vlanLayer.get_mutable_header();

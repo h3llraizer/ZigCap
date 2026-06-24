@@ -4,10 +4,11 @@ const IPv4 = @import("IPv4.zig");
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerOwner = @import("Owner.zig").LayerOwner;
 const LayerError = @import("ProtocolEnums.zig").LayerError;
-const LayerIface = @import("LayerIface.zig").LayerIface;
+const Layer = @import("LayerIface.zig").Layer;
 const init_layer = @import("LayerIface.zig").init_layer;
 const initLayerFromSlice = @import("LayerIface.zig").initFromSlice;
-const Layer = @import("Packet.zig").Layer;
+
+const PacketLayer = @import("PacketLayer.zig").Layer;
 
 const Allocator = std.mem.Allocator;
 const print = std.debug.print;
@@ -358,7 +359,7 @@ pub const ARPLayer = struct {
     }
 
     /// return the next layer protocol type (ARP doesn't have a next layer)
-    pub fn get_next_layer_type(self: *ARPLayer, layer: *Layer) LayerError!?LayerIface {
+    pub fn get_next_layer_type(self: *ARPLayer, layer: *PacketLayer) LayerError!?Layer {
         _ = self;
         _ = layer;
         return null;

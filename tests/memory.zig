@@ -6,7 +6,7 @@ const expect = std.testing.expect;
 const Packet = zigcap.Packet.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
 const LayerOwner = zigcap.Owner.LayerOwner;
-const LayerIface = zigcap.LayerIface;
+const Layer = zigcap.Layer;
 const ARP = zigcap.ARP;
 const IPv4 = zigcap.IPv4;
 const Eth = zigcap.Eth;
@@ -38,7 +38,7 @@ test "layer owner" {
 
     //defer tmp_buf.deinit();
 
-    var eth_layer_iface: LayerIface = try LayerIface.init(Eth.EthLayer, allocator);
+    var eth_layer_iface: Layer = try Layer.init(Eth.EthLayer, allocator);
     defer eth_layer_iface.deinit();
 
     var eth_hdr: *Eth.EthHeader = eth_layer_iface.ethLayer.get_mutable_header();
@@ -47,7 +47,7 @@ test "layer owner" {
     eth_hdr.set_dst_mac(try Eth.MacAddress.init_from_string("38:06:e6:92:63:ac"));
     eth_hdr.set_eth_type(Eth.EthType.IP);
 
-    //   var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, owner);
+    //   var ipv4_layer_iface: Layer = try Layer.init(IPv4.IPv4Layer, owner);
     //   defer ipv4_layer_iface.deinit();
     //
     //   var ipv4_hdr: *IPv4.IPv4Header = ipv4_layer_iface.ipv4Layer.get_mutable_header();

@@ -5,7 +5,7 @@ const expect = std.testing.expect;
 const zigcap = @import("zigcap");
 
 const LayerOwner = zigcap.Owner.LayerOwner;
-const LayerIface = zigcap.LayerIface;
+const Layer = zigcap.Layer;
 const ApplicationLayer = zigcap.ApplicationLayer;
 
 test "build generic layer independant" {
@@ -16,7 +16,7 @@ test "build generic layer independant" {
 
     const allocator = dba.allocator();
 
-    var app_layer_iface: LayerIface = try LayerIface.init(ApplicationLayer, allocator);
+    var app_layer_iface: Layer = try Layer.init(ApplicationLayer, allocator);
     defer app_layer_iface.deinit();
 
     try app_layer_iface.genericAppLayer.set_payload("hello");

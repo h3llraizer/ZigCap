@@ -5,7 +5,7 @@ const expect = std.testing.expect;
 const zigcap = @import("zigcap");
 
 const LayerOwner = zigcap.Owner.LayerOwner;
-const LayerIface = zigcap.LayerIface;
+const Layer = zigcap.Layer;
 const Eth = zigcap.Eth;
 const ARP = zigcap.ARP;
 const IPv4 = zigcap.IPv4;
@@ -43,7 +43,7 @@ test "build arp layer" {
 
     var allocator = debug_allocator.allocator();
 
-    var arp_layer_iface = try LayerIface.init(ARP.ARPLayer, allocator);
+    var arp_layer_iface = try Layer.init(ARP.ARPLayer, allocator);
     defer arp_layer_iface.deinit();
 
     arp_layer_iface.arpLayer.set_sender_ip(try IPv4.IPv4Address.init_from_string("192.168.1.225"));

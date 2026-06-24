@@ -2,7 +2,7 @@ const std = @import("std");
 const zigcap = @import("zigcap");
 
 const LayerOwner = zigcap.Owner.LayerOwner;
-const LayerIface = zigcap.LayerIface;
+const Layer = zigcap.Layer;
 const Eth = zigcap.Eth;
 const IPv4 = zigcap.IPv4;
 const ICMP = zigcap.ICMP;
@@ -44,7 +44,7 @@ test "build icmp layer" {
 
     const allocator = debug_allocator.allocator();
 
-    var icmp_layer_iface: LayerIface = try LayerIface.init(ICMP.ICMPLayer, allocator);
+    var icmp_layer_iface: Layer = try Layer.init(ICMP.ICMPLayer, allocator);
     defer icmp_layer_iface.deinit();
 
     //const hdr: *ICMP.ICMPHeader = icmp_layer_iface.icmpLayer.get_mutable_header();
@@ -102,7 +102,7 @@ test "build icmp request" {
 
     const allocator = debug_allocator.allocator();
 
-    var icmp_layer_iface: LayerIface = try LayerIface.init(ICMP.ICMPLayer, allocator);
+    var icmp_layer_iface: Layer = try Layer.init(ICMP.ICMPLayer, allocator);
     defer icmp_layer_iface.deinit();
 
     var icmp_hdr: *ICMP.ICMPHeader = icmp_layer_iface.icmpLayer.get_mutable_header();
@@ -123,7 +123,7 @@ test "build icmp request with redirect" {
 
     const allocator = debug_allocator.allocator();
 
-    var eth_layer_iface: LayerIface = try LayerIface.init(Eth.EthLayer, allocator);
+    var eth_layer_iface: Layer = try Layer.init(Eth.EthLayer, allocator);
     defer eth_layer_iface.deinit();
 
     var eth_hdr: *Eth.EthHeader = eth_layer_iface.ethLayer.get_mutable_header();
@@ -132,7 +132,7 @@ test "build icmp request with redirect" {
     eth_hdr.set_dst_mac(try Eth.MacAddress.init_from_string("38:06:e6:92:63:ac"));
     eth_hdr.set_eth_type(Eth.EthType.IP);
 
-    var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, allocator);
+    var ipv4_layer_iface: Layer = try Layer.init(IPv4.IPv4Layer, allocator);
     defer ipv4_layer_iface.deinit();
 
     var ipv4_hdr: *IPv4.IPv4Header = ipv4_layer_iface.ipv4Layer.get_mutable_header();
@@ -141,7 +141,7 @@ test "build icmp request with redirect" {
     ipv4_hdr.set_dst_ip(try IPv4.IPv4Address.init_from_string("192.168.1.254"));
     ipv4_layer_iface.ipv4Layer.set_ip_proto(IPProtocol.ICMP);
 
-    var icmp_layer_iface: LayerIface = try LayerIface.init(ICMP.ICMPLayer, allocator);
+    var icmp_layer_iface: Layer = try Layer.init(ICMP.ICMPLayer, allocator);
 
     defer icmp_layer_iface.deinit();
 
@@ -172,7 +172,7 @@ test "build icmp echo" {
 
     const allocator = debug_allocator.allocator();
 
-    var icmp_layer_iface: LayerIface = try LayerIface.init(ICMP.ICMPLayer, allocator);
+    var icmp_layer_iface: Layer = try Layer.init(ICMP.ICMPLayer, allocator);
     defer icmp_layer_iface.deinit();
 
     try icmp_layer_iface.icmpLayer.set_type(.EchoRequest);

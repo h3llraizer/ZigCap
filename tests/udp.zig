@@ -5,7 +5,7 @@ const expect = std.testing.expect;
 const zigcap = @import("zigcap");
 
 const LayerOwner = zigcap.Owner.LayerOwner;
-const LayerIface = zigcap.LayerIface;
+const Layer = zigcap.Layer;
 const UDP = zigcap.UDP;
 
 test "build udp layer independant" {
@@ -17,7 +17,7 @@ test "build udp layer independant" {
 
     const allocator = dba.allocator();
 
-    var udp_layer_iface: LayerIface = try LayerIface.init(UDP.UDPLayer, allocator);
+    var udp_layer_iface: Layer = try Layer.init(UDP.UDPLayer, allocator);
     defer udp_layer_iface.deinit();
 
     var udp_hdr = udp_layer_iface.udpLayer.get_mutable_header();

@@ -2,7 +2,7 @@ const std = @import("std");
 const Packet = @import("Packet.zig");
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const ProtocolEnums = @import("ProtocolEnums.zig");
-const LayerIface = @import("LayerIface.zig").LayerIface;
+const Layer = @import("LayerIface.zig").Layer;
 const init_layer = @import("LayerIface.zig").init_layer;
 const initLayerFromSlice = @import("LayerIface.zig").initFromSlice;
 
@@ -12,6 +12,8 @@ const ARP = @import("ARP.zig");
 const Owner = @import("Owner.zig");
 const GenericLayer = @import("GenericLayer.zig");
 const VLAN = @import("VLAN.zig");
+
+const PacketLayer = @import("PacketLayer.zig").Layer;
 
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
@@ -240,7 +242,7 @@ pub const EthLayer = struct {
     }
 
     /// return the next layer protocol type
-    pub fn get_next_layer_type(self: *EthLayer, layer: *Packet.Layer) LayerError!?LayerIface {
+    pub fn get_next_layer_type(self: *EthLayer, layer: *PacketLayer) LayerError!?Layer {
         const hdr = self.get_immutable_header();
         const eth_type = hdr.get_eth_type();
 
@@ -258,10 +260,10 @@ pub const EthLayer = struct {
 
                 if (ip_version == @intFromEnum(IPVersion.IPv4)) {
                     if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) {
-                        return LayerIface{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } };
+                        return Layer{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } };
                     }
 
-                    return LayerIface{ .ipv4Layer = .{ .owner = .{ .packet_layer = layer } } };
+                    return Layer{ .ipv4Layer = .{ .owner = .{ .packet_layer = layer } } };
                 }
 
                 if (ip_version == @intFromEnum(IPVersion.IPv6)) {
@@ -271,13 +273,13 @@ pub const EthLayer = struct {
                 }
             },
             EthType.IPV6 => {
-                return LayerIface{ .ipv6Layer = .{ .owner = .{ .packet_layer = layer } } };
+                return Layer{ .ipv6Layer = .{ .owner = .{ .packet_layer = layer } } };
             },
             EthType.ARP => {
-                return LayerIface{ .arpLayer = .{ .owner = .{ .packet_layer = layer } } };
+                return Layer{ .arpLayer = .{ .owner = .{ .packet_layer = layer } } };
             },
             EthType.VLAN => {
-                return LayerIface{ .vlanLayer = .{ .owner = .{ .packet_layer = layer } } };
+                return Layer{ .vlanLayer = .{ .owner = .{ .packet_layer = layer } } };
             },
             else => {
                 return null;

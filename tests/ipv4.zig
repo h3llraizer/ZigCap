@@ -7,7 +7,7 @@ const expect = std.testing.expect;
 const Packet = zigcap.Packet.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
 const LayerOwner = zigcap.Owner.LayerOwner;
-const LayerIface = zigcap.LayerIface;
+const Layer = zigcap.Layer;
 const ARP = zigcap.ARP;
 const IPv4 = zigcap.IPv4;
 const Eth = zigcap.Eth;
@@ -21,7 +21,7 @@ test "build independant ipv4 layer" {
 
     //  const ipv4_layer_owner = LayerOwner{ .owned_buffer = .init_empty(allocator) };
 
-    //  var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, ipv4_layer_owner);
+    //  var ipv4_layer_iface: Layer = try Layer.init(IPv4.IPv4Layer, ipv4_layer_owner);
     //  defer ipv4_layer_iface.deinit();
 
     //  var ipv4_hdr = ipv4_layer_iface.ipv4Layer.get_mutable_header();
@@ -45,7 +45,7 @@ test "build ipv4 layer with Router Alert option" {
     //
     //   //defer ipv4_layer_owner.deinit();
     //
-    //   var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, ipv4_layer_owner);
+    //   var ipv4_layer_iface: Layer = try Layer.init(IPv4.IPv4Layer, ipv4_layer_owner);
     //   defer ipv4_layer_iface.deinit();
     //
     //   var ipv4_hdr = ipv4_layer_iface.ipv4Layer.get_mutable_header();
@@ -95,7 +95,7 @@ test "build ipv4 layer with Router Alert option" {
 //
 //       //defer ipv4_layer_owner.owned_buffer.buffer.deinit(allocator);
 //
-//       var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, ipv4_layer_owner);
+//       var ipv4_layer_iface: Layer = try Layer.init(IPv4.IPv4Layer, ipv4_layer_owner);
 //       defer ipv4_layer_iface.deinit();
 //
 //       var ipv4_hdr = ipv4_layer_iface.ipv4Layer.get_mutable_header();

@@ -1,8 +1,8 @@
 const std = @import("std");
 const ProtocolEnums = @import("ProtocolEnums.zig");
-const LayerIface = @import("LayerIface.zig").LayerIface;
+const Layer = @import("LayerIface.zig").Layer;
 const LayerOwner = @import("Owner.zig").LayerOwner;
-const Layer = @import("Packet.zig").Layer;
+const PacketLayer = @import("PacketLayer.zig").Layer;
 const IPv4 = @import("IPv4.zig");
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 
@@ -390,7 +390,7 @@ pub const IGMPv3Layer = struct {
         return tcp_ip_protocol.igmp_v3;
     }
 
-    pub fn get_next_layer_type(self: *IGMPv3Layer, layer: *Layer) !?LayerIface {
+    pub fn get_next_layer_type(self: *IGMPv3Layer, layer: *PacketLayer) !?Layer {
         _ = self;
         _ = layer;
 

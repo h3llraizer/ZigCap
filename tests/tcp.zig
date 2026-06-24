@@ -5,7 +5,7 @@ const expect = std.testing.expect;
 const zigcap = @import("zigcap");
 
 const LayerOwner = zigcap.Owner.LayerOwner;
-const LayerIface = zigcap.LayerIface;
+const Layer = zigcap.Layer;
 const TCP = zigcap.TCP;
 
 test "parse tcp layer" {
@@ -90,7 +90,7 @@ test "build tcp layer independant" {
 
     const allocator = debug_allocator.allocator();
 
-    var tcp_layer_iface: LayerIface = try LayerIface.init(TCP.TCPLayer, allocator);
+    var tcp_layer_iface: Layer = try Layer.init(TCP.TCPLayer, allocator);
     defer tcp_layer_iface.deinit();
 
     var tcp_hdr = tcp_layer_iface.tcpLayer.get_mutable_header();

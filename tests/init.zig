@@ -5,7 +5,7 @@ const Packet = zigcap.Packet.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
 const LayerOwner = zigcap.Owner.LayerOwner;
 const TLVOwner = zigcap.Owner.TLVOwner;
-const LayerIface = zigcap.LayerIface;
+const Layer = zigcap.Layer;
 const IPv4 = zigcap.IPv4;
 const Eth = zigcap.Eth;
 const UDP = zigcap.UDP;
@@ -38,7 +38,7 @@ test "ipv4 init" {
     //print("{s}\n", .{str});
     allocator.free(str);
 
-    var ipv4_layer_iface: LayerIface = try LayerIface.init(IPv4.IPv4Layer, allocator);
+    var ipv4_layer_iface: Layer = try Layer.init(IPv4.IPv4Layer, allocator);
 
     defer ipv4_layer_iface.deinit();
 

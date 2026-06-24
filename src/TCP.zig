@@ -3,7 +3,7 @@ const std = @import("std");
 const ProtocolEnums = @import("ProtocolEnums.zig");
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 const LayerError = ProtocolEnums.LayerError;
-const LayerIface = @import("LayerIface.zig").LayerIface;
+const Layer = @import("LayerIface.zig").Layer;
 const init_layer = @import("LayerIface.zig").init_layer;
 const initLayerFromSlice = @import("LayerIface.zig").initFromSlice;
 const LayerOwner = @import("Owner.zig").LayerOwner;
@@ -11,6 +11,7 @@ const Packet = @import("Packet.zig");
 const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
 const TCPOptions = @import("TCP_Options.zig");
 const IPv4 = @import("IPv4.zig");
+const PacketLayer = @import("PacketLayer.zig").Layer;
 
 const print = std.debug.print;
 const panic = std.debug.print;
@@ -284,7 +285,7 @@ pub const TCPLayer = struct {
             .packet_layer => |layer| {
                 if (layer.prev_layer) |prev_layer| {
                     if (prev_layer.layer_iface.get_protocol() == tcp_ip_protocol.ipv4) {
-                        var ipv4_iface: *LayerIface = &prev_layer.layer_iface;
+                        var ipv4_iface: *Layer = &prev_layer.layer_iface;
                         var ipv4_layer: *IPv4.IPv4Layer = &ipv4_iface.ipv4Layer;
                         const ipv4_hdr: *const IPv4.IPv4Header = ipv4_layer.get_immutable_header();
 
@@ -492,7 +493,7 @@ pub const TCPLayer = struct {
         return ops_buf.len - offset;
     }
 
-    pub fn remove_option(self: *TCPLayer, opt: TCPOption) Allocator.Error!void {
+    pub fn remove_option(self: *TCPLayer, opt: TCPOption) (LayerError || Allocator.Error)!void {
         const opt_buf = self.get_opt_buf();
 
         if (opt_buf.len == 0) {
@@ -538,7 +539,7 @@ pub const TCPLayer = struct {
         DataSuppliedForNonTLVOption,
     };
 
-    pub fn add_option(self: *TCPLayer, opt: TCPOption, data: ?[]const u8) (TCPError || Allocator.Error)!void {
+    pub fn add_option(self: *TCPLayer, opt: TCPOption, data: ?[]const u8) (TCPError || LayerError || Allocator.Error)!void {
         const opt_buf = self.get_opt_buf();
 
         var expected_tcp_header_len = (opt_buf.len + TCPHeaderMinSize + @sizeOf(TCPOption));
@@ -632,7 +633,7 @@ pub const TCPLayer = struct {
         return null;
     }
 
-    pub fn get_next_layer_type(self: *TCPLayer, layer: *Packet.Layer) LayerError!?LayerIface {
+    pub fn get_next_layer_type(self: *TCPLayer, layer: *PacketLayer) LayerError!?Layer {
         const data: []const u8 = self.get_data();
 
         if (data.len < TCPHeaderMinSize) {
@@ -640,7 +641,7 @@ pub const TCPLayer = struct {
         }
 
         if (self.get_payload().len > 0) {
-            return LayerIface{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } };
+            return Layer{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } };
         }
 
         return null;

@@ -2,7 +2,7 @@ const std = @import("std");
 const zigcap = @import("zigcap");
 
 const LayerOwner = zigcap.Owner.LayerOwner;
-const LayerIface = zigcap.LayerIface;
+const Layer = zigcap.Layer;
 const Eth = zigcap.Eth;
 const IPv4 = zigcap.IPv4;
 const IGMP = zigcap.IGMP;
@@ -18,7 +18,7 @@ test "build igmp layer" {
 
     const allocator = debug_allocator.allocator();
 
-    var igmp_layer_iface: LayerIface = try LayerIface.init(IGMP.IGMPv3Layer, allocator);
+    var igmp_layer_iface: Layer = try Layer.init(IGMP.IGMPv3Layer, allocator);
     defer igmp_layer_iface.deinit();
 
     const igmp_type: IGMP.IGMPType = igmp_layer_iface.igmpv3Layer.get_type();

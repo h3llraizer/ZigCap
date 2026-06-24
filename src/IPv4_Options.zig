@@ -2,6 +2,8 @@ const std = @import("std");
 const TLVOwner = @import("Owner.zig").TLVOwner;
 const IPv4 = @import("IPv4.zig");
 
+const LayerError = @import("ProtocolEnums.zig").LayerError;
+
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 const panic = std.debug.panic;
@@ -426,7 +428,7 @@ fn get_ips_count(data: []const u8) usize {
     return ip_count;
 }
 
-fn add_ip_to_buffer(offset: usize, owner: *TLVOwner, ip: IPv4.IPv4Address) Allocator.Error!void {
+fn add_ip_to_buffer(offset: usize, owner: *TLVOwner, ip: IPv4.IPv4Address) (LayerError || Allocator.Error)!void {
     const cur_length: usize = @intCast(owner.get_data()[offset + 1]);
 
     std.debug.assert(cur_length <= owner.get_data()[offset..].len);
@@ -442,7 +444,7 @@ fn add_ip_to_buffer(offset: usize, owner: *TLVOwner, ip: IPv4.IPv4Address) Alloc
     try set_hdr_vals(owner, @sizeOf(IPv4.IPv4Address));
 }
 
-fn remove_ip_from_list(offset: usize, owner: *TLVOwner, ip: IPv4.IPv4Address) Allocator.Error!void {
+fn remove_ip_from_list(offset: usize, owner: *TLVOwner, ip: IPv4.IPv4Address) (LayerError || Allocator.Error)!void {
     var data = owner.get_data()[offset..];
     var data_len: usize = @intCast(data[1]);
 
@@ -531,7 +533,12 @@ fn get_ip_offset(owner: *TLVOwner, ip: IPv4.IPv4Address, cur_offset: usize) ?usi
     return null;
 }
 
-fn add_timestamp_to_buffer(offset: usize, owner: *TLVOwner, timestamp: u32, opt_type: IPv4.IPOptionType) Allocator.Error!void {
+fn add_timestamp_to_buffer(
+    offset: usize,
+    owner: *TLVOwner,
+    timestamp: u32,
+    opt_type: IPv4.IPOptionType,
+) (LayerError || Allocator.Error)!void {
     _ = opt_type;
     const buf = try owner.extend_buffer(owner.get_data().len, @sizeOf(u32));
     @memmove(buf, &std.mem.toBytes(@byteSwap(timestamp))); // copy the ip
@@ -554,7 +561,7 @@ fn get_mutable_hdr(owner: *TLVOwner) *IPv4.IPv4Header {
     return @ptrCast(data.ptr);
 }
 
-fn set_hdr_vals(owner: *TLVOwner, len: isize) Allocator.Error!void {
+fn set_hdr_vals(owner: *TLVOwner, len: isize) (LayerError || Allocator.Error)!void {
     if (owner.is_layer_owned()) {
         var hdr = get_mutable_hdr(owner);
 
@@ -682,7 +689,7 @@ pub const RecordRoute = struct {
         self.get_data()[2] = ptr;
     }
 
-    pub fn get_ip_list(self: *RecordRoute, allocator: Allocator) Allocator.Error!?[]IPv4.IPv4Address {
+    pub fn get_ip_list(self: *RecordRoute, allocator: Allocator) (LayerError || Allocator.Error)!?[]IPv4.IPv4Address {
         const data = self.get_data();
 
         return get_ips_list(data, allocator);
@@ -693,11 +700,11 @@ pub const RecordRoute = struct {
         return get_ips_count(data);
     }
 
-    pub fn add_ip(self: *RecordRoute, ip: IPv4.IPv4Address) Allocator.Error!void {
+    pub fn add_ip(self: *RecordRoute, ip: IPv4.IPv4Address) (LayerError || Allocator.Error)!void {
         return add_ip_to_buffer(self.get_offset(), &self.owner, ip);
     }
 
-    pub fn remove_ip(self: *RecordRoute, ip: IPv4.IPv4Address) Allocator.Error!void {
+    pub fn remove_ip(self: *RecordRoute, ip: IPv4.IPv4Address) (LayerError || Allocator.Error)!void {
         return remove_ip_from_list(self.get_offset(), &self.owner, ip);
     }
 
@@ -812,11 +819,11 @@ pub const LooseSourceRoute = struct {
         return get_ips_count(data);
     }
 
-    pub fn add_ip(self: *LooseSourceRoute, ip: IPv4.IPv4Address) Allocator.Error!void {
+    pub fn add_ip(self: *LooseSourceRoute, ip: IPv4.IPv4Address) (LayerError || Allocator.Error)!void {
         return add_ip_to_buffer(self.get_offset(), &self.owner, ip);
     }
 
-    pub fn remove_ip(self: *LooseSourceRoute, ip: IPv4.IPv4Address) Allocator.Error!void {
+    pub fn remove_ip(self: *LooseSourceRoute, ip: IPv4.IPv4Address) (LayerError || Allocator.Error)!void {
         return remove_ip_from_list(self.get_offset(), &self.owner, ip);
     }
 
@@ -931,13 +938,13 @@ pub const StrictSourceRoute = struct {
         return get_ips_count(data);
     }
 
-    pub fn add_ip(self: *StrictSourceRoute, ip: IPv4.IPv4Address) Allocator.Error!void {
+    pub fn add_ip(self: *StrictSourceRoute, ip: IPv4.IPv4Address) (LayerError || Allocator.Error)!void {
         try add_ip_to_buffer(self.get_offset(), &self.owner, ip);
         //const hdr = get_mutable_hdr();
 
     }
 
-    pub fn remove_ip(self: *StrictSourceRoute, ip: IPv4.IPv4Address) Allocator.Error!void {
+    pub fn remove_ip(self: *StrictSourceRoute, ip: IPv4.IPv4Address) (LayerError || Allocator.Error)!void {
         return remove_ip_from_list(self.get_offset(), &self.owner, ip);
     }
 
@@ -2409,19 +2416,19 @@ pub const Timestamp = struct {
             (@as(u8, of) << 4);
     }
 
-    fn add_timestamp(self: *Timestamp, timestamp: u32) Allocator.Error!void {
+    fn add_timestamp(self: *Timestamp, timestamp: u32) (LayerError || Allocator.Error)!void {
         try add_timestamp_to_buffer(self.get_offset(), &self.owner, timestamp, IPv4.IPOptionType.Timestamp);
     }
 
-    fn add_ip(self: *Timestamp, ip: IPv4.IPv4Address) Allocator.Error!void {
+    fn add_ip(self: *Timestamp, ip: IPv4.IPv4Address) (LayerError || Allocator.Error)!void {
         return add_ip_to_buffer(self.get_offset(), &self.owner, ip);
     }
 
-    fn remove_ip(self: *Timestamp, ip: IPv4.IPv4Address) Allocator.Error!void {
+    fn remove_ip(self: *Timestamp, ip: IPv4.IPv4Address) (LayerError || Allocator.Error)!void {
         return remove_ip_from_list(&self.owner, ip);
     }
 
-    pub fn add_ts_record(self: *Timestamp, record: TimestampRecord) (IPv4OptErr || Allocator.Error)!void {
+    pub fn add_ts_record(self: *Timestamp, record: TimestampRecord) (LayerError || IPv4OptErr || Allocator.Error)!void {
         if (self.get_mode_flag() == .TIMESTAMP_ONLY) {
             if (record.ip != null) {
                 return error.InvalidTimestampOnlyRecord; // TS Only does not contain IP addresses
@@ -2442,7 +2449,7 @@ pub const Timestamp = struct {
         //self.get_data_mut()[1] += (@sizeOf(u32) + @sizeOf(IPv4.IPv4Address));
     }
 
-    pub fn remove_ts_record(self: *Timestamp, record: TimestampRecord) Allocator.Error!void {
+    pub fn remove_ts_record(self: *Timestamp, record: TimestampRecord) (LayerError || Allocator.Error)!void {
         const data = self.get_data()[4..];
         if (record.ip == null) {
             const bytes: [4]u8 = std.mem.toBytes(@byteSwap(record.timestamp));

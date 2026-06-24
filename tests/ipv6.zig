@@ -10,7 +10,7 @@ const link_layer_type = ProtocolEnums.link_layer_type;
 const IPProtocol = ProtocolEnums.IPProtocol;
 const tcp_ip_protocol = zigcap.tcp_ip_protocol;
 const LayerOwner = zigcap.Owner.LayerOwner;
-const LayerIface = zigcap.LayerIface;
+const Layer = zigcap.Layer;
 
 const IPv6 = zigcap.IPv6;
 const IPv6Address = IPv6.IPv6Address;
@@ -130,7 +130,7 @@ test "build ipv6 layer" {
 
     const allocator = debug_allocator.allocator();
 
-    var ipv6_iface = try LayerIface.init(IPv6.IPv6Layer, allocator);
+    var ipv6_iface = try Layer.init(IPv6.IPv6Layer, allocator);
     defer ipv6_iface.deinit();
 
     const hdr = ipv6_iface.ipv6Layer.get_mutable_header();
@@ -144,7 +144,7 @@ test "ipv6 header getters/setters" {
 
     const allocator = debug_allocator.allocator();
 
-    var ipv6_iface = try LayerIface.init(IPv6.IPv6Layer, allocator);
+    var ipv6_iface = try Layer.init(IPv6.IPv6Layer, allocator);
     defer ipv6_iface.deinit();
 
     const hdr = ipv6_iface.ipv6Layer.get_mutable_header();

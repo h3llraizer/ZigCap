@@ -1,10 +1,10 @@
 const std = @import("std");
 const ProtocolEnums = @import("ProtocolEnums.zig");
-const LayerIface = @import("LayerIface.zig").LayerIface;
+const Layer = @import("LayerIface.zig").Layer;
 const init_layer = @import("LayerIface.zig").init_layer;
 const initLayerFromSlice = @import("LayerIface.zig").initFromSlice;
 const LayerOwner = @import("Owner.zig").LayerOwner;
-const Layer = @import("Packet.zig").Layer;
+const PacketLayer = @import("PacketLayer.zig").Layer;
 const IPv4 = @import("IPv4.zig");
 const tcp_ip_protocol = @import("tcp_ip_protocols.zig").tcp_ip_protocol;
 
@@ -271,7 +271,7 @@ pub const ICMPLayer = struct {
 
     /// Sets the payload of the ICMPLayer.
     /// Can be any ICMP type but commonly ICMP Echo Request/Reply is the type which has a payload
-    pub fn set_payload(self: *ICMPLayer, payload: []const u8) Allocator.Error!void {
+    pub fn set_payload(self: *ICMPLayer, payload: []const u8) (LayerError || Allocator.Error)!void {
         const current_payload_len = self.get_payload().len;
 
         const header_type_size = self.get_header_type_size();
@@ -310,7 +310,7 @@ pub const ICMPLayer = struct {
         return hdr.get_type();
     }
 
-    pub fn set_type(self: *ICMPLayer, icmp_type: ICMPType) Allocator.Error!void {
+    pub fn set_type(self: *ICMPLayer, icmp_type: ICMPType) (LayerError || Allocator.Error)!void {
         var hdr = self.get_mutable_header();
         hdr.set_type(icmp_type);
 
@@ -401,7 +401,7 @@ pub const ICMPLayer = struct {
         return tcp_ip_protocol.icmp;
     }
 
-    pub fn get_next_layer_type(self: *ICMPLayer, layer: *Layer) LayerError!?LayerIface {
+    pub fn get_next_layer_type(self: *ICMPLayer, layer: *PacketLayer) LayerError!?Layer {
         _ = self;
         _ = layer;
         // these types can include original IPv4 Header and full TCP Header or psuedo TCP Header:

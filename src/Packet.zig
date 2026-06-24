@@ -1,7 +1,7 @@
 const std = @import("std");
 const ProtocolEnums = @import("ProtocolEnums.zig");
 const tcp_ip_protocols = @import("tcp_ip_protocols.zig");
-const LayerIface = @import("LayerIface.zig").LayerIface;
+const Layer = @import("LayerIface.zig").Layer;
 const Eth = @import("Eth.zig");
 const Loopback = @import("Loopback.zig");
 const IPv4 = @import("IPv4.zig");
@@ -9,6 +9,7 @@ const IPv6 = @import("IPv6.zig");
 const GenericLayer = @import("GenericLayer.zig");
 const LayerOwner = @import("Owner.zig").LayerOwner;
 const Buffer = @import("Buffer.zig").Buffer;
+const PacketLayer = @import("PacketLayer.zig").Layer;
 
 const print = std.debug.print;
 const activeTag = std.meta.activeTag;
@@ -20,45 +21,6 @@ const LayerError = ProtocolEnums.LayerError;
 const link_layer_type = ProtocolEnums.link_layer_type;
 const tcp_ip_protocol = tcp_ip_protocols.tcp_ip_protocol;
 const get_layer_type_enum = tcp_ip_protocols.get_layer_type_enum;
-
-/// Do NOT change the offset and lengths manually - there is no need to. They are public by default but let the Packet manage these members
-/// TODO: Rename or make out of scope
-pub const Layer = struct {
-    offset: usize, // absolute offset in the owning packet
-    length: usize,
-    layer_iface: LayerIface,
-    packet: *Packet,
-    next_layer: ?*Layer = null,
-    prev_layer: ?*Layer = null,
-
-    pub fn init(offset: usize, length: usize, layer_iface: LayerIface, packet: *Packet) Layer {
-        return Layer{
-            .offset = offset,
-            .length = length,
-            .layer_iface = layer_iface,
-            .packet = packet,
-        };
-    }
-
-    /// Returns data from first byte of header to last byte of packet
-    pub fn get_data(self: *Layer) []u8 {
-        return self.packet.buffer.buffer.items[self.offset..];
-    }
-
-    pub fn print_meta(self: *Layer) void {
-        print("{any}: offset: {} length: {}\n", .{
-            self.layer_iface.get_protocol(),
-            self.offset,
-            self.length,
-        });
-    }
-
-    /// to_string returns immut slice. caller free memory using the allocator provided
-    pub fn to_string(self: *Layer, allocator: Allocator) []const u8 {
-        const str = self.layer_iface.to_string(allocator);
-        return str;
-    }
-};
 
 pub const InitError = error{
     PacketBufferNotEmpty,
@@ -73,8 +35,8 @@ pub const ParseError = error{
 pub const Packet = struct {
     layer_allocator: Allocator,
     buffer: Buffer,
-    first_layer: ?*Layer,
-    last_layer: ?*Layer,
+    first_layer: ?*PacketLayer,
+    last_layer: ?*PacketLayer,
 
     /// Creates an empty Packet by creating it's internal buffer using the first (buffer allocator) passed
     /// the second allocator is used to create the layer structs (you can pass the same allocator if you want)
@@ -98,29 +60,34 @@ pub const Packet = struct {
         link_type: link_layer_type,
         parse_until: ?tcp_ip_protocol,
     ) (InitError || LayerError || Allocator.Error)!void {
-        if (self.buffer.buffer.items.len > 0) {
+        if (self.buffer.get_len() > 0) {
             return InitError.PacketBufferNotEmpty;
         }
 
         // Take ownership of the ArrayList's memory
         self.buffer = try Buffer.init(try buffer.toOwnedSlice(allocator), allocator);
 
-        const first_layer = try self.layer_allocator.create(Layer);
-        const link_layer = try create_first_layer(self.buffer.buffer.items, link_type, first_layer) orelse {
+        const first_layer: *PacketLayer = try self.layer_allocator.create(PacketLayer);
+        const link_layer: Layer = try create_first_layer(
+            self.buffer.buffer.items,
+            link_type,
+            first_layer,
+        ) orelse {
             return InitError.LinkLayerCreationFailed;
         };
 
-        first_layer.* = Layer.init(0, self.buffer.buffer.items.len, link_layer, self);
+        first_layer.* = PacketLayer.init(
+            0,
+            self.buffer.buffer.items.len,
+            link_layer,
+            self,
+        );
         self.first_layer = first_layer;
 
         try self.accumulate_layers(parse_until);
     }
 
-    pub fn get_raw(self: *Packet) []const u8 {
-        return self.buffer.buffer.items;
-    }
-
-    fn create_ip_layer(raw: []const u8, layer: *Layer) LayerError!?LayerIface {
+    fn create_ip_layer(raw: []const u8, layer: *PacketLayer) LayerError!?Layer {
         if (raw.len < IPv4.MinHeaderLength) {
             return LayerError.LayerInvalid;
         }
@@ -130,11 +97,11 @@ pub const Packet = struct {
         if (ip_version == @intFromEnum(IPVersions.IPv4)) {
             const hdr_len = (ihl_byte & 0x0F) * 4;
             if (hdr_len < IPv4.MinHeaderLength or hdr_len > IPv4.MaxHeaderLength) {
-                return LayerIface{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } };
+                return Layer{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } };
             }
 
             layer.length = IPv4.MinHeaderLength;
-            return LayerIface{ .ipv4Layer = .{ .owner = .{ .packet_layer = layer } } };
+            return Layer{ .ipv4Layer = .{ .owner = .{ .packet_layer = layer } } };
         }
 
         if (ip_version == @intFromEnum(IPVersions.IPv6)) {
@@ -142,24 +109,24 @@ pub const Packet = struct {
                 return LayerError.LayerInvalid;
             }
             layer.length = IPv6.IPv6HeaderSize;
-            return LayerIface{ .ipv6Layer = .{ .owner = .{ .packet_layer = layer } } };
+            return Layer{ .ipv6Layer = .{ .owner = .{ .packet_layer = layer } } };
         } else {
             print("Unknown link type.\n", .{});
             return null;
         }
     }
 
-    fn create_first_layer(raw: []const u8, link_type: link_layer_type, layer: *Layer) (InitError || LayerError)!?LayerIface {
+    fn create_first_layer(raw: []const u8, link_type: link_layer_type, layer: *PacketLayer) (InitError || LayerError)!?Layer {
         switch (link_type) {
             .ETHERNET => {
                 layer.length = Eth.EthHeaderSize;
-                return LayerIface{ .ethLayer = .{ .owner = .{ .packet_layer = layer } } };
+                return Layer{ .ethLayer = .{ .owner = .{ .packet_layer = layer } } };
             },
             .RAW => {
                 return try create_ip_layer(raw, layer);
             },
             .LOOP, .NULL => {
-                return LayerIface{ .loopbackLayer = .{ .owner = .{ .packet_layer = layer } } };
+                return Layer{ .loopbackLayer = .{ .owner = .{ .packet_layer = layer } } };
             },
             else => {
                 return InitError.LinkLayerNotHandled;
@@ -171,7 +138,7 @@ pub const Packet = struct {
         var cur = self.first_layer;
 
         while (cur) |current_layer| {
-            const next_layer: *Layer = try self.layer_allocator.create(Layer);
+            const next_layer: *PacketLayer = try self.layer_allocator.create(PacketLayer);
 
             const impl_layer = blk: {
                 const result = current_layer.layer_iface.get_next_layer(next_layer) catch |err| {
@@ -196,7 +163,7 @@ pub const Packet = struct {
 
             const next_layer_offset = current_layer.offset + current_layer.length;
 
-            next_layer.* = Layer.init(next_layer_offset, current_layer_payload.len, impl_layer, self);
+            next_layer.* = PacketLayer.init(next_layer_offset, current_layer_payload.len, impl_layer, self);
 
             // Set up the linked list pointers
             next_layer.prev_layer = current_layer;
@@ -216,27 +183,27 @@ pub const Packet = struct {
         self.last_layer = cur;
     }
 
-    pub fn get_last_layer(self: *Packet) ?*Layer {
+    pub fn get_last_layer(self: *Packet) ?*PacketLayer {
         return self.last_layer;
     }
 
-    pub fn add_layer(self: *Packet, layer_iface: *LayerIface) (LayerError || Allocator.Error)!void {
+    pub fn add_layer(self: *Packet, layer_iface: *Layer) (LayerError || Allocator.Error)!void {
         const data = layer_iface.get_data();
 
         // create the layer
-        const layer: *Layer = try self.layer_allocator.create(Layer);
+        const layer: *PacketLayer = try self.layer_allocator.create(PacketLayer);
 
         // init the layer by:
         //  setting the initial offset to 0,
         //  data len to len of the layer data,
         //  deref th layerIface to copy it,
         //  specify the Packet to self (this Packet)
-        layer.* = Layer.init(0, data.len, layer_iface.*, self);
+        layer.* = PacketLayer.init(0, data.len, layer_iface.*, self);
 
         // set the owner to packet layer that was just created
         try layer.layer_iface.reinit(LayerOwner{ .packet_layer = layer });
 
-        const last_layer: ?*Layer = self.last_layer; // get the last layer (might be null)
+        const last_layer: ?*PacketLayer = self.last_layer; // get the last layer (might be null)
 
         if (last_layer) |last| { // if the last layer is not null
             last.next_layer = layer; // set the last layer next layer to the layer created (layer being added)
@@ -262,10 +229,10 @@ pub const Packet = struct {
             return null;
         };
 
-        // TODO: investigate using active_tag of the Layer's LayerIface instead of get_layer_type_enum
+        // TODO: investigate using active_tag of the Layer's Layer instead of get_layer_type_enum
         // e.g std.meta.activeTag(layer.layeriface) == layertype
 
-        const layer: ?*Layer = self.search_layers(layer_type_enum);
+        const layer: ?*PacketLayer = self.search_layers(layer_type_enum);
 
         if (layer) |b| {
             return @as(*layer_type, @ptrCast(@alignCast(b.layer_iface.ptr())));
@@ -285,7 +252,7 @@ pub const Packet = struct {
 
     // TODO: make this private and allow callers to insert/delete/extract layers using get_layer_of_type with depth arg
     /// Returns Layer. Packet uses this Layer struct to seperate layers and coordinate mutations
-    pub fn search_layers(self: *Packet, target: tcp_ip_protocol) ?*Layer { // this should return a const ptr
+    pub fn search_layers(self: *Packet, target: tcp_ip_protocol) ?*PacketLayer { // this should return a const ptr
         var cur = self.first_layer;
         while (cur) |layer| {
             if (layer.layer_iface.get_protocol() == target) {
@@ -306,16 +273,22 @@ pub const Packet = struct {
         }
     }
 
-    pub fn extend_layer(self: *Packet, layer: *Layer, offset: usize, length: usize) Allocator.Error![]u8 {
-        // TODO: ensure layer cannot be shorten beyond its Minimum or fixed header header length
-        const extend_offset = layer.offset + offset; // absolute position in packet
+    /// Extends the specified layer.
+    /// Useful for manual mutations.
+    /// Used by LayerOwner where owner is Packet.
+    /// Remember to call validate_layer on each layer (from last to first) or Packet.validate_packet after mutation to ensure header values are correct.
+    pub fn extend_layer(self: *Packet, layer: *Layer, offset: usize, length: usize) (LayerError || Allocator.Error)![]u8 {
+        const l = self.search_layers(layer.get_protocol()) orelse return LayerError.LayerInvalid;
+
+        // TODO: ensure layer cannot be shorten beyond its Maximum or fixed header header length
+        const extend_offset = l.offset + offset; // absolute position in packet
 
         const buf = try self.buffer.extend(extend_offset, length);
 
-        layer.length += length; // increase the length of the layer by length that it was extended by
+        l.length += length; // increase the length of the layer by length that it was extended by
 
         // now the proceeding layers offsets and lengths need to be increased by the length that this layer was extended by
-        var cur = layer.next_layer; // get the layers next layer
+        var cur = l.next_layer; // get the layers next layer
         while (cur) |next| {
             next.offset += length; // increase it's offset by the length
             cur = next.next_layer; // set cur to its next layer
@@ -324,22 +297,29 @@ pub const Packet = struct {
         return buf; // return the extend slice
     }
 
+    /// Shortens the specified layer.
+    /// Useful for manual mutations.
+    /// Used by LayerOwner where owner is Packet.
+    /// Remember to call validate_layer on each layer (from last to first) or Packet.validate_packet after mutation to ensure header values are correct.
     pub fn shorten_layer(self: *Packet, layer: *Layer, offset: usize, length: usize) Allocator.Error!void {
         // TODO: call proceeding layers calculate_length
         // TODO: ensure layer cannot be shorten beyond its Minimum or fixed header header length
-        const shorten_offset = layer.offset + offset;
+        const l = self.search_layers(layer.get_protocol()) orelse return;
+
+        const shorten_offset = l.offset + offset;
 
         try self.buffer.shorten(shorten_offset, length);
 
-        layer.length -= length;
+        l.length -= length;
 
-        var cur = layer.next_layer;
+        var cur = l.next_layer;
         while (cur) |next| {
             next.offset -= length;
             cur = next.next_layer;
         }
     }
 
+    /// Returns number of layers in the Packet
     pub fn get_layer_count(self: *Packet) usize {
         var count: usize = 0;
 
@@ -353,15 +333,16 @@ pub const Packet = struct {
     }
 
     /// Insert a layer after the prev_layer
-    /// Use search_layers to find the specific layer you want to insert after
-    pub fn insert_layer(self: *Packet, prev_layer: *Layer, layer_to_insert: *LayerIface) (LayerError || Allocator.Error)!bool {
+    /// Use search_layers to find the specific layer you want to insert after.
+    /// Remember to call validate_layer on each layer (from last to first) or Packet.validate_packet after mutation to ensure header values are correct.
+    pub fn insert_layer(self: *Packet, prev_layer: *Layer, layer_to_insert: *Layer) (LayerError || Allocator.Error)!bool {
         var cur = self.first_layer;
         while (cur) |layer| {
-            if (layer == prev_layer) {
+            if (layer.layer_iface.ptr() == prev_layer.ptr()) {
                 const data = layer_to_insert.get_data();
 
-                const new_layer: *Layer = try self.layer_allocator.create(Layer);
-                new_layer.* = Layer.init(layer.offset + layer.length, data.len, layer_to_insert.*, self);
+                const new_layer: *PacketLayer = try self.layer_allocator.create(PacketLayer);
+                new_layer.* = PacketLayer.init(layer.offset + layer.length, data.len, layer_to_insert.*, self);
 
                 try new_layer.layer_iface.reinit(LayerOwner{ .packet_layer = new_layer });
 
@@ -390,39 +371,45 @@ pub const Packet = struct {
         return false;
     }
 
-    pub fn extract_layer(self: *Packet, layer: *Layer, owner: *LayerOwner) (LayerError || Allocator.Error)!?LayerIface {
-        try self.buffer.cutRange(&owner.owned_buffer, layer.offset, layer.length);
+    /// Extract a layer.
+    /// Remember to call validate_layer on each layer (from last to first) or Packet.validate_packet after mutation to ensure header values are correct.
+    pub fn extract_layer(self: *Packet, layer: *Layer, owner: *LayerOwner) (LayerError || Allocator.Error)!?Layer {
+        const ip_proto = layer.get_protocol();
 
-        layer.layer_iface.deinit();
+        const l = self.search_layers(ip_proto) orelse return null;
 
-        try layer.layer_iface.reinit(owner.*); // transfers ownership of the packets data to the new owner
+        try self.buffer.cutRange(&owner.owned_buffer, l.offset, l.length);
 
-        const return_layer = layer.layer_iface; // copy the layer_iface before Layer is destroyed
+        layer.deinit();
 
-        var cur = layer.next_layer;
+        try layer.reinit(owner.*); // transfers ownership of the packets data to the new owner
+
+        const return_layer = l.layer_iface; // copy the layer_iface before Layer is destroyed
+
+        var cur = l.next_layer;
         while (cur) |next_layer| {
-            next_layer.offset -= layer.length;
+            next_layer.offset -= l.length;
             cur = next_layer.next_layer;
         }
 
-        if (layer.prev_layer == null) {
-            self.first_layer = layer.next_layer;
+        if (l.prev_layer == null) {
+            self.first_layer = l.next_layer;
         }
 
-        if (layer.prev_layer) |prev| {
-            prev.next_layer = layer.next_layer;
+        if (l.prev_layer) |prev| {
+            prev.next_layer = l.next_layer;
         }
 
-        if (layer.next_layer) |next| {
-            next.prev_layer = layer.prev_layer;
+        if (l.next_layer) |next| {
+            next.prev_layer = l.prev_layer;
         }
 
-        self.layer_allocator.destroy(layer); // destroy the layer
+        self.layer_allocator.destroy(l); // destroy the layer
 
         return return_layer; // return the copied implementation layer
     }
 
-    fn find_layer(self: *Packet, layer: *Layer) bool {
+    fn find_layer(self: *Packet, layer: *PacketLayer) bool {
         var cur = self.first_layer;
         while (cur) |l| {
             if (l == layer) {
@@ -435,32 +422,35 @@ pub const Packet = struct {
         return false;
     }
 
+    /// Remember to call validate_layer on each layer (from last to first) or Packet.validate_packet after mutation to ensure header values are correct.
     pub fn delete_layer(self: *Packet, layer: *Layer) Allocator.Error!bool {
-        try self.buffer.shorten(layer.offset, layer.length);
+        const l = self.search_layers(layer.get_protocol()) orelse return false;
 
-        if (layer.prev_layer == null) {
-            self.first_layer = layer.next_layer;
+        try self.buffer.shorten(l.offset, l.length);
+
+        if (l.prev_layer == null) {
+            self.first_layer = l.next_layer;
         }
 
-        if (layer.prev_layer) |prev| {
-            prev.next_layer = layer.next_layer;
+        if (l.prev_layer) |prev| {
+            prev.next_layer = l.next_layer;
         }
 
-        if (layer.next_layer) |next| {
-            next.prev_layer = layer.prev_layer;
+        if (l.next_layer) |next| {
+            next.prev_layer = l.prev_layer;
         } else {
-            self.last_layer = layer.prev_layer;
+            self.last_layer = l.prev_layer;
         }
 
-        var cur = layer.next_layer;
+        var cur = l.next_layer;
         while (cur) |next_layer| {
-            next_layer.offset -= layer.length;
+            next_layer.offset -= l.length;
             cur = next_layer.next_layer;
         }
 
-        layer.layer_iface.deinit();
+        l.layer_iface.deinit();
 
-        self.layer_allocator.destroy(layer);
+        self.layer_allocator.destroy(l);
 
         return true;
     }
@@ -498,6 +488,10 @@ pub const Packet = struct {
         }
 
         return buffer.toOwnedSlice(allocator);
+    }
+
+    pub fn get_raw(self: *Packet) []const u8 {
+        return self.buffer.get_immutable_slice(0, self.buffer.get_len());
     }
 
     /// deinits by destroying layer structs and deiniting (freeing) the packets Buffer
