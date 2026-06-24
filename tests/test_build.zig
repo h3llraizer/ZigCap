@@ -62,7 +62,7 @@ test "build" {
     try packet.add_layer(&ipv6_layer_iface);
     try packet.add_layer(&udp_layer_iface);
 
-    var ipv6_layer: *IPv6.IPv6Layer = packet.get_layer_of_type(IPv6.IPv6Layer) orelse {
+    var ipv6_layer: IPv6.IPv6Layer = packet.get_layer_of_type(IPv6.IPv6Layer) orelse {
         try expect(false); // failed to get IPv6 layer from packet
         return;
     };

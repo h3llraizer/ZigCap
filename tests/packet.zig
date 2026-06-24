@@ -49,24 +49,22 @@ test "packet layer extract" {
     try expect(packet.has_protocol_layer(.udp));
     try expect(packet.has_protocol_layer(.dns));
 
-    var tmp_buf: LayerOwner = .{ .owned_buffer = .init_empty(allocator) };
-
-    const ipv4_layer = packet.search_layers(.ipv4) orelse {
+    const ipv4_layer: IPv4.IPv4Layer = packet.get_layer_of_type(IPv4.IPv4Layer) orelse {
         try expect(false); // failed to retrieve ipv4 layer in packet
         return;
     };
 
-    try expect(ipv4_layer.offset == 14);
-    try expect(ipv4_layer.length == 20);
+    try expect(ipv4_layer.owner.packet_layer.offset == 14);
+    try expect(ipv4_layer.owner.packet_layer.length == 20);
 
-    const ip_hdr: *const IPv4.IPv4Header = ipv4_layer.layer_iface.ipv4Layer.get_immutable_header();
+    const ip_hdr: *const IPv4.IPv4Header = ipv4_layer.get_immutable_header();
     const ip_hdr_bytes: []const u8 = std.mem.asBytes(ip_hdr);
 
     try expect(std.mem.eql(u8, ip_hdr_bytes, raw[14..34])); // confirm the header (as bytes) we have matches the original
 
     //    const ipv4_checksum = ipv4_layer.layer_iface.ipv4Layer.get_immutable_header().get_checksum();
 
-    var ipv4_layer_iface = try packet.extract_layer(&ipv4_layer.layer_iface, &tmp_buf) orelse {
+    var ipv4_layer_iface = try packet.extract_layer(Layer{ .ipv4Layer = ipv4_layer }, allocator) orelse {
         try expect(false); // failed to extract ipv4 layer from packet
         return;
     };
@@ -77,12 +75,12 @@ test "packet layer extract" {
 
     try expect(packet.has_protocol_layer(.ipv4) == false);
 
-    const eth_layer = packet.search_layers(.eth) orelse {
+    const eth_layer = packet.get_layer_of_type(Eth.EthLayer) orelse {
         try expect(false); // failed to retrieve eth layer in packet
         return;
     };
 
-    _ = try packet.insert_layer(&eth_layer.layer_iface, &ipv4_layer_iface);
+    _ = try packet.insert_layer(Layer{ .ethLayer = eth_layer }, &ipv4_layer_iface);
 
     const packet_buf_post_mod = std.hash.Wyhash.hash(0, packet.get_raw());
 
@@ -131,24 +129,23 @@ test "packet dissection" {
     try expect(packet.has_protocol_layer(.udp));
     try expect(packet.has_protocol_layer(.dns));
 
-    var tmp_buf: LayerOwner = .{ .owned_buffer = .init_empty(allocator) };
-
-    const ipv4_layer = packet.search_layers(.ipv4) orelse {
+    const ipv4_layer = packet.get_layer_of_type(IPv4.IPv4Layer) orelse {
         try expect(false); // failed to retrieve ipv4 layer in packet
         return;
     };
 
-    try expect(ipv4_layer.offset == 14);
-    try expect(ipv4_layer.length == 20);
+    try expect(ipv4_layer.owner.packet_layer.offset == 14);
+    try expect(ipv4_layer.owner.packet_layer.length == 20);
 
-    const ip_hdr: *const IPv4.IPv4Header = ipv4_layer.layer_iface.ipv4Layer.get_immutable_header();
+    const ip_hdr: *const IPv4.IPv4Header = ipv4_layer.get_immutable_header();
+
     const ip_hdr_bytes: []const u8 = std.mem.asBytes(ip_hdr);
 
     try expect(std.mem.eql(u8, ip_hdr_bytes, raw[14..34])); // confirm the header (as bytes) we have matches the original
 
     //    const ipv4_checksum = ipv4_layer.layer_iface.ipv4Layer.get_immutable_header().get_checksum();
 
-    var ipv4_layer_iface = try packet.extract_layer(&ipv4_layer.layer_iface, &tmp_buf) orelse {
+    var ipv4_layer_iface = try packet.extract_layer(Layer{ .ipv4Layer = ipv4_layer }, allocator) orelse {
         try expect(false); // failed to extract ipv4 layer from packet
         return;
     };
@@ -159,12 +156,12 @@ test "packet dissection" {
 
     try expect(packet.has_protocol_layer(.ipv4) == false);
 
-    const eth_layer = packet.search_layers(.eth) orelse {
+    const eth_layer = packet.get_layer_of_type(Eth.EthLayer) orelse {
         try expect(false); // failed to retrieve eth layer in packet
         return;
     };
 
-    _ = try packet.insert_layer(&eth_layer.layer_iface, &ipv4_layer_iface);
+    _ = try packet.insert_layer(Layer{ .ethLayer = eth_layer }, &ipv4_layer_iface);
 
     const packet_buf_post_mod = std.hash.Wyhash.hash(0, packet.get_raw());
 
@@ -213,18 +210,12 @@ test "packet extract layers" {
     try expect(packet.has_protocol_layer(.udp));
     try expect(packet.has_protocol_layer(.dns));
 
-    var tmp_buf: LayerOwner = .{ .owned_buffer = .init_empty(allocator) };
-
-    //if (packet.get_layer_of_type(DNS.DNSLayer)) |dns_layer| {
-    //    try dns_layer.get_answers();
-    //}
-
-    const dns_layer = packet.search_layers(.dns) orelse {
+    const dns_layer = packet.get_layer_of_type(DNS.DNSLayer) orelse {
         try expect(false); // failed to retrieve dns layer in packet
         return;
     };
 
-    var dns_layer_iface: Layer = try packet.extract_layer(&dns_layer.layer_iface, &tmp_buf) orelse {
+    var dns_layer_iface: Layer = try packet.extract_layer(Layer{ .dnsLayer = dns_layer }, allocator) orelse {
         try expect(false); // failed to extract layer
         return;
     };
@@ -269,10 +260,10 @@ test "packet delete layers" {
     //     try dns_layer.get_answers();
     // }
 
-    const dns_layer = packet.search_layers(.dns) orelse {
+    const dns_layer: DNS.DNSLayer = packet.get_layer_of_type(DNS.DNSLayer) orelse {
         try expect(false); // failed to retrieve dns layer in packet
         return;
     };
 
-    _ = try packet.delete_layer(&dns_layer.layer_iface);
+    _ = try packet.delete_layer(Layer{ .dnsLayer = dns_layer });
 }

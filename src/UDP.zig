@@ -333,7 +333,7 @@ pub const UDPLayer = struct {
         return Layer{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } };
     }
 
-    pub fn get_protocol(self: *UDPLayer) tcp_ip_protocol {
+    pub fn get_protocol(self:UDPLayer) tcp_ip_protocol {
         _ = self;
         return UDPLayer.Protocol;
     }

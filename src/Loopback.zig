@@ -33,7 +33,7 @@ const default_hdr = LoopbackHeader{
 pub const LoopbackHeader = extern struct {
     protocol_type: [4]u8,
 
-    pub fn get_protocol_type(self: *const LoopbackHeader) NullLinkType {
+    pub fn get_protocol_type(self: LoopbackHeader) NullLinkType {
         return @enumFromInt(self.protocol_type[0]);
     }
 
@@ -138,7 +138,7 @@ pub const LoopbackLayer = struct {
         return "loopback layer.\n";
     }
 
-    pub fn get_protocol(self: *LoopbackLayer) tcp_ip_protocol {
+    pub fn get_protocol(self: LoopbackLayer) tcp_ip_protocol {
         _ = self;
         return LoopbackLayer.Protocol;
     }

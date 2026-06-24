@@ -534,7 +534,6 @@ pub const DHCPHeader = extern struct {
 
 pub const DHCPLayer = struct {
     owner: LayerOwner,
-    const Protocol = tcp_ip_protocol.dhcp;
 
     pub fn init(allocator: Allocator) (LayerError || Allocator.Error)!DHCPLayer {
         return try init_layer(DHCPLayer, allocator, DHCPHeader, default_hdr);
@@ -844,9 +843,9 @@ pub const DHCPLayer = struct {
         return null;
     }
 
-    pub fn get_protocol(self: *DHCPLayer) tcp_ip_protocol {
+    pub fn get_protocol(self: DHCPLayer) tcp_ip_protocol {
         _ = self;
-        return DHCPLayer.Protocol;
+        return tcp_ip_protocol.dhcp;
     }
 
     pub fn deinit(self: *DHCPLayer) void {

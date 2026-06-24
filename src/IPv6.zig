@@ -691,7 +691,7 @@ pub const IPv6Layer = struct {
         }) catch return "";
     }
 
-    pub fn get_protocol(self: *IPv6Layer) tcp_ip_protocol {
+    pub fn get_protocol(self:IPv6Layer) tcp_ip_protocol {
         _ = self;
         return tcp_ip_protocol.ipv6;
     }

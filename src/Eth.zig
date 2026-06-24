@@ -287,7 +287,7 @@ pub const EthLayer = struct {
         }
     }
 
-    pub fn get_protocol(self: *EthLayer) tcp_ip_protocol {
+    pub fn get_protocol(self:EthLayer) tcp_ip_protocol {
         _ = self;
         return EthLayer.Protocol;
     }

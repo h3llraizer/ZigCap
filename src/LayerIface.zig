@@ -146,9 +146,9 @@ pub const Layer = union(enum) {
 
     /// returns the protocol of the concrete layer which it's interfacing over
     /// e.g. TCPLayer is tcp_ip_protocol.tcp
-    pub fn get_protocol(self: *Layer) tcp_ip_protocol {
-        return switch (self.*) {
-            inline else => |*layer| layer.get_protocol(),
+    pub fn get_protocol(self: Layer) tcp_ip_protocol {
+        return switch (self) {
+            inline else => |layer| layer.get_protocol(),
         };
     }
 
@@ -161,13 +161,6 @@ pub const Layer = union(enum) {
     pub fn validate_layer(self: *Layer) void {
         return switch (self.*) {
             inline else => |*layer| layer.validate_layer(),
-        };
-    }
-
-    /// returns the ptr to the concrete layer
-    pub fn ptr(self: *Layer) *anyopaque {
-        return switch (self.*) {
-            inline else => |*layer| @ptrCast(layer),
         };
     }
 

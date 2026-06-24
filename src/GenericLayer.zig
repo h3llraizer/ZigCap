@@ -92,7 +92,7 @@ pub const ApplicationLayer = struct {
         return str;
     }
 
-    pub fn get_protocol(self: *ApplicationLayer) tcp_ip_protocol {
+    pub fn get_protocol(self:ApplicationLayer) tcp_ip_protocol {
         _ = self;
         return ApplicationLayer.Protocol;
     }

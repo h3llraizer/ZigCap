@@ -167,7 +167,7 @@ pub const IPv4Header = extern struct {
         //self.flags_fragment = @byteSwap(flags_frag);
     }
 
-    pub fn get_protocol(self: *const IPv4Header) u8 {
+    pub fn get_protocol(self: IPv4Header) u8 {
         return self.protocol;
     }
 
@@ -245,7 +245,7 @@ pub const IPv4Layer = struct {
     }
 
     /// return immutable slice of the payload
-    pub fn get_payload(self: *IPv4Layer) []const u8 {
+    pub fn get_payload(self: *const IPv4Layer) []const u8 {
         const data = self.get_data();
 
         const hdr_len = self.get_header_len();
@@ -257,7 +257,7 @@ pub const IPv4Layer = struct {
         }
     }
 
-    fn get_opt_buf(self: *IPv4Layer) []u8 {
+    fn get_opt_buf(self: *const IPv4Layer) []u8 {
         const header_len = self.get_immutable_header().get_ihl() * 4;
         return self.get_data()[MinHeaderLength..header_len];
     }
@@ -341,7 +341,7 @@ pub const IPv4Layer = struct {
         return options;
     }
 
-    fn check_padding(self: *IPv4Layer) usize {
+    fn check_padding(self: *const IPv4Layer) usize {
         const ops_buf = self.get_opt_buf();
 
         if (ops_buf.len == 0) {
@@ -473,7 +473,7 @@ pub const IPv4Layer = struct {
         allocator.destroy(option);
     }
 
-    pub fn remove_all_options(self: *IPv4Layer) Allocator.Error!void {
+    pub fn remove_all_options(self: *const IPv4Layer) Allocator.Error!void {
         const header_len: usize = @intCast(self.get_header_len());
 
         const ops_len = header_len - MinHeaderLength;
@@ -488,7 +488,7 @@ pub const IPv4Layer = struct {
     /// calculates checksum by setting ihl (version bit) to header len
     /// calculates total length (ipv4.total_length)
     /// calls the checksum calculation function in the IPv4 header (see IPv4Header.calculate_checksum())
-    pub fn validate_layer(self: *IPv4Layer) void {
+    pub fn validate_layer(self: *const IPv4Layer) void {
         const hdr_len = self.get_header_len();
 
         self.calculate_length();
@@ -512,7 +512,7 @@ pub const IPv4Layer = struct {
     }
 
     /// takes total data (hdr+payload) length and sets the IPv4 header's total length field to that result
-    pub fn calculate_length(self: *IPv4Layer) void {
+    pub fn calculate_length(self: *const IPv4Layer) void {
         var hdr = self.get_mutable_header();
         const data = self.get_data();
         const total_length = @as(u16, @intCast(data.len));
@@ -521,7 +521,7 @@ pub const IPv4Layer = struct {
 
     /// for Packet owned IPv4Layer: gets length of total data (hdr+payload) and subtracts the payload
     /// for self owned layer: takes total length of data (payload not included because it doesnt't have one)
-    pub fn get_header_len(self: *IPv4Layer) usize {
+    pub fn get_header_len(self: *const IPv4Layer) usize {
         const hdr = self.get_immutable_header();
 
         //return hdr.get_length();
@@ -585,7 +585,7 @@ pub const IPv4Layer = struct {
     }
 
     /// caller must free the memory
-    pub fn to_string(self: *IPv4Layer, allocator: Allocator) []const u8 {
+    pub fn to_string(self: *const IPv4Layer, allocator: Allocator) []const u8 {
         const hdr = self.get_immutable_header();
 
         const src_ip_str = hdr.get_src_ip().to_string(allocator) catch return "";
@@ -604,18 +604,18 @@ pub const IPv4Layer = struct {
     }
 
     /// get the IP protocol. E.g. TCP, UDP, ICMP
-    pub fn get_ip_proto(self: *IPv4Layer) std.meta.IntToEnumError!IPProtocol {
+    pub fn get_ip_proto(self: *const IPv4Layer) std.meta.IntToEnumError!IPProtocol {
         const hdr = self.get_immutable_header();
         return try std.meta.intToEnum(IPProtocol, hdr.protocol);
     }
 
     // set the IP protocol. E.g. TCP, UDP, ICMP
-    pub fn set_ip_proto(self: *IPv4Layer, protocol: IPProtocol) void {
+    pub fn set_ip_proto(self: *const IPv4Layer, protocol: IPProtocol) void {
         var hdr = self.get_mutable_header();
         hdr.protocol = @intFromEnum(protocol);
     }
 
-    pub fn get_protocol(self: *IPv4Layer) tcp_ip_protocol {
+    pub fn get_protocol(self: IPv4Layer) tcp_ip_protocol {
         _ = self;
         return tcp_ip_protocol.ipv4;
     }

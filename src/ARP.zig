@@ -128,7 +128,7 @@ pub const ARPHeader = extern struct {
         std.mem.writeInt(u16, &self.protocol_type, @intFromEnum(proto_type), .big);
     }
 
-    pub fn get_protocol_type(self: *const ARPHeader) PTYPE {
+    pub fn get_protocol_type(self: ARPHeader) PTYPE {
         return @enumFromInt(std.mem.readInt(u16, &self.protocol_type, .big));
     }
 
@@ -144,7 +144,7 @@ pub const ARPHeader = extern struct {
         self.protocol_size = size;
     }
 
-    pub fn get_protocol_size(self: *const ARPHeader) u8 {
+    pub fn get_protocol_size(self: ARPHeader) u8 {
         return self.protocol_size;
     }
 
@@ -365,7 +365,7 @@ pub const ARPLayer = struct {
         return null;
     }
 
-    pub fn get_protocol(self: *ARPLayer) tcp_ip_protocol {
+    pub fn get_protocol(self: ARPLayer) tcp_ip_protocol {
         _ = self;
         return ARPLayer.Protocol;
     }

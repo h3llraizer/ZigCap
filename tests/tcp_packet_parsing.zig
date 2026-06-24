@@ -40,7 +40,7 @@ test "parse tcp syn packet" {
     try expect(packet.has_protocol_layer(tcp_ip_protocol.ipv4));
     try expect(packet.has_protocol_layer(tcp_ip_protocol.tcp));
 
-    const eth_layer: *Eth.EthLayer = packet.get_layer_of_type(Eth.EthLayer) orelse {
+    const eth_layer: Eth.EthLayer = packet.get_layer_of_type(Eth.EthLayer) orelse {
         try expect(false); // packet does not have EthLayer
         return;
     };
@@ -55,7 +55,7 @@ test "parse tcp syn packet" {
     const expected_src_eth: [6]u8 = .{ 0x14, 0x4f, 0x8a, 0xa4, 0x15, 0x7d };
     try expect(std.mem.eql(u8, &eth_hdr.get_src_mac().addr, &expected_src_eth));
 
-    const ipv4_layer: *IPv4.IPv4Layer = packet.get_layer_of_type(IPv4.IPv4Layer) orelse {
+    const ipv4_layer: IPv4.IPv4Layer = packet.get_layer_of_type(IPv4.IPv4Layer) orelse {
         try expect(false); // packet does not have IPv4 Layer
         return;
     };
@@ -81,7 +81,7 @@ test "parse tcp syn packet" {
 
     try expect(try ipv4_layer.get_ip_proto() == IPProtocol.TCP);
 
-    const tcp_layer: *TCP.TCPLayer = packet.get_layer_of_type(TCP.TCPLayer) orelse {
+    var tcp_layer: TCP.TCPLayer = packet.get_layer_of_type(TCP.TCPLayer) orelse {
         try expect(false); // packet does not have TCP layer
         return;
     };

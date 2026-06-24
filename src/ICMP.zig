@@ -396,7 +396,7 @@ pub const ICMPLayer = struct {
         };
     }
 
-    pub fn get_protocol(self: *ICMPLayer) tcp_ip_protocol {
+    pub fn get_protocol(self:ICMPLayer) tcp_ip_protocol {
         _ = self;
         return tcp_ip_protocol.icmp;
     }

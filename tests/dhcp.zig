@@ -81,7 +81,9 @@ test "build dhcp packet" {
     dhcp_hdr.set_htype(DHCP.HWTYPE.Eth);
     dhcp_hdr.set_xid(try create_random_u32());
 
-    dhcp_hdr.set_ciaddr(try IPv4.IPv4Address.init_from_string("192.168.0.2"));
+    const ciaddr = try IPv4.IPv4Address.init_from_string("192.168.0.2");
+
+    dhcp_hdr.set_ciaddr(ciaddr);
 
     dhcp_hdr.set_chaddr(try Eth.MacAddress.init_from_string("00:e0:4c:68:00:6c"));
 
@@ -104,16 +106,42 @@ test "build dhcp packet" {
 
     packet.validate_packet();
 
-    if (packet.get_layer_of_type(DHCP.DHCPLayer)) |dhcp_layer| {
-        if (dhcp_layer.eop_added()) |eop| {
-            _ = eop;
-            try dhcp_layer.set_parameter_request_list(&ops);
-        } else {
-            try expect(false); // no end-of-options found
-        }
+    var dhcp_layer: DHCP.DHCPLayer = packet.get_layer_of_type(DHCP.DHCPLayer) orelse {
+        try expect(false); // no dhcp layer
+        return;
+    };
+
+    _ = dhcp_layer.get_data();
+
+    try expect(std.mem.eql(u8, &dhcp_layer.get_immutable_header().get_ciaddr().array, &ciaddr.array));
+
+    // const new_ciaddr = try IPv4.IPv4Address.init_from_string("192.168.1.233");
+
+    // dhcp_layer.get_mutable_header().set_ciaddr(new_ciaddr);
+
+    // _ = try dhcp_layer.owner.extend_layer(dhcp_layer.owner.packet_layer.length, 1);
+
+    //print("packet len: {}\n", .{packet.get_raw().len});
+
+    if (dhcp_layer.eop_added()) |eop| {
+        _ = eop;
+        try dhcp_layer.set_parameter_request_list(&ops);
     } else {
-        try expect(false); // no dhcp layer found
+        try expect(false); // no end-of-options found
     }
+
+    //print("packet len: {}\n", .{packet.get_raw().len});
+
+    //   if (packet.get_layer_of_type(DHCP.DHCPLayer)) |dhcp_layer| {
+    //       if (dhcp_layer.eop_added()) |eop| {
+    //           _ = eop;
+    //           try dhcp_layer.set_parameter_request_list(&ops);
+    //       } else {
+    //           try expect(false); // no end-of-options found
+    //       }
+    //   } else {
+    //       try expect(false); // no dhcp layer found
+    //   }
 }
 
 test "parse dhcp layer" {

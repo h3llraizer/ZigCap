@@ -385,7 +385,7 @@ pub const IGMPv3Layer = struct {
         //};
     }
 
-    pub fn get_protocol(self: *IGMPv3Layer) tcp_ip_protocol {
+    pub fn get_protocol(self:IGMPv3Layer) tcp_ip_protocol {
         _ = self;
         return tcp_ip_protocol.igmp_v3;
     }

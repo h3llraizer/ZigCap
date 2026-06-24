@@ -549,7 +549,7 @@ test "build timestamp opt in packet" {
     _ = try packet.add_layer(&ipv4_layer_iface);
 
     if (packet.get_layer_of_type(IPv4.IPv4Layer)) |ip_layer| {
-        var first_opt = ip_layer.get_first_op() orelse {
+        var first_opt = @constCast(&ip_layer).get_first_op() orelse {
             try expect(false); // first op not found in packet ipv4 layer
             return;
         };
@@ -1068,7 +1068,7 @@ test "build rr opt for packet" {
 
     //print("packet: ({}) {x}\n", .{ packet.get_raw().len, packet.get_raw() });
 
-    var ipv4_layer: *IPv4.IPv4Layer = packet.get_layer_of_type(IPv4.IPv4Layer) orelse {
+    var ipv4_layer: IPv4.IPv4Layer = packet.get_layer_of_type(IPv4.IPv4Layer) orelse {
         try expect(false); // failed to get ipv4 layer from packet
         return;
     };

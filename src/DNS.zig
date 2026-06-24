@@ -263,7 +263,14 @@ pub const DNSLayer = struct {
 
         const hdr_len = slice.len;
 
-        return try initLayerFromSlice(slice, DNSLayer, hdr_len, DNSHeaderSize, slice.len, allocator);
+        return try initLayerFromSlice(
+            slice,
+            DNSLayer,
+            hdr_len,
+            DNSHeaderSize,
+            slice.len,
+            allocator,
+        );
     }
 
     pub fn get_data(self: *const DNSLayer) []u8 {
@@ -1064,7 +1071,7 @@ pub const DNSLayer = struct {
         ) catch return "Error.";
     }
 
-    pub fn get_protocol(self: *DNSLayer) tcp_ip_protocol {
+    pub fn get_protocol(self: DNSLayer) tcp_ip_protocol {
         _ = self;
         return tcp_ip_protocol.dns;
     }

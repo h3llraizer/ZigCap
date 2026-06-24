@@ -62,13 +62,11 @@ test "packet ownership" {
     //     std.debug.panic("no IPv4 layer.", .{});
     // }
 
-    const dns_layer = packet.search_layers(.dns) orelse {
+    var dns_layer = packet.get_layer_of_type(DNS.DNSLayer) orelse {
         try expect(false); // failed to retrieve dns layer in packet
         return;
     };
 
-    var dns_layer_iface = dns_layer.layer_iface;
-
-    const str = dns_layer_iface.to_string(allocator);
+    const str = dns_layer.to_string(allocator);
     defer allocator.free(str);
 }

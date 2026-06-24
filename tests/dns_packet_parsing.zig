@@ -38,7 +38,7 @@ test "parse dns packet" {
 
     try expect(packet.last_layer.?.layer_iface.get_protocol() == tcp_ip_protocol.dns);
 
-    const eth_layer: *Eth.EthLayer = packet.get_layer_of_type(Eth.EthLayer) orelse {
+    const eth_layer: Eth.EthLayer = packet.get_layer_of_type(Eth.EthLayer) orelse {
         try expect(false); // packet does not have EthLayer
         return;
     };
@@ -53,7 +53,7 @@ test "parse dns packet" {
     const expected_dst_eth: [6]u8 = .{ 0x14, 0x4f, 0x8a, 0xa4, 0x15, 0x7d };
     try expect(std.mem.eql(u8, &eth_hdr.get_dst_mac().addr, &expected_dst_eth));
 
-    const ipv4_layer: *IPv4.IPv4Layer = packet.get_layer_of_type(IPv4.IPv4Layer) orelse {
+    var ipv4_layer: IPv4.IPv4Layer = packet.get_layer_of_type(IPv4.IPv4Layer) orelse {
         try expect(false); // packet does not have IPv4 Layer
         return;
     };
@@ -78,7 +78,7 @@ test "parse dns packet" {
 
     try expect(try ipv4_layer.get_ip_proto() == IPProtocol.UDP);
 
-    const udp_layer: *UDP.UDPLayer = packet.get_layer_of_type(UDP.UDPLayer) orelse {
+    var udp_layer: UDP.UDPLayer = packet.get_layer_of_type(UDP.UDPLayer) orelse {
         try expect(false); // packet does not have UDP layer
         return;
     };
@@ -90,7 +90,7 @@ test "parse dns packet" {
     try expect(udp_hdr.get_length() == 63);
     try expect(udp_hdr.get_checksum() == 9937);
 
-    const dns_layer: *DNS.DNSLayer = packet.get_layer_of_type(DNS.DNSLayer) orelse {
+    var dns_layer: DNS.DNSLayer = packet.get_layer_of_type(DNS.DNSLayer) orelse {
         try expect(false); // packet does not have DNS layer
         return;
     };
@@ -162,12 +162,14 @@ test "parse dns packet" {
 
     try expect(udp_hdr.get_checksum() == 9937); // confirms the ip addressing, udp header and payload have not mutated since parsing
 
-    if (packet.get_layer_of_type(UDP.UDPLayer)) |udp| {
-        udp.validate_layer();
-        const udp_header = udp.get_immutable_header();
+    udp_layer = packet.get_layer_of_type(UDP.UDPLayer) orelse {
+        try expect(false); // no udp layer
+        return;
+    };
+    udp_layer.validate_layer();
+    const udp_layer_header = udp_layer.get_immutable_header();
 
-        try expect(udp_header.get_checksum() == 9937);
-    }
+    try expect(udp_layer_header.get_checksum() == 9937);
 
     //try expect(std.mem.eql(u8, &raw_packet_buffer.items, &ziggit_dev_a_resp));
 
