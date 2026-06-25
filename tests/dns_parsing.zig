@@ -116,7 +116,7 @@ test "build dns response layer" {
             const cname = ans.cname.get_cname(allocator) catch |err| {
                 print("({s})\n", .{@errorName(err)});
                 //                print("raw: ({}) {x}\n", .{ ans.get_data().len, ans.get_data() });
-                cur = ans.get_next_record();
+                cur = ans.next();
                 continue;
             };
 
@@ -124,7 +124,7 @@ test "build dns response layer" {
             //            print("{s}\n", .{cname});
         }
 
-        cur = ans.get_next_record();
+        cur = ans.next();
     }
 }
 
@@ -188,7 +188,7 @@ test "build dns a response layer" {
             //     print("{s}\n", .{ip_str});
         }
 
-        cur = ans.get_next_record();
+        cur = ans.next();
     }
 }
 
@@ -234,7 +234,7 @@ test "parse dns response layer" {
             const ip_str = try ip.to_string(allocator);
             defer allocator.free(ip_str);
         }
-        cur = ans.get_next_record();
+        cur = ans.next();
     }
 }
 
@@ -275,7 +275,7 @@ test "parse dns response" {
 
         if (ans.get_rr_type() == DNS.QueryType.NS) {
             const ns_name = ans.ns.decode_ns_name(allocator) catch {
-                cur = ans.get_next_record();
+                cur = ans.next();
                 continue;
             };
 
@@ -284,7 +284,7 @@ test "parse dns response" {
             defer allocator.free(ns_name);
         }
         count += 1;
-        cur = ans.get_next_record();
+        cur = ans.next();
     }
 
     try expect(count == 4);
@@ -316,13 +316,13 @@ test "parse cname response" {
             defer allocator.free(name);
 
             const cname = ans.cname.get_cname(allocator) catch {
-                cur = ans.get_next_record();
+                cur = ans.next();
                 continue;
             };
 
             defer allocator.free(cname);
         }
-        cur = ans.get_next_record();
+        cur = ans.next();
     }
 }
 
@@ -417,7 +417,7 @@ test "parse https w ar response" {
 
             try expect(min_ttl == 3600);
         }
-        cur = ans.get_next_record();
+        cur = ans.next();
     }
 }
 
@@ -523,55 +523,51 @@ test "parse https spotify domain" {
 
     var cur: ?*DNS.AnswerRecord = ans_list.first;
     while (cur) |ans| {
-        //print("SOA: \n", .{});
         if (ans.get_rr_type() == DNS.QueryType.SOA) {
             const name = try ans.get_name(allocator);
             defer allocator.free(name);
-
-            //print("\tNAME: {s}\n", .{name});
 
             const mname = try ans.soa.get_mname(allocator);
 
             defer allocator.free(mname);
 
-            //print("\tMNAME: {s}\n", .{mname});
-
             const rname = try ans.soa.get_rname(allocator);
-
-            //print("\tRNAME: {s}\n", .{rname});
 
             defer allocator.free(rname);
 
             const serial = ans.soa.get_serial();
 
-            _ = serial;
-
-            //try expect(serial == 1647020872);
+            try expect(serial == 1647020872);
 
             const ref_int = ans.soa.get_refresh_interval();
 
-            _ = ref_int;
-
-            //try expect(ref_int == 43200);
+            try expect(ref_int == 43200);
 
             const retry_int = ans.soa.get_retry_interval();
 
-            _ = retry_int;
-
-            //try expect(r//try_int == 7200);
+            try expect(retry_int == 7200);
 
             const expire_limit = ans.soa.get_expire_limit();
 
-            _ = expire_limit;
-
-            //try expect(expire_limit == 1209600);
+            try expect(expire_limit == 1209600);
 
             const min_ttl = ans.soa.get_minimum_ttl();
 
-            _ = min_ttl;
-
-            //try expect(min_ttl == 3600);
+            try expect(min_ttl == 3600);
         }
-        cur = ans.get_next_record();
+        cur = ans.next();
     }
+}
+
+test "decompression" {
+    var data = [_]u8{ 0xa8, 0x22, 0x81, 0x80, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x0, 0x3, 0x77, 0x77, 0x77, 0x7, 0x73, 0x70, 0x6f, 0x74, 0x69, 0x66, 0x79, 0x3, 0x63, 0x6f, 0x6d, 0x0, 0x0, 0x2, 0x0, 0x1, 0xc0, 0xc, 0x0, 0x5, 0x0, 0x1, 0x0, 0x0, 0x1, 0x23, 0x0, 0x1c, 0x3, 0x61, 0x74, 0x63, 0x7, 0x73, 0x70, 0x6f, 0x74, 0x69, 0x66, 0x79, 0x3, 0x6d, 0x61, 0x70, 0x6, 0x66, 0x61, 0x73, 0x74, 0x6c, 0x79, 0x3, 0x6e, 0x65, 0x74, 0x0, 0xc0, 0x3d, 0x0, 0x6, 0x0, 0x1, 0x0, 0x0, 0x0, 0x1e, 0x0, 0x2e, 0x3, 0x6e, 0x73, 0x31, 0xc0, 0x3d, 0xa, 0x68, 0x6f, 0x73, 0x74, 0x6d, 0x61, 0x73, 0x74, 0x65, 0x72, 0x6, 0x66, 0x61, 0x73, 0x74, 0x6c, 0x79, 0xc0, 0x18, 0x78, 0x39, 0xc6, 0x29, 0x0, 0x0, 0xe, 0x10, 0x0, 0x0, 0x2, 0x58, 0x0, 0x9, 0x3a, 0x80, 0x0, 0x0, 0x0, 0x1e };
+
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+    defer _ = debug_allocator.detectLeaks();
+
+    const allocator = debug_allocator.allocator();
+
+    var dns_layer = try DNS.DNSLayer.initFromSlice(data[0..], allocator);
+    defer dns_layer.deinit();
 }

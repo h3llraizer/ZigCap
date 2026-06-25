@@ -45,14 +45,14 @@ pub const AnswerRecord = union(enum) {
     soa: SOARecord,
     generic: GenericRecord,
 
-    pub fn init(offset: usize, length: usize, qtype: QueryType, qclass: DnsClass, owner: TLVOwner) AnswerRecord {
+    pub fn init(offset: usize, length: usize, qtype: QueryType, owner: TLVOwner) AnswerRecord {
         switch (qtype) {
             // TODO: reduce repeating code
             .A => {
                 return .{ .a = .{
                     .offset = offset,
                     .length = length,
-                    .qclass = qclass,
+
                     .owner = owner,
                 } };
             },
@@ -61,7 +61,7 @@ pub const AnswerRecord = union(enum) {
                 return .{ .aaaa = .{
                     .offset = offset,
                     .length = length,
-                    .qclass = qclass,
+
                     .owner = owner,
                 } };
             },
@@ -70,7 +70,7 @@ pub const AnswerRecord = union(enum) {
                 return .{ .cname = .{
                     .offset = offset,
                     .length = length,
-                    .qclass = qclass,
+
                     .owner = owner,
                 } };
             },
@@ -79,7 +79,7 @@ pub const AnswerRecord = union(enum) {
                 return .{ .txt = .{
                     .offset = offset,
                     .length = length,
-                    .qclass = qclass,
+
                     .owner = owner,
                 } };
             },
@@ -88,7 +88,7 @@ pub const AnswerRecord = union(enum) {
                 return .{ .mx = .{
                     .offset = offset,
                     .length = length,
-                    .qclass = qclass,
+
                     .owner = owner,
                 } };
             },
@@ -97,7 +97,7 @@ pub const AnswerRecord = union(enum) {
                 return .{ .ptr = .{
                     .offset = offset,
                     .length = length,
-                    .qclass = qclass,
+
                     .owner = owner,
                 } };
             },
@@ -106,7 +106,7 @@ pub const AnswerRecord = union(enum) {
                 return .{ .ns = .{
                     .offset = offset,
                     .length = length,
-                    .qclass = qclass,
+
                     .owner = owner,
                 } };
             },
@@ -115,7 +115,7 @@ pub const AnswerRecord = union(enum) {
                 return .{ .soa = .{
                     .offset = offset,
                     .length = length,
-                    .qclass = qclass,
+
                     .owner = owner,
                 } };
             },
@@ -124,7 +124,7 @@ pub const AnswerRecord = union(enum) {
                 return .{ .generic = .{
                     .offset = offset,
                     .length = length,
-                    .qclass = qclass,
+
                     .owner = owner,
                 } };
             },
@@ -132,7 +132,7 @@ pub const AnswerRecord = union(enum) {
             else => return .{ .generic = .{
                 .offset = offset,
                 .length = length,
-                .qclass = qclass,
+
                 .owner = owner,
             } },
         }
@@ -208,64 +208,64 @@ pub const AnswerRecord = union(enum) {
         };
     }
 
-    pub fn set_next_record(self: *AnswerRecord, next: *AnswerRecord) void {
-        return switch (self.*) {
-            inline else => |*rr| rr.next_answer = next,
-        };
-    }
-
-    pub fn set_prev_record(self: *AnswerRecord, prev: *AnswerRecord) void {
-        return switch (self.*) {
-            inline else => |*rr| rr.prev_answer = prev,
-        };
-    }
-
-    pub fn get_next_record(self: *AnswerRecord) ?*AnswerRecord {
+    pub fn next(self: *AnswerRecord) ?*AnswerRecord {
         return switch (self.*) {
             inline else => |*rr| rr.next_answer,
         };
     }
 
-    pub fn get_prev_record(self: *AnswerRecord) ?*AnswerRecord {
+    pub fn set_next(self: *AnswerRecord, rec: *AnswerRecord) void {
+        return switch (self.*) {
+            inline else => |*rr| rr.next_answer = rec,
+        };
+    }
+
+    pub fn prev(self: *AnswerRecord) ?*AnswerRecord {
         return switch (self.*) {
             inline else => |*rr| rr.prev_answer,
         };
     }
 
+    pub fn set_prev(self: *AnswerRecord, rec: *AnswerRecord) void {
+        return switch (self.*) {
+            inline else => |*rr| rr.prev_answer = rec,
+        };
+    }
+
     pub fn get_ttl(self: *AnswerRecord) u32 {
-        const data = self.get_data();
-
-        var offset: usize = 0;
-
-        advance_past_name(self.get_data(), &offset);
-
-        offset += GenericRecord.TTL_OFFSET_FROM_NAME; //  rrtype (2 bytes), class (2bytes)
-
-        const ttl: u32 = std.mem.bytesToValue(u32, data[offset .. offset + TTL_LENGTH]);
-
-        return @byteSwap(ttl);
+        return switch (self.*) {
+            inline else => |*rr| rr.get_ttl(),
+        };
     }
 
     pub fn set_ttl(self: *AnswerRecord, ttl: u32) void {
-        const data = self.get_data_mut();
-
-        var offset: usize = 0;
-
-        advance_past_name(self.get_data(), &offset);
-
-        offset += GenericRecord.TTL_OFFSET_FROM_NAME; //  rrtype (2 bytes), class (2bytes)
-
-        const ttl_ptr = std.mem.bytesAsValue(u32, data[offset .. offset + TTL_LENGTH]);
-
-        ttl_ptr.* = @byteSwap(ttl);
+        return switch (self.*) {
+            inline else => |*rr| rr.set_ttl(ttl),
+        };
     }
 
     pub fn get_rr_type(self: *AnswerRecord) QueryType {
-        return get_q_type(self.get_data());
+        return switch (self.*) {
+            inline else => |*rr| rr.get_rr_type(),
+        };
     }
 
     pub fn get_class_type(self: *AnswerRecord) DnsClass {
-        return get_dns_class(self.get_data());
+        return switch (self.*) {
+            inline else => |*rr| rr.get_class(),
+        };
+    }
+
+    pub fn to_string(self: *AnswerRecord, allocator: Allocator) (DNSLayer.DNSParseError || Allocator.Error)![]const u8 {
+        return switch (self.*) {
+            inline else => |*rr| try rr.to_string(allocator),
+        };
+    }
+
+    pub fn deinit(self: *AnswerRecord) void {
+        return switch (self.*) {
+            inline else => |*rr| rr.deinit(),
+        };
     }
 };
 
@@ -287,21 +287,22 @@ pub const AnswerRecords = struct {
 
         const extend_len = answer_record.get_data().len;
 
-        var extend_offset = if (self.owner.is_layer_owned()) DNS.DNSHeaderSize else 0; // need to find offset of last ans instead
+        // need to find offset of last ans instead
 
+        var extend_offset = if (self.owner.is_layer_owned()) DNS.DNSHeaderSize else 0;
         var cur: ?*AnswerRecord = self.first;
         var last: ?*AnswerRecord = null;
 
         while (cur) |a| {
-            if (a.get_next_record() == null) {
+            if (a.next() == null) {
                 extend_offset = a.get_offset() + a.get_length();
                 last = a;
                 break;
             } else {
-                last = a.get_next_record();
+                last = a.next();
             }
 
-            cur = a.get_next_record();
+            cur = a.next();
         }
 
         const answer_buf = try self.owner.extend_buffer(extend_offset, extend_len);
@@ -346,10 +347,10 @@ pub const AnswerRecords = struct {
 
                 try self.owner.shorten_buffer(shorten_offset, answer.length);
 
-                var next_answer = answer.get_next_record();
+                var next_answer = answer.next();
                 while (next_answer) |next| {
                     next.offset -= answer.get_length();
-                    next_answer = next.get_next_record();
+                    next_answer = next.next();
                 }
 
                 self.answer_count -= 1;
@@ -364,21 +365,21 @@ pub const AnswerRecords = struct {
                 // Update the list pointers BEFORE destroying
                 // Update first pointer if necessary
                 if (self.first == a) {
-                    self.first = a.get_next_record();
+                    self.first = a.next();
                 }
 
-                if (a.get_next_record()) |next| {
-                    next.set_prev_record(a.get_prev_record());
+                if (a.next()) |next| {
+                    next.set_prev_record(a.prev());
                 }
 
-                if (a.get_prev_record()) |prev| {
-                    prev.set_next_record(a.get_next_record());
+                if (a.prev()) |prev| {
+                    prev.set_next(a.next());
                 }
 
                 allocator.destroy(answer);
                 return;
             }
-            cur = a.get_next_record();
+            cur = a.next();
         }
 
         return error.AnswerRecordNotFound;
@@ -392,13 +393,13 @@ pub const AnswerRecords = struct {
                 ansrec.get_owner().deinit();
             }
 
-            cur = ansrec.get_prev_record();
+            cur = ansrec.prev();
         }
 
         cur = self.last;
 
         while (cur) |ansrec| {
-            const prev = ansrec.get_prev_record();
+            const prev = ansrec.prev();
             allocator.destroy(ansrec);
             cur = prev;
         }
@@ -539,7 +540,6 @@ fn init_record(name: []const u8, qtype: QueryType, class: DnsClass, allocator: A
 pub const GenericRecord = struct {
     offset: usize,
     length: usize,
-    qclass: DnsClass,
     owner: TLVOwner,
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
@@ -566,7 +566,6 @@ pub const GenericRecord = struct {
         const rec = GenericRecord{
             .offset = 0,
             .length = len,
-            .qclass = @enumFromInt(0),
             .owner = owner,
         };
 
@@ -608,7 +607,7 @@ pub const GenericRecord = struct {
             var next_rec = self.next_answer;
             while (next_rec) |rr| {
                 rr.set_offset(rr.get_offset() + extend_len);
-                next_rec = rr.get_next_record();
+                next_rec = rr.next();
             }
         }
 
@@ -625,7 +624,7 @@ pub const GenericRecord = struct {
             var next_rec = self.next_answer;
             while (next_rec) |rr| {
                 rr.set_offset(rr.get_offset() - shorten_len);
-                next_rec = rr.get_next_record();
+                next_rec = rr.next();
             }
         }
 
@@ -773,7 +772,7 @@ pub const GenericRecord = struct {
             var next_rec = self.next_answer;
             while (next_rec) |rr| {
                 rr.set_offset(rr.get_offset() + extend_len);
-                next_rec = rr.get_next_record();
+                next_rec = rr.next();
             }
         }
         if (cur_rdata_len > rdata.len) {
@@ -787,7 +786,7 @@ pub const GenericRecord = struct {
             var next_rec = self.next_answer;
             while (next_rec) |rr| {
                 rr.set_offset(rr.get_offset() - shorten_len);
-                next_rec = rr.get_next_record();
+                next_rec = rr.next();
             }
         }
 
@@ -852,7 +851,6 @@ pub const GenericRecord = struct {
 pub const ARecord = struct {
     offset: usize,
     length: usize,
-    qclass: DnsClass,
     owner: TLVOwner,
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
@@ -881,7 +879,7 @@ pub const ARecord = struct {
         const rec = ARecord{
             .offset = 0,
             .length = len,
-            .qclass = class,
+
             .owner = owner,
         };
 
@@ -992,7 +990,7 @@ pub const ARecord = struct {
         const name = try self.get_name(allocator);
         defer allocator.free(name);
         const type_s = @tagName(self.get_rr_type());
-        const class_s = @tagName(self.qclass);
+        const class_s = @tagName(self.get_class());
         const ip = try self.get_ip().to_string(allocator);
         defer allocator.free(ip);
 
@@ -1020,12 +1018,17 @@ pub const ARecord = struct {
 pub const AAAARecord = struct {
     offset: usize,
     length: usize,
-    qclass: DnsClass,
     owner: TLVOwner,
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
 
-    pub fn init(name: []const u8, class: DnsClass, ttl: u32, ip: IPv6Address, allocator: Allocator) (LayerError || Allocator.Error)!AAAARecord {
+    pub fn init(
+        name: []const u8,
+        class: DnsClass,
+        ttl: u32,
+        ip: IPv6Address,
+        allocator: Allocator,
+    ) (LayerError || Allocator.Error)!AAAARecord {
         var owner: TLVOwner = try init_record(
             name,
             .AAAA,
@@ -1038,7 +1041,7 @@ pub const AAAARecord = struct {
         const rec = AAAARecord{
             .offset = 0,
             .length = len,
-            .qclass = class,
+
             .owner = owner,
         };
 
@@ -1144,7 +1147,7 @@ pub const AAAARecord = struct {
         const name = try self.get_name(allocator);
         defer allocator.free(name);
         const type_s = @tagName(self.get_rr_type());
-        const class_s = @tagName(self.qclass);
+        const class_s = @tagName(self.get_class());
         const ip = try self.get_ipv6().to_string(allocator);
         defer allocator.free(ip);
 
@@ -1172,7 +1175,6 @@ pub const AAAARecord = struct {
 pub const NSRecord = struct {
     offset: usize,
     length: usize,
-    qclass: DnsClass,
     owner: TLVOwner,
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
@@ -1202,7 +1204,7 @@ pub const NSRecord = struct {
         const rec = NSRecord{
             .offset = 0,
             .length = len,
-            .qclass = class,
+
             .owner = owner,
         };
 
@@ -1328,7 +1330,6 @@ pub const NSRecord = struct {
 pub const CNAMERecord = struct {
     offset: usize,
     length: usize,
-    qclass: DnsClass,
     owner: TLVOwner,
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
@@ -1380,7 +1381,7 @@ pub const CNAMERecord = struct {
         return .{
             .offset = 0,
             .length = owner.get_data().len,
-            .qclass = class,
+
             .owner = owner,
         };
     }
@@ -1485,7 +1486,6 @@ pub const CNAMERecord = struct {
 pub const TXTRecord = struct {
     offset: usize,
     length: usize,
-    qclass: DnsClass,
     owner: TLVOwner,
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
@@ -1515,7 +1515,7 @@ pub const TXTRecord = struct {
         var rec = TXTRecord{
             .offset = 0,
             .length = len,
-            .qclass = class,
+
             .owner = owner,
         };
 
@@ -1636,7 +1636,7 @@ pub const TXTRecord = struct {
             var next_rec = self.next_answer;
             while (next_rec) |rr| {
                 rr.set_offset(rr.get_offse() + extend_len);
-                next_rec = rr.get_next_record();
+                next_rec = rr.next();
             }
         }
 
@@ -1651,7 +1651,7 @@ pub const TXTRecord = struct {
 
             while (next_rec) |rr| {
                 rr.set_offset(rr.get_offset() - shorten_len);
-                next_rec = rr.get_next_record();
+                next_rec = rr.next();
             }
         }
 
@@ -1704,7 +1704,6 @@ pub const TXTRecord = struct {
 pub const MXRecord = struct {
     offset: usize,
     length: usize,
-    qclass: DnsClass,
     owner: TLVOwner,
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
@@ -1791,7 +1790,7 @@ pub const MXRecord = struct {
         const mxrecord = MXRecord{
             .offset = 0,
             .length = owner.get_data().len,
-            .qclass = class,
+
             .owner = owner,
         };
 
@@ -1917,7 +1916,7 @@ pub const MXRecord = struct {
             var next_rec = self.next_answer;
             while (next_rec) |rr| {
                 rr.set_offset(rr.get_offset() + extend_len);
-                next_rec = rr.get_next_record();
+                next_rec = rr.next();
             }
         }
 
@@ -1934,7 +1933,7 @@ pub const MXRecord = struct {
 
             while (next_rec) |rr| {
                 rr.set_offset(rr.get_offset() - shorten_len);
-                next_rec = rr.get_next_record();
+                next_rec = rr.next();
             }
         }
 
@@ -1981,7 +1980,6 @@ pub const MXRecord = struct {
 pub const PTRRecord = struct {
     offset: usize,
     length: usize,
-    qclass: DnsClass,
     owner: TLVOwner,
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
@@ -2021,7 +2019,7 @@ pub const PTRRecord = struct {
         const rec = PTRRecord{
             .offset = 0,
             .length = owner.get_data().len,
-            .qclass = class,
+
             .owner = owner,
         };
 
@@ -2123,7 +2121,6 @@ pub const PTRRecord = struct {
 pub const SOARecord = struct {
     offset: usize,
     length: usize,
-    qclass: DnsClass,
     owner: TLVOwner,
     next_answer: ?*AnswerRecord = null,
     prev_answer: ?*AnswerRecord = null,
@@ -2266,7 +2263,7 @@ pub const SOARecord = struct {
         return SOARecord{
             .offset = 0,
             .length = initial_len,
-            .qclass = class,
+
             .owner = owner,
         };
     }
@@ -2340,7 +2337,7 @@ pub const SOARecord = struct {
             var next_rec = self.next_answer;
             while (next_rec) |rr| {
                 rr.set_offset(rr.get_offset() + extend_len);
-                next_rec = rr.get_next_record();
+                next_rec = rr.next();
             }
         }
         if (cur_rdata_len > rdata.len) {
@@ -2356,7 +2353,7 @@ pub const SOARecord = struct {
             var next_rec = self.next_answer;
             while (next_rec) |rr| {
                 rr.set_offset(rr.get_offset() - shorten_len);
-                next_rec = rr.get_next_record();
+                next_rec = rr.next();
             }
         }
 

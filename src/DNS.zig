@@ -291,21 +291,13 @@ pub const DNSLayer = struct {
     pub fn get_mutable_header(self: *const DNSLayer) *DNSHeader {
         const data = self.get_data();
 
-        if (data.len < DNSHeaderSize) {
-            std.debug.panic("DNS data len ({}) less than DNSHeaderSize", .{data.len});
-        }
+        std.debug.assert(data.len >= DNSHeaderSize);
 
         return @ptrCast(data.ptr);
     }
 
     pub fn get_immutable_header(self: *const DNSLayer) *const DNSHeader {
-        const data: []const u8 = self.get_data();
-
-        if (data.len < DNSHeaderSize) {
-            std.debug.panic("DNS data len ({}) less than DNSHeaderSize", .{data.len});
-        }
-
-        return @ptrCast(data.ptr);
+        return self.get_mutable_header();
     }
 
     pub fn is_response(self: *DNSLayer) bool {
@@ -313,8 +305,6 @@ pub const DNSLayer = struct {
         return hdr.get_qr();
     }
 
-    /// Sets DNS Header values to reflect Query and Answer count and perform byte swap for NBE order.
-    /// Call this if you intend to send dns packet over the network or you need to undertake further analysis of the DNSHeader post modification
     pub fn validate_layer(self: *DNSLayer) void {
         _ = self;
     }
@@ -601,6 +591,9 @@ pub const DNSLayer = struct {
                 @ptrCast(data[offset .. offset + CLASS_TYPE_LENGTH].ptr),
                 .big,
             );
+
+            _ = rclass;
+
             offset += CLASS_TYPE_LENGTH;
 
             // Parse TTL
@@ -633,16 +626,15 @@ pub const DNSLayer = struct {
             const answer = try allocator.create(AnswerRecord);
 
             const rtype_e: QueryType = QueryType.from_u16(rtype);
-            const class_e: DnsClass = @enumFromInt(rclass);
 
-            answer.* = AnswerRecord.init(name_offset, whole_record.len, rtype_e, class_e, TLVOwner{
+            answer.* = AnswerRecord.init(name_offset, whole_record.len, rtype_e, TLVOwner{
                 .layer = &self.owner,
             });
 
             // append to linkedlist
             if (cur) |ans| { // if the last answer is not null
-                ans.set_next_record(answer); // set the last answer next answer to the answer created (answer being added)
-                answer.set_prev_record(ans); // set the answer created (answer being added)'s prev answer to the last answer
+                ans.set_next(answer); // set the last answer next answer to the answer created (answer being added)
+                answer.set_prev(ans); // set the answer created (answer being added)'s prev answer to the last answer
 
             }
 
@@ -949,6 +941,9 @@ pub const DNSLayer = struct {
                 @ptrCast(data[offset .. offset + CLASS_TYPE_LENGTH].ptr),
                 .big,
             );
+
+            _ = rclass;
+
             offset += CLASS_TYPE_LENGTH;
 
             // Parse TTL
@@ -981,20 +976,19 @@ pub const DNSLayer = struct {
             const answer = try allocator.create(AnswerRecord);
 
             const rtype_e: QueryType = QueryType.from_u16(rtype);
-            const class_e: DnsClass = @enumFromInt(rclass);
+            //const class_e: DnsClass = @enumFromInt(rclass);
 
             answer.* = AnswerRecord.init(
                 name_offset,
                 whole_record.len,
                 rtype_e,
-                class_e,
                 TLVOwner{ .layer = &self.owner },
             );
 
             // append to linkedlist
             if (cur) |ans| { // if the last answer is not null
-                ans.set_next_record(answer); // set the last answer next answer to the answer created (answer being added)
-                answer.set_prev_record(ans); // set the answer created (answer being added)'s prev answer to the last answer
+                ans.set_next(answer); // set the last answer next answer to the answer created (answer being added)
+                answer.set_prev(ans); // set the answer created (answer being added)'s prev answer to the last answer
 
             }
 
@@ -1011,25 +1005,62 @@ pub const DNSLayer = struct {
         return ansrecords;
     }
 
-    fn decompress(self: *DNSLayer) void {
-        self.find_cmprs_ptrs();
+    /// decompression seems to work but no rdlen update causes get_answers to fail
+    fn decompress(self: *DNSLayer) !void {
+        const data: []const u8 = self.get_data();
+
+        if (data.len <= DNSHeaderSize + 1) return;
+
+        const query_start = DNSHeaderSize;
+
+        var offset: usize = data.len - 2;
+
+        while (true) {
+            if (data[offset] & 0xC0 == 0xC0) {
+                const ptr = data[offset .. offset + 2];
+                const pointer: u16 =
+                    (@as(u16, data[offset] & 0x3F) << 8) |
+                    @as(u16, data[offset + 1]);
+
+                if (pointer < data.len) {
+                    print(
+                        "found compression ptr: ({}) {x} {} ",
+                        .{ ptr.len, ptr, pointer },
+                    );
+
+                    var roffset: usize = 0;
+
+                    advance_past_name(data[pointer..], &roffset);
+
+                    print("name end: {}\n", .{roffset});
+
+                    const buf = try self.owner.extend_layer(offset, roffset);
+
+                    @memmove(buf, data[pointer .. pointer + roffset]);
+                }
+            }
+
+            if (offset <= query_start) break;
+            offset -= 1;
+        }
     }
 
-    fn find_cmprs_ptrs(self: *DNSLayer) void {
-        var record: ?*AnswerRecord = self.first_answer;
-        while (record) |rec| {
-            switch (rec.get_rr_type()) {
-                .A => {
-                    find_compression_ptrs_in_answer(rec.a.get_data()[0..2]);
-                },
-                .CNAME => {
-                    find_compression_ptrs_in_answer(rec.cname.get_data());
-                },
-                else => {
-                    record = rec.get_next_record();
-                },
+    pub fn find_cmprs_ptrs(self: *DNSLayer) void {
+        const data: []const u8 = self.get_data();
+
+        if (data.len <= DNSHeaderSize) return;
+
+        var offset: usize = 0;
+
+        while (offset < data.len - 1) {
+            if (data[offset] & 0xC0 == 0xC0) {
+                const ptr = data[offset .. offset + 2];
+                const pointer: u16 = (@as(u16, data[offset] & 0x3F) << 8) | @as(u16, data[offset + 1]);
+                if (pointer < data.len)
+                    print("found compression ptr: ({}) {x} {}\n", .{ ptr.len, ptr, pointer });
             }
-            record = rec.get_next_record();
+
+            offset += 1;
         }
     }
 

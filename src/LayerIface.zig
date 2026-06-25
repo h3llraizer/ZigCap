@@ -73,7 +73,6 @@ pub const Layer = union(enum) {
     genericAppLayer: GenericLayer.ApplicationLayer,
 
     /// inits the layer
-    /// TODO: maybe use tcp_ip_protocol instead of type
     pub fn init(choice: type, allocator: Allocator) LayerError!Layer {
         switch (choice) {
             Loopback.LoopbackLayer => return Layer{ .loopbackLayer = try Loopback.LoopbackLayer.init(allocator) },
@@ -136,7 +135,7 @@ pub const Layer = union(enum) {
     }
 
     /// calls the concrete layers get_next_layer method.
-    /// mostly used for Packet to accumulate all layers from slices
+    /// mostly used by Packet to accumulate all layers from slices
     /// can be used when a layer is standalone but isn't recommended
     pub fn get_next_layer(self: *Layer, next_layer: *PacketLayer) LayerError!?Layer {
         return switch (self.*) {

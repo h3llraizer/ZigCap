@@ -163,8 +163,8 @@ test "generic record" {
     var answer = answers.first;
     while (answer) |ans| {
         try expect(eql(u8, ans.get_data(), grec.get_data()));
-        try expect(ans.get_next_record() == null);
-        answer = ans.get_next_record();
+        try expect(ans.next() == null);
+        answer = ans.next();
     }
 
     answers.deinit(allocator);
@@ -1001,7 +1001,7 @@ test "parse dns A response raw" {
 
         try expect(ans.get_ttl() == 128);
 
-        answer = ans.get_next_record();
+        answer = ans.next();
     }
 
     // although the IPs were changed, the length of the overall DNSLayer should not have changed
@@ -1070,7 +1070,7 @@ test "parse dns AAAA response raw" {
 
         try expect(std.mem.eql(u8, &ipv6_m.array, &new_ipv6.array));
 
-        answer = ans.get_next_record();
+        answer = ans.next();
     }
 }
 
@@ -1250,7 +1250,7 @@ test "parse ebay CNAME response" {
             }
         }
 
-        answer = ans.get_next_record();
+        answer = ans.next();
     }
 
     //    try dns_layer.decompress();
@@ -1309,6 +1309,10 @@ test "parse dns txt record response" {
         //      ans.get_class_type(),
         //  });
 
+        //  const str = try ans.to_string(allocator);
+        //  defer allocator.free(str);
+        //  print("{s}\n", .{str});
+
         try expect(ans.get_ttl() == 300);
 
         if (ans.get_rr_type() == DNS.QueryType.TXT) {
@@ -1319,7 +1323,7 @@ test "parse dns txt record response" {
             //     //print("name: {s}\n", .{name});
         }
 
-        answer = ans.get_next_record();
+        answer = ans.next();
     }
 }
 
@@ -1374,6 +1378,10 @@ test "parse MX record response" {
         //           ans.get_class_type(),
         //       });
 
+        const str = try ans.to_string(allocator);
+        defer allocator.free(str);
+        //print("{s}\n", .{str});
+
         try expect(ans.get_ttl() == 300);
 
         if (ans.get_rr_type() == DNS.QueryType.MX) {
@@ -1387,7 +1395,7 @@ test "parse MX record response" {
             //           //print("mx domain: {s} \n", .{mx_domain});
         }
 
-        answer = ans.get_next_record();
+        answer = ans.next();
     }
 }
 
@@ -1433,6 +1441,11 @@ test "parse PTR record response" {
 
     var answer = answers.first;
     while (answer) |ans| {
+        const str = try ans.to_string(allocator);
+        defer allocator.free(str);
+
+        //print("{s}\n", .{str});
+
         //    //print("answer: offset={} length={} {any} {any}\n", .{
         //        ans.get_offset(),
         //        ans.get_length(),
@@ -1453,7 +1466,7 @@ test "parse PTR record response" {
             try expect(std.mem.eql(u8, domain, "yulhrs-in-f139.1e100.net"));
         }
 
-        answer = ans.get_next_record();
+        answer = ans.next();
     }
 }
 
