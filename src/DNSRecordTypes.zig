@@ -629,7 +629,6 @@ pub const GenericRecord = struct {
         }
 
         // if name is same length as current it can just be copied over
-
         @memmove(self.get_data_mut()[0..name.len], name);
     }
 

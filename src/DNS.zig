@@ -250,7 +250,7 @@ pub const DNSHeader = extern struct {
     }
 };
 
-// TODO: Handle Additional Records, Authoritative Records
+// TODO: Handle Additional Records
 pub const DNSLayer = struct {
     owner: LayerOwner,
 
@@ -906,12 +906,6 @@ pub const DNSLayer = struct {
 
         const nscount = hdr.get_nscount();
 
-        //print("nscount: {}\n", .{nscount});
-
-        //    if (nscount == 0) {
-        //        return null;
-        //    }
-
         var ansrecords: AnswerRecords = (.{ .owner = TLVOwner{ .layer = &self.owner } });
 
         var cur: ?*AnswerRecord = null;
@@ -1076,6 +1070,16 @@ pub const DNSLayer = struct {
 
             offset += 1;
         }
+    }
+
+    // TODO: rename index arg to label_index
+    pub fn get_ptr_for(self: *DNSLayer, name: []const u8, index: usize) ?[2]u8 {
+        const offset = std.mem.indexOf(u8, self.get_data(), name[index..]) orelse return null;
+
+        const ptr: u8 = 0xC0;
+        const idx: u8 = @intCast(offset);
+
+        return .{ ptr, idx };
     }
 
     pub fn to_string(self: *DNSLayer, allocator: Allocator) []const u8 {
@@ -1460,7 +1464,7 @@ pub fn decode_ip_ptr_query(ptr_str: []const u8, allocator: Allocator) (DNSLayer.
 
 /// return IPaddress from decoded ptr query string
 /// examples:
-/// "5.6.0.0.0.0.0.0.0.0.0.0.0.0.0.0.7.1.c.0.9.0.0.4.0.5.4.1.0.0.a.2.ip6.arpa" will return IPAddress with IPv6Address "2a00:1450:4009:0c17:0000:0000:0000:0065" as active tag
+/// "5.6.0.0.0.0.0.0.0.0.0.0.0.0.0.0.7.1.c.0.9.0.0.4.0.5.4.1.0.0.a.2.ip6.arpa" will return IPAddress with IPv6Address at active tag and "2a00:1450:4009:0c17:0000:0000:0000:0065" as the address
 /// "113.30.251.142.in-addr.arpa" will return IPAddress with IPv4Address "142.251.30.113" as active tag
 pub fn extract_ip_from_ptr(ptr_str: []const u8) (std.fmt.ParseIntError || DNSLayer.DNSParseError || IPv4.IPv4Address.Error || Allocator.Error)!IPAddress {
     if (ptr_str.len < 15) {
@@ -1545,6 +1549,18 @@ pub fn encode_name(name: []const u8, allocator: Allocator) Allocator.Error![]con
     encoded_name[buf_offset] = 0; // null terminator
 
     return encoded_name;
+}
+
+/// Name must already be an encoded name. Use DNS.encode_name to create the initial encoded name
+pub fn add_ptr_to_name(name: []const u8, ptr: [2]u8, allocator: Allocator) Allocator.Error![]const u8 {
+    var new_name = try allocator.alloc(u8, (name.len - 1) + ptr.len);
+
+    const base_len = name.len - 1;
+
+    @memmove(new_name[0..base_len], name[0..base_len]);
+    @memmove(new_name[base_len .. base_len + ptr.len], &ptr);
+
+    return new_name;
 }
 
 /// Creates a domain name from a DNS label. The allocator creates an ArrayList to store the bytes and returns a mutable slice

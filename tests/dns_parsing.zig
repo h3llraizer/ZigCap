@@ -570,4 +570,51 @@ test "decompression" {
 
     var dns_layer = try DNS.DNSLayer.initFromSlice(data[0..], allocator);
     defer dns_layer.deinit();
+
+    var queries = try dns_layer.get_queries(allocator) orelse {
+        try expect(false); // failed to get queries - expected one
+        return;
+    };
+
+    defer queries.deinit(allocator);
+
+    try expect(queries.query_count == 1);
+
+    try expect(queries.first != null);
+
+    var query = queries.first.?; // unwrap
+
+    const qname = try query.decode_qname(allocator);
+    try expect(eql(u8, qname, "www.spotify.com"));
+    allocator.free(qname);
+
+    try expect(query.qtype == .NS);
+    try expect(query.qclass == .IN);
+
+    var answers = try dns_layer.get_answers(allocator) orelse {
+        try expect(false); // failed to get answers - expected 1
+        return;
+    };
+
+    defer answers.deinit(allocator);
+
+    var answer = answers.first;
+    while (answer) |ans| {
+        answer = ans.next();
+    }
+
+    var auth_answers = try dns_layer.get_auth_answers(allocator) orelse {
+        try expect(false); // failed to get auth answers - expected 1
+        return;
+    };
+
+    defer auth_answers.deinit(allocator);
+
+    var auth_answer = auth_answers.first;
+    while (auth_answer) |ans| {
+        const name = try ans.get_name(allocator);
+        //print("{s}\n", .{name});
+        allocator.free(name);
+        auth_answer = ans.next();
+    }
 }

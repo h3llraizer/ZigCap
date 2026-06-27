@@ -20,6 +20,153 @@ const IPAddress = zigcap.IPAddress;
 
 const Layer = zigcap.Layer;
 
+test "encode ptr name in a record" {
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+
+    const allocator = debug_allocator.allocator();
+
+    const name = try DNS.encode_name("google.com", allocator);
+    defer allocator.free(name);
+
+    var a_query = try DNS.Query.init(name, .A, .IN, allocator);
+    defer a_query.deinit();
+
+    var dns_layer = try DNS.DNSLayer.init(allocator);
+    defer dns_layer.deinit();
+
+    try dns_layer.add_query(&a_query);
+
+    const ptr = dns_layer.get_ptr_for(name, 0) orelse {
+        try expect(false); // failed to get ptr for name
+        return;
+    };
+
+    const expected_ptr: [2]u8 = .{ 0xC0, @intCast(DNS.DNSHeaderSize) };
+
+    try expect(eql(u8, &ptr, &expected_ptr));
+
+    const ip = try IPv4.IPv4Address.init_from_string("142.250.140.101");
+
+    var a_record = try DNS.ARecord.init(&ptr, .IN, 300, ip, allocator);
+    defer a_record.deinit();
+
+    var answer_rec = DNS.AnswerRecord{ .a = a_record };
+
+    try dns_layer.add_ans(&answer_rec);
+
+    var answers = try dns_layer.get_answers(allocator) orelse {
+        try expect(false); // failed to get answers
+        return;
+    };
+
+    defer answers.deinit(allocator);
+
+    var answer = answers.first;
+
+    while (answer) |ans| {
+        const n = try ans.get_name(allocator);
+        //        print("{s}\n", .{n});
+        allocator.free(n);
+        answer = ans.next();
+    }
+}
+
+test "encode ptr name in cname record" {
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+
+    const allocator = debug_allocator.allocator();
+
+    const name = try DNS.encode_name("lh3.google.com", allocator);
+    defer allocator.free(name);
+
+    var aaaa_query = try DNS.Query.init(name, .AAAA, .IN, allocator);
+    defer aaaa_query.deinit();
+
+    var dns_layer = try DNS.DNSLayer.init(allocator);
+    defer dns_layer.deinit();
+
+    try dns_layer.add_query(&aaaa_query);
+
+    const name_ptr = dns_layer.get_ptr_for(name, 0) orelse {
+        try expect(false); // failed to get ptr for name
+        return;
+    };
+
+    const expected_ptr: [2]u8 = .{ 0xC0, @intCast(DNS.DNSHeaderSize) };
+
+    try expect(eql(u8, &name_ptr, &expected_ptr));
+
+    const cname_ptr = dns_layer.get_ptr_for(name, 4) orelse {
+        try expect(false); // failed to get name ptr
+        return;
+    };
+
+    const cname = try DNS.encode_name("lh2.l", allocator);
+    defer allocator.free(cname);
+
+    const cname_ptr_name = try DNS.add_ptr_to_name(cname, cname_ptr, allocator);
+    defer allocator.free(cname_ptr_name);
+
+    var cname_record = try DNS.CNAMERecord.init(&name_ptr, .IN, 300, cname_ptr_name, allocator);
+    defer cname_record.deinit();
+
+    var answer_rec = DNS.AnswerRecord{ .cname = cname_record };
+
+    try dns_layer.add_ans(&answer_rec);
+
+    const ipv6_0 = try IPv6.IPv6Address.init_from_string("2a00:1450:4009:0c0f:0000:0000:0000:0064");
+
+    var aaaa_record = try DNS.AAAARecord.init(cname_ptr_name, .IN, 300, ipv6_0, allocator);
+    defer aaaa_record.deinit();
+
+    answer_rec = DNS.AnswerRecord{ .aaaa = aaaa_record };
+
+    try dns_layer.add_ans(&answer_rec);
+
+    var answers = try dns_layer.get_answers(allocator) orelse {
+        try expect(false); // failed to get answers
+        return;
+    };
+
+    defer answers.deinit(allocator);
+
+    var answer = answers.first;
+
+    while (answer) |ans| {
+        //print("{any} ", .{ans.get_rr_type()});
+        //print("{any} ", .{ans.get_class_type()});
+
+        const n = try ans.get_name(allocator);
+        //print("{s} ", .{n});
+        defer allocator.free(n);
+        answer = ans.next();
+
+        const rr_type = ans.get_rr_type();
+
+        if (rr_type == .CNAME) {
+            try expect(eql(u8, n, "lh3.google.com"));
+
+            const c = try ans.cname.get_cname(allocator);
+            try expect(eql(u8, c, "lh2.l.google.com"));
+
+            //print("{s} ", .{c});
+            allocator.free(c);
+        }
+
+        if (rr_type == .AAAA) {
+            try expect(eql(u8, n, "lh2.l.google.com"));
+
+            const ip_str = try ans.aaaa.get_ipv6().to_string(allocator);
+            //print("{s}\n", .{ip_str});
+            allocator.free(ip_str);
+        }
+
+        //print("\n", .{});
+    }
+}
+
 test "generic record" {
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.deinit();
