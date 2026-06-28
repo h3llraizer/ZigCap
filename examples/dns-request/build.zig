@@ -9,6 +9,10 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("../../src/root.zig"),
     });
 
+    zigcap.addAfterIncludePath(.{
+        .cwd_relative = "../../third_party/npcap-sdk-1.15/Include",
+    });
+
     const mod = b.addModule("dns-request", .{
         .root_source_file = b.path("src/root.zig"),
 
@@ -38,7 +42,22 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    exe.linkSystemLibrary("pcap");
+    if (target.result.os.tag == .linux) {
+        exe.linkSystemLibrary("pcap");
+    }
+
+    if (target.result.os.tag == .windows) {
+        exe.addLibraryPath(.{
+            .cwd_relative = "../../third_party/npcap-sdk-1.15/Lib/x64",
+        });
+
+        exe.linkSystemLibrary("wpcap");
+        exe.linkSystemLibrary("Packet");
+    }
+
+    exe.addIncludePath(.{
+        .cwd_relative = "../../third_party/npcap-sdk-1.15/Include/",
+    });
 
     b.installArtifact(exe);
 
