@@ -1292,6 +1292,28 @@ pub const Query = struct {
         );
     }
 
+    pub fn to_string(self: *Query, allocator: Allocator) ![]const u8 {
+        var list: std.ArrayList(u8) = .empty;
+
+        const name = try self.decode_qname(allocator);
+        defer allocator.free(name);
+        const type_s = @tagName(self.qtype);
+        const class_s = @tagName(self.qclass);
+
+        const space = ". ";
+        //const dot = '.';
+
+        try list.appendSlice(allocator, name);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, type_s);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, class_s);
+        try list.appendSlice(allocator, space);
+        //try list.append(allocator, dot);
+
+        return try list.toOwnedSlice(allocator);
+    }
+
     pub fn deinit(self: *Query) void {
         self.owner.deinit();
     }

@@ -817,6 +817,9 @@ pub const GenericRecord = struct {
 
         const name = try self.get_name(allocator);
         defer allocator.free(name);
+        const ttl = try std.fmt.allocPrint(allocator, "{d}", .{self.get_ttl()});
+        defer allocator.free(ttl);
+
         const type_s = @tagName(self.get_rr_type());
         const class_s = @tagName(self.get_class());
         const rdata = self.get_rdata();
@@ -825,6 +828,8 @@ pub const GenericRecord = struct {
         const dot = '.';
 
         try list.appendSlice(allocator, name);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, ttl);
         try list.appendSlice(allocator, space);
         try list.appendSlice(allocator, type_s);
         try list.appendSlice(allocator, space);
@@ -988,6 +993,8 @@ pub const ARecord = struct {
 
         const name = try self.get_name(allocator);
         defer allocator.free(name);
+        const ttl = try std.fmt.allocPrint(allocator, "{d}", .{self.get_ttl()});
+        defer allocator.free(ttl);
         const type_s = @tagName(self.get_rr_type());
         const class_s = @tagName(self.get_class());
         const ip = try self.get_ip().to_string(allocator);
@@ -997,6 +1004,8 @@ pub const ARecord = struct {
         const dot = '.';
 
         try list.appendSlice(allocator, name);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, ttl);
         try list.appendSlice(allocator, space);
         try list.appendSlice(allocator, type_s);
         try list.appendSlice(allocator, space);
@@ -1145,6 +1154,9 @@ pub const AAAARecord = struct {
 
         const name = try self.get_name(allocator);
         defer allocator.free(name);
+        const ttl = try std.fmt.allocPrint(allocator, "{d}", .{self.get_ttl()});
+        defer allocator.free(ttl);
+
         const type_s = @tagName(self.get_rr_type());
         const class_s = @tagName(self.get_class());
         const ip = try self.get_ipv6().to_string(allocator);
@@ -1154,6 +1166,8 @@ pub const AAAARecord = struct {
         const dot = '.';
 
         try list.appendSlice(allocator, name);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, ttl);
         try list.appendSlice(allocator, space);
         try list.appendSlice(allocator, type_s);
         try list.appendSlice(allocator, space);
@@ -1302,6 +1316,9 @@ pub const NSRecord = struct {
 
         const name = try self.get_name(allocator);
         defer allocator.free(name);
+        const ttl = try std.fmt.allocPrint(allocator, "{d}", .{self.get_ttl()});
+        defer allocator.free(ttl);
+
         const type_s = @tagName(self.get_rr_type());
         const class_s = @tagName(self.get_class());
         const cname = try self.decode_ns_name(allocator);
@@ -1310,6 +1327,8 @@ pub const NSRecord = struct {
         const space = " ";
 
         try list.appendSlice(allocator, name);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, ttl);
         try list.appendSlice(allocator, space);
         try list.appendSlice(allocator, type_s);
         try list.appendSlice(allocator, space);
@@ -1456,6 +1475,9 @@ pub const CNAMERecord = struct {
 
         const name = try self.get_name(allocator);
         defer allocator.free(name);
+        const ttl = try std.fmt.allocPrint(allocator, "{d}", .{self.get_ttl()});
+        defer allocator.free(ttl);
+
         const type_s = @tagName(self.get_rr_type());
         const class_s = @tagName(self.get_class());
         const cname = try self.get_cname(allocator);
@@ -1465,6 +1487,8 @@ pub const CNAMERecord = struct {
         const dot = '.';
 
         try list.appendSlice(allocator, name);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, ttl);
         try list.appendSlice(allocator, space);
         try list.appendSlice(allocator, type_s);
         try list.appendSlice(allocator, space);
@@ -1675,6 +1699,10 @@ pub const TXTRecord = struct {
 
         const name = try self.get_name(allocator);
         defer allocator.free(name);
+
+        const ttl = try std.fmt.allocPrint(allocator, "{d}", .{self.get_ttl()});
+        defer allocator.free(ttl);
+
         const type_s = @tagName(self.get_rr_type());
         const class_s = @tagName(self.get_class());
         const txt = try self.get_txt(allocator);
@@ -1684,6 +1712,8 @@ pub const TXTRecord = struct {
         const dot = '.';
 
         try list.appendSlice(allocator, name);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, ttl);
         try list.appendSlice(allocator, space);
         try list.appendSlice(allocator, type_s);
         try list.appendSlice(allocator, space);
@@ -1951,6 +1981,9 @@ pub const MXRecord = struct {
 
         const name = try self.get_name(allocator);
         defer allocator.free(name);
+        const ttl = try std.fmt.allocPrint(allocator, "{d}", .{self.get_ttl()});
+        defer allocator.free(ttl);
+
         const type_s = @tagName(self.get_rr_type());
         const class_s = @tagName(self.get_class());
         const mx = try self.get_mx_domain(allocator);
@@ -1960,6 +1993,8 @@ pub const MXRecord = struct {
         const dot = '.';
 
         try list.appendSlice(allocator, name);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, ttl);
         try list.appendSlice(allocator, space);
         try list.appendSlice(allocator, type_s);
         try list.appendSlice(allocator, space);
@@ -2092,6 +2127,9 @@ pub const PTRRecord = struct {
 
         const name = try self.get_name(allocator);
         defer allocator.free(name);
+        const ttl = try std.fmt.allocPrint(allocator, "{d}", .{self.get_ttl()});
+        defer allocator.free(ttl);
+
         const type_s = @tagName(self.get_rr_type());
         const class_s = @tagName(self.get_class());
         const domain = try self.get_domain(allocator);
@@ -2101,6 +2139,8 @@ pub const PTRRecord = struct {
         const dot = '.';
 
         try list.appendSlice(allocator, name);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, ttl);
         try list.appendSlice(allocator, space);
         try list.appendSlice(allocator, type_s);
         try list.appendSlice(allocator, space);
@@ -2593,6 +2633,8 @@ pub const SOARecord = struct {
 
         const name = try self.get_name(allocator);
         defer allocator.free(name);
+        const ttl = try std.fmt.allocPrint(allocator, "{d}", .{self.get_ttl()});
+        defer allocator.free(ttl);
         const type_s = @tagName(self.get_rr_type());
         const class_s = @tagName(self.get_class());
         const rname = try self.get_rname(allocator);
@@ -2604,6 +2646,8 @@ pub const SOARecord = struct {
         const dot = '.';
 
         try list.appendSlice(allocator, name);
+        try list.appendSlice(allocator, space);
+        try list.appendSlice(allocator, ttl);
         try list.appendSlice(allocator, space);
         try list.appendSlice(allocator, type_s);
         try list.appendSlice(allocator, space);
