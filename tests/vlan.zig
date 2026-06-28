@@ -8,7 +8,7 @@ const LayerOwner = zigcap.Owner.LayerOwner;
 const Layer = zigcap.Layer;
 const VLAN = zigcap.VLAN;
 const Eth = zigcap.Eth;
-const Packet = zigcap.Packet.Packet;
+const Packet = zigcap.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
 
 test "parse vlan_tagged_tcp_syn_ack" {

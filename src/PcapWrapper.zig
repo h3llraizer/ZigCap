@@ -323,3 +323,42 @@ pub const Interfaces = struct {
         self.iface_list.deinit(self.allocator);
     }
 };
+
+pub fn readPackets(handle: *pcap.pcap_t, cb: fn ([]u8, Allocator) void, allocator: Allocator) !void {
+    var header: ?*pcap.pcap_pkthdr = null;
+    var packet: [*c]const u8 = null;
+
+    var result: c_int = 0;
+
+    while (true) {
+        result = pcap.pcap_next_ex(handle, &header, &packet);
+
+        if (result < 0) break;
+        if (result == 0) continue;
+
+        const h = header.?;
+
+        //std.debug.print("Packet length: {}\n", .{h.len});
+
+        const cap_len: usize = @intCast(h.caplen);
+        const data = packet[0..cap_len];
+
+        const pkt_data: []u8 = try allocator.alloc(u8, cap_len);
+
+        @memmove(pkt_data, data);
+
+        cb(pkt_data, allocator);
+    }
+}
+
+pub fn read_pcap(filepath: []const u8, cb: fn ([]u8, Allocator) void, allocator: Allocator) !void {
+    var errbuf: [256:0]u8 = .{0} ** 256;
+
+    const pcap_handle: *pcap.pcap_t = pcap.pcap_open_offline(filepath.ptr, &errbuf) orelse {
+        return error.FailedToOpen;
+    };
+
+    defer pcap.pcap_close(pcap_handle);
+
+    try readPackets(pcap_handle, cb, allocator);
+}

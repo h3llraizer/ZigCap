@@ -9,7 +9,7 @@ const eql = std.mem.eql;
 const Allocator = std.mem.Allocator;
 
 const DNS = zigcap.DNS;
-const Packet = zigcap.Packet.Packet;
+const Packet = zigcap.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
 const LayerOwner = zigcap.Owner.LayerOwner;
 const tcp_ip_protocol = zigcap.tcp_ip_protocol;

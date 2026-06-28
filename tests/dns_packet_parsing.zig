@@ -4,7 +4,7 @@ const expect = std.testing.expect;
 
 const zigcap = @import("zigcap");
 
-const Packet = zigcap.Packet.Packet;
+const Packet = zigcap.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
 const IPProtocol = zigcap.ProtocolEnums.IPProtocol;
 const tcp_ip_protocol = zigcap.tcp_ip_protocol;

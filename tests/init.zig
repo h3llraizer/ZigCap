@@ -1,7 +1,7 @@
 const std = @import("std");
 const zigcap = @import("zigcap");
 
-const Packet = zigcap.Packet.Packet;
+const Packet = zigcap.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
 const LayerOwner = zigcap.Owner.LayerOwner;
 const TLVOwner = zigcap.Owner.TLVOwner;

@@ -7,7 +7,7 @@ const Allocator = std.mem.Allocator;
 
 const DNS = zigcap.DNS;
 const IPv4 = zigcap.IPv4;
-const Packet = zigcap.Packet.Packet;
+const Packet = zigcap.Packet;
 const link_layer_type = zigcap.ProtocolEnums.link_layer_type;
 const LayerOwner = zigcap.Owner.LayerOwner;
 const Layer = zigcap.Layer;

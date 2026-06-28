@@ -22,16 +22,6 @@ const link_layer_type = ProtocolEnums.link_layer_type;
 const tcp_ip_protocol = tcp_ip_protocols.tcp_ip_protocol;
 const get_layer_type_enum = tcp_ip_protocols.get_layer_type_enum;
 
-pub const InitError = error{
-    PacketBufferNotEmpty,
-    LinkLayerCreationFailed,
-    LinkLayerNotHandled,
-};
-
-pub const ParseError = error{
-    HeaderTooSmall,
-};
-
 pub const Packet = struct {
     layer_allocator: Allocator,
     buffer: Buffer,
@@ -66,6 +56,40 @@ pub const Packet = struct {
 
         // Take ownership of the ArrayList's memory
         self.buffer = try Buffer.init(try buffer.toOwnedSlice(allocator), allocator);
+
+        const first_layer: *PacketLayer = try self.layer_allocator.create(PacketLayer);
+        const link_layer: Layer = try create_first_layer(
+            self.buffer.buffer.items,
+            link_type,
+            first_layer,
+        ) orelse {
+            return InitError.LinkLayerCreationFailed;
+        };
+
+        first_layer.* = PacketLayer.init(
+            0,
+            self.buffer.buffer.items.len,
+            link_layer,
+            self,
+        );
+        self.first_layer = first_layer;
+
+        try self.accumulate_layers(parse_until);
+    }
+
+    /// takes ownership of slice provided - do not attempt to free it
+    pub fn fromSlice(
+        self: *Packet,
+        buffer: []u8,
+        link_type: link_layer_type,
+        parse_until: ?tcp_ip_protocol,
+    ) (InitError || LayerError || Allocator.Error)!void {
+        if (self.buffer.get_len() > 0) {
+            return InitError.PacketBufferNotEmpty;
+        }
+
+        // Take ownership of the ArrayList's memory
+        self.buffer = try Buffer.init(buffer, self.buffer.allocator);
 
         const first_layer: *PacketLayer = try self.layer_allocator.create(PacketLayer);
         const link_layer: Layer = try create_first_layer(
@@ -464,6 +488,16 @@ pub const Packet = struct {
         return true;
     }
 
+    pub fn print_stack(self: *Packet) void {
+        var cur = self.first_layer;
+        while (cur) |layer| {
+            print("{any}. ", .{std.meta.activeTag(layer.layer_iface)});
+            cur = layer.next_layer;
+        }
+
+        print("\n", .{});
+    }
+
     /// prints each layers index, offset, length, end position, bytes and byte len, from the packet
     pub fn print_layers(self: *Packet) void {
         var count: usize = 0;
@@ -516,4 +550,14 @@ pub const Packet = struct {
 
         self.buffer.deinit();
     }
+
+    pub const InitError = error{
+        PacketBufferNotEmpty,
+        LinkLayerCreationFailed,
+        LinkLayerNotHandled,
+    };
+
+    pub const ParseError = error{
+        HeaderTooSmall,
+    };
 };
