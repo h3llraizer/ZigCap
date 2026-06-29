@@ -100,82 +100,78 @@ fn ip_change(ipv4_layer: *IPv4.IPv4Layer) void {
     }
 }
 
-fn mutate_packet(data: []u8) ![]u8 {
+fn mutate_packet(data: []u8) ![]const u8 {
+    const buf = try allocator.alloc(u8, data.len);
+    @memmove(buf, data);
     var packet = Packet.create(allocator, allocator);
-    try packet.fromSlice(data, link_layer_type.RAW, null);
-
     defer packet.deinit();
+
+    try packet.fromSlice(buf, link_layer_type.RAW, null);
+
+    if (!packet.has_protocol_layer(.dns)) {
+        return packet.buffer.buffer.toOwnedSlice(allocator);
+    }
+
+    var dns_layer = packet.get_layer_of_type(DNS.DNSLayer) orelse {
+        return packet.buffer.buffer.toOwnedSlice(allocator);
+    };
+
+    const dns_hdr: *DNS.DNSHeader = dns_layer.get_mutable_header();
+
+    if (dns_hdr.get_qr()) {
+        return packet.buffer.buffer.toOwnedSlice(allocator);
+    }
+
+    var queries: DNS.Queries = try dns_layer.get_queries(allocator) orelse {
+        return packet.buffer.buffer.toOwnedSlice(allocator);
+    };
+
+    defer queries.deinit(allocator);
+
+    var query = queries.first;
+    while (query) |q| {
+        const str = try q.to_string(allocator);
+        print("{s}\n", .{str});
+        allocator.free(str);
+
+        query = q.next_query;
+    }
+
+    const ans_layer = try get_dns_response(dns_layer.get_data());
+
+    var new_dns_layer = try DNS.DNSLayer.initFromSlice(ans_layer, allocator);
+    defer new_dns_layer.deinit();
+
+    allocator.free(ans_layer);
+
+    var layer = Layer{ .dnsLayer = new_dns_layer };
+
+    if (!dns_layer.owner.is_packet_owned()) {
+        @panic("invalid ownership of dns layer.\n");
+    }
+
+    _ = try packet.delete_layer(Layer{ .dnsLayer = dns_layer });
+
+    try packet.add_layer(&layer);
 
     if (packet.get_layer_of_type(IPv4.IPv4Layer)) |ipv4_layer| {
         const ipv4_header: *IPv4.IPv4Header = ipv4_layer.get_mutable_header();
-        if (!std.mem.eql(u8, &ipv4_header.get_dst_ip().array, &google_dns_ip.array)) {
-            return error.NotGoogleIp;
-        }
+
+        const src_ip = ipv4_header.get_src_ip();
+        const dst_ip = ipv4_header.get_dst_ip();
+
+        ipv4_header.set_src_ip(dst_ip);
+        ipv4_header.set_dst_ip(src_ip);
     }
 
-    if (packet.get_layer_of_type(IPv6.IPv6Layer)) |ipv6_layer| {
-        const ipv6_header: *IPv6.IPv6Header = @constCast(&ipv6_layer).get_mutable_header();
-        if (!std.mem.eql(u8, &ipv6_header.get_dst_ip().array, &google_dns_ipv6.array)) {
-            return error.NotGoogleIp;
-        }
-    }
+    if (packet.get_layer_of_type(UDP.UDPLayer)) |udp_layer| {
+        const udp_header: *UDP.UDPHeader = udp_layer.get_mutable_header();
 
-    if (!packet.has_protocol_layer(.dns)) {
-        return data;
-    }
+        const src_port = udp_header.get_src_port();
+        const dst_port = udp_header.get_dst_port();
 
-    if (packet.get_layer_of_type(DNS.DNSLayer)) |dns_layer| {
-        const dns_hdr: *DNS.DNSHeader = dns_layer.get_mutable_header();
-
-        if (dns_hdr.get_qr()) {
-            return data;
-        }
-
-        var queries: DNS.Queries = try @constCast(&dns_layer).get_queries(allocator) orelse {
-            return data;
-        };
-
-        defer queries.deinit(allocator);
-
-        var query = queries.first;
-        while (query) |q| {
-            const str = try q.to_string(allocator);
-            print("{s}\n", .{str});
-            allocator.free(str);
-
-            query = q.next_query;
-        }
-
-        const ans_layer = try get_dns_response(dns_layer.get_data());
-
-        const tmp_own = LayerOwner{ .owned_buffer = try .init(ans_layer, allocator) };
-
-        var new_dns_layer: Layer = Layer{ .dnsLayer = .{ .owner = tmp_own } };
-        defer new_dns_layer.deinit();
-
-        _ = try packet.delete_layer(Layer{ .dnsLayer = dns_layer });
-
-        try packet.add_layer(&new_dns_layer);
-
-        if (packet.get_layer_of_type(IPv4.IPv4Layer)) |ipv4_layer| {
-            const ipv4_header: *IPv4.IPv4Header = ipv4_layer.get_mutable_header();
-
-            const src_ip = ipv4_header.get_src_ip();
-            const dst_ip = ipv4_header.get_dst_ip();
-
-            ipv4_header.set_src_ip(dst_ip);
-            ipv4_header.set_dst_ip(src_ip);
-        }
-
-        if (packet.get_layer_of_type(UDP.UDPLayer)) |udp_layer| {
-            const udp_header: *UDP.UDPHeader = udp_layer.get_mutable_header();
-
-            const src_port = udp_header.get_src_port();
-            const dst_port = udp_header.get_dst_port();
-
-            udp_header.set_src_port(dst_port);
-            udp_header.set_dst_port(src_port);
-        }
+        udp_header.set_src_port(dst_port);
+        udp_header.set_dst_port(src_port);
     }
 
     packet.validate_packet();
@@ -198,16 +194,16 @@ fn nfq_callback(qh: ?*c.struct_nfq_q_handle, nfmsg: ?*c.struct_nfgenmsg, nfa: ?*
 
     const len = c.nfq_get_payload(nfa, &payload_ptr);
 
-    var pkt: []u8 = payload_ptr[0..@intCast(len)];
+    const pkt: []u8 = payload_ptr[0..@intCast(len)];
 
-    pkt = mutate_packet(pkt) catch |err| {
+    const copy = mutate_packet(pkt) catch |err| {
         print("{s}\n", .{@errorName(err)});
         return 0;
     };
 
-    defer allocator.free(pkt);
+    defer allocator.free(copy);
 
-    const res = c.nfq_set_verdict(qh, id, c.NF_ACCEPT, @intCast(pkt.len), pkt.ptr);
+    const res = c.nfq_set_verdict(qh, id, c.NF_ACCEPT, @intCast(copy.len), copy.ptr);
 
     return res;
 }

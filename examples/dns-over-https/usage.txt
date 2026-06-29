@@ -1,0 +1,4 @@
+1. Build
+2. Run ./redirect.sh (with sudo)
+3. Run ./zig-out/bin/dns-over-https
+4. Run ./undo when finished to revert iptables rule
