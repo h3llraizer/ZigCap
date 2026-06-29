@@ -1,8 +1,8 @@
 # ZigCap
-A packet capture and parsing library for Zig.
+A packet creation, capture and parsing library for Zig.
 
 ## Status
-ZigCap is currently **experimental** and under active development. All changes are being made on the main branch until the overall design is stable. APIs may change frequently.
+ZigCap is currently **experimental** and under active development but is usable. All changes are being made on the main branch until the overall design is stable. APIs may change frequently.
 
 
 ## Features
@@ -27,11 +27,10 @@ Currently supported functionality:
 - Generic / Application Layer (`src/GenericLayer.zig`)
 
 ## Testing
-All tests are can be found in `tests/`.
+All tests can be found in `tests/`.
+
+## Examples
+All examples can be found in `examples/`
 
 ## Contributing
-Contributions are welcome, but note:
-- The project is evolving quickly
-- Open issues or PRs may overlap with ongoing work
-
-Feel free to open an issue or submit a pull request regardless.
+Contributions are welcome.

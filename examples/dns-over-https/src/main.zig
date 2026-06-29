@@ -24,24 +24,21 @@ const LayerOwner = zigcap.Owner.LayerOwner;
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
-// constants
-const dns_ip = IPv4.IPv4Address.init_from_array(.{ 1, 1, 1, 1 });
+// Stack allocator
+var backing_buffer: [4096]u8 = .{0x00} ** 4096;
+var fba: std.heap.FixedBufferAllocator = .init(&backing_buffer);
+const allocator = fba.allocator();
 
-const google_dns_ip = IPv4.IPv4Address.init_from_array(.{ 8, 8, 8, 8 });
-
-const google_dns_ipv6 = IPv6.IPv6Address.init_from_array(.{
-    0x20, 0x01, 0x48, 0x60, 0x48, 0x60, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x88,
-});
-
-var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
-const allocator = debug_allocator.allocator();
-
+// CURL consts and vars
 var curl: ?*anyopaque = null;
+const DEFAULT_URL = "https://1.1.1.1/dns-query";
 
+// Wrapper around std.ArrayList
 const ResponseBuffer = struct {
     data: std.ArrayList(u8),
 };
+
+// no free's do anything meaningful in this context because FixedBufferAllocator is in use
 
 fn curlWriteCallback(ptr: ?*anyopaque, size: usize, nmemb: usize, userdata: ?*anyopaque) callconv(.c) usize {
     const real_size = size * nmemb;
@@ -55,14 +52,6 @@ fn curlWriteCallback(ptr: ?*anyopaque, size: usize, nmemb: usize, userdata: ?*an
 }
 
 fn get_dns_response(query: []u8) ![]u8 {
-    // ---- Force HTTP/2 (optional but matches CLI) ----
-    _ = c.curl_easy_setopt(curl, c.CURLOPT_HTTP_VERSION, c.CURL_HTTP_VERSION_2_0);
-
-    // ---- URL ----
-    _ = c.curl_easy_setopt(curl, c.CURLOPT_URL, "https://1.1.1.1/dns-query");
-
-    // ---- POST ----
-    _ = c.curl_easy_setopt(curl, c.CURLOPT_POST, @as(c_long, 1));
 
     // ---- raw DNS wireformat body ----
     _ = c.curl_easy_setopt(curl, c.CURLOPT_POSTFIELDS, query.ptr);
@@ -85,24 +74,32 @@ fn get_dns_response(query: []u8) ![]u8 {
         return error.RequestFailed;
     }
 
+    //var namelookup: f64 = 0;
+    var connect: f64 = 0;
+    var appconnect: f64 = 0;
+    var starttransfer: f64 = 0;
+    var total: f64 = 0;
+
+    //_ = c.curl_easy_getinfo(curl, c.CURLINFO_NAMELOOKUP_TIME, &namelookup);
+    _ = c.curl_easy_getinfo(curl, c.CURLINFO_CONNECT_TIME, &connect);
+    _ = c.curl_easy_getinfo(curl, c.CURLINFO_APPCONNECT_TIME, &appconnect);
+    _ = c.curl_easy_getinfo(curl, c.CURLINFO_STARTTRANSFER_TIME, &starttransfer);
+    _ = c.curl_easy_getinfo(curl, c.CURLINFO_TOTAL_TIME, &total);
+
+    //print("DNS: {d} ms\n", .{namelookup * 1000});
+    print("Connect: {d} ms\n", .{connect * 1000});
+    print("TLS: {d} ms\n", .{appconnect * 1000});
+    print("TTFB: {d} ms\n", .{starttransfer * 1000});
+    print("Total: {d} ms\n", .{total * 1000});
+
     return response.data.toOwnedSlice(allocator);
 }
 
-fn ip_change(ipv4_layer: *IPv4.IPv4Layer) void {
-    const ipv4_header: *IPv4.IPv4Header = ipv4_layer.get_mutable_header();
-
-    if (std.mem.eql(u8, &ipv4_header.get_dst_ip().array, &.{ 8, 8, 8, 8 })) {
-        ipv4_header.set_dst_ip(dns_ip);
-    }
-
-    if (std.mem.eql(u8, &ipv4_header.get_src_ip().array, &dns_ip.array)) {
-        ipv4_header.set_src_ip(IPv4.IPv4Address.init_from_array(.{ 8, 8, 8, 8 }));
-    }
-}
-
 fn mutate_packet(data: []u8) ![]const u8 {
+    //defer _ = debug_allocator.detectLeaks();
     const buf = try allocator.alloc(u8, data.len);
     @memmove(buf, data);
+
     var packet = Packet.create(allocator, allocator);
     defer packet.deinit();
 
@@ -132,7 +129,6 @@ fn mutate_packet(data: []u8) ![]const u8 {
     while (query) |q| {
         const str = try q.to_string(allocator);
         print("{s}\n", .{str});
-        allocator.free(str);
 
         query = q.next_query;
     }
@@ -142,13 +138,7 @@ fn mutate_packet(data: []u8) ![]const u8 {
     var new_dns_layer = try DNS.DNSLayer.initFromSlice(ans_layer, allocator);
     defer new_dns_layer.deinit();
 
-    allocator.free(ans_layer);
-
     var layer = Layer{ .dnsLayer = new_dns_layer };
-
-    if (!dns_layer.owner.is_packet_owned()) {
-        @panic("invalid ownership of dns layer.\n");
-    }
 
     _ = try packet.delete_layer(Layer{ .dnsLayer = dns_layer });
 
@@ -179,8 +169,24 @@ fn mutate_packet(data: []u8) ![]const u8 {
     return try packet.buffer.buffer.toOwnedSlice(allocator);
 }
 
-fn nfq_callback(qh: ?*c.struct_nfq_q_handle, nfmsg: ?*c.struct_nfgenmsg, nfa: ?*c.struct_nfq_data, data: ?*anyopaque) callconv(.c) c_int {
-    defer _ = debug_allocator.detectLeaks();
+fn nfq_callback(
+    qh: ?*c.struct_nfq_q_handle,
+    nfmsg: ?*c.struct_nfgenmsg,
+    nfa: ?*c.struct_nfq_data,
+    data: ?*anyopaque,
+) callconv(.c) c_int {
+    //defer _ = debug_allocator.detectLeaks();
+
+    defer fba.reset();
+
+    var timer = std.time.Timer.start() catch null;
+
+    _ = &timer;
+
+    if (timer) |*t| {
+        defer t.reset();
+        defer print("Entire process time: {}\n", .{t.read()});
+    }
 
     const ph = c.nfq_get_msg_packet_hdr(nfa);
     if (ph == null) return c.NF_ACCEPT;
@@ -201,8 +207,6 @@ fn nfq_callback(qh: ?*c.struct_nfq_q_handle, nfmsg: ?*c.struct_nfgenmsg, nfa: ?*
         return 0;
     };
 
-    defer allocator.free(copy);
-
     const res = c.nfq_set_verdict(qh, id, c.NF_ACCEPT, @intCast(copy.len), copy.ptr);
 
     return res;
@@ -215,6 +219,14 @@ pub fn main() !void {
         return;
     }
     defer c.curl_easy_cleanup(curl);
+
+    _ = c.curl_easy_setopt(curl, c.CURLOPT_HTTP_VERSION, c.CURL_HTTP_VERSION_2_0);
+
+    // ---- URL ----
+    _ = c.curl_easy_setopt(curl, c.CURLOPT_URL, DEFAULT_URL);
+
+    // ---- POST ----
+    _ = c.curl_easy_setopt(curl, c.CURLOPT_POST, @as(c_long, 1));
 
     const h = c.nfq_open();
     if (h == null) {
@@ -238,7 +250,7 @@ pub fn main() !void {
 
     const fd = c.nfq_fd(h);
 
-    var buf: [4096]u8 = undefined;
+    var buf: [4096]u8 = .{0x00} ** 4096;
 
     while (true) {
         const rv = try std.posix.recv(fd, buf[0..], 0);
@@ -250,54 +262,3 @@ pub fn main() !void {
     _ = c.nfq_destroy_queue(qh);
     _ = c.nfq_close(h);
 }
-
-//   fn cb(
-//       qh: ?*c.struct_nfq_q_handle,
-//       nfmsg: ?*c.struct_nfgenmsg,
-//       nfa: ?*c.struct_nfq_data,
-//       data: ?*anyopaque,
-//   ) callconv(.c) c_int {
-//       const ph = c.nfq_get_msg_packet_hdr(nfa);
-//       if (ph == null) return c.NF_ACCEPT;
-//
-//       _ = nfmsg;
-//       _ = data;
-//
-//       const id: u32 = @intCast(c.ntohl(ph.*.packet_id));
-//
-//       var payload_ptr: [*c]u8 = undefined;
-//
-//       const len = c.nfq_get_payload(nfa, &payload_ptr);
-//
-//       const pkt: []u8 = payload_ptr[0..@intCast(len)];
-//
-//       const ipv4_header: *IPv4.IPv4Header = @ptrCast(pkt.ptr);
-//
-//       if (std.mem.eql(u8, &ipv4_header.get_dst_ip().array, &.{ 8, 8, 8, 8 })) {
-//           ipv4_header.set_dst_ip(dns_ip);
-//
-//           ipv4_header.calculate_checksum(pkt[0..20]);
-//
-//           const udp_header: *UDP.UDPHeader = @ptrCast(pkt[20..]);
-//           udp_header.calculate_checksum(
-//               ipv4_header.get_src_ip().array,
-//               ipv4_header.get_dst_ip().array,
-//               pkt[28..],
-//           );
-//       }
-//
-//       if (std.mem.eql(u8, &ipv4_header.get_src_ip().array, &dns_ip.array)) {
-//           ipv4_header.set_src_ip(IPv4.IPv4Address.init_from_array(.{ 8, 8, 8, 8 }));
-//
-//           ipv4_header.calculate_checksum(pkt[0..20]);
-//
-//           const udp_header: *UDP.UDPHeader = @ptrCast(pkt[20..]);
-//           udp_header.calculate_checksum(
-//               ipv4_header.get_src_ip().array,
-//               ipv4_header.get_dst_ip().array,
-//               pkt[28..],
-//           );
-//       }
-//
-//       return c.nfq_set_verdict(qh, id, c.NF_ACCEPT, @intCast(len), pkt.ptr);
-//   }
