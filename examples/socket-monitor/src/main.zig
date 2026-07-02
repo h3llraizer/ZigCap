@@ -154,7 +154,7 @@ pub const SocketMonitor = struct {
 
     pub fn matchProcess(self: *Self, port: u16) struct { pid: u32, name: []const u8 } {
         self.processTableMutex.lock();
-        const processesCopy = self.processes.clone() catch {
+        var processesCopy = self.processes.clone() catch {
             self.processTableMutex.unlock();
             return .{ .pid = 0, .name = "" };
         };
@@ -202,7 +202,8 @@ pub const SocketMonitor = struct {
                         self.processTableMutex.unlock();
                         continue;
                     };
-                    self.processTableMutex.unlock();
+
+                    defer self.processTableMutex.unlock();
 
                     if (!gop.found_existing) {
                         // New process
@@ -215,20 +216,15 @@ pub const SocketMonitor = struct {
 
                         pa.sockets.put(socketId, socket) catch continue;
 
-                        self.processTableMutex.lock();
                         gop.value_ptr.* = pa;
-                        self.processTableMutex.unlock();
                         self.processTableCv.signal();
 
                         std.debug.print("New process tracked: {} ({s})\n", .{ pid, pa.processName });
                     } else {
                         // Existing process
-                        self.processTableMutex.lock();
                         gop.value_ptr.sockets.put(socketId, socket) catch {
-                            self.processTableMutex.unlock();
                             continue;
                         };
-                        self.processTableMutex.unlock();
                         self.processTableCv.signal();
 
                         std.debug.print("New socket for process {}: port {}\n", .{ pid, socket.localPort });
@@ -269,7 +265,7 @@ pub const SocketMonitor = struct {
                         self.processTableMutex.unlock();
                         continue;
                     };
-                    self.processTableMutex.unlock();
+                    defer self.processTableMutex.unlock();
 
                     if (!gop.found_existing) {
                         // New process - implicit bind
@@ -282,9 +278,7 @@ pub const SocketMonitor = struct {
 
                         pa.sockets.put(socketId, socket) catch continue;
 
-                        self.processTableMutex.lock();
                         gop.value_ptr.* = pa;
-                        self.processTableMutex.unlock();
 
                         std.debug.print("New process tracked via connect: {} ({s})\n", .{ pid, pa.processName });
 
@@ -295,12 +289,9 @@ pub const SocketMonitor = struct {
                         self.allocator.free(str0);
                     } else {
                         // Existing process
-                        self.processTableMutex.lock();
                         gop.value_ptr.sockets.put(socketId, socket) catch {
-                            self.processTableMutex.unlock();
                             continue;
                         };
-                        self.processTableMutex.unlock();
 
                         std.debug.print("New socket for process {} via connect: local port {}\n", .{ pid, socket.localPort });
                         const str0 = socket.to_string(self.allocator);
