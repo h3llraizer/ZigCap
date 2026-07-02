@@ -32,6 +32,8 @@ const allocator = fba.allocator();
 // CURL consts and vars
 var curl: ?*anyopaque = null;
 const DEFAULT_URL = "https://1.1.1.1/dns-query";
+const CONTENT_TYPE = "content-type: application/dns-message";
+const BODY_TYPE = "accept: application/dns-message";
 
 // Wrapper around std.ArrayList
 const ResponseBuffer = struct {
@@ -58,8 +60,8 @@ fn get_dns_response(query: []u8) ![]u8 {
     _ = c.curl_easy_setopt(curl, c.CURLOPT_POSTFIELDSIZE, @as(c_long, @intCast(query.len)));
 
     // ---- headers ----
-    var headers = c.curl_slist_append(null, "content-type: application/dns-message");
-    headers = c.curl_slist_append(headers, "accept: application/dns-message");
+    var headers = c.curl_slist_append(null, CONTENT_TYPE);
+    headers = c.curl_slist_append(headers, BODY_TYPE);
     defer c.curl_slist_free_all(headers);
 
     _ = c.curl_easy_setopt(curl, c.CURLOPT_HTTPHEADER, headers);
@@ -175,8 +177,6 @@ fn nfq_callback(
     nfa: ?*c.struct_nfq_data,
     data: ?*anyopaque,
 ) callconv(.c) c_int {
-    //defer _ = debug_allocator.detectLeaks();
-
     defer fba.reset();
 
     var timer = std.time.Timer.start() catch null;

@@ -44,26 +44,26 @@ pub const LoopbackHeader = extern struct {
 
 pub const LoopbackLayer = struct {
     owner: LayerOwner,
-    const Protocol = tcp_ip_protocol.loopback;
+    const Self = @This();
 
-    pub fn init(allocator: Allocator) LayerError!LoopbackLayer {
-        return try init_layer(LoopbackLayer, allocator, LoopbackHeader, default_hdr);
+    pub fn init(allocator: Allocator) LayerError!Self {
+        return try init_layer(Self, allocator, LoopbackHeader, default_hdr);
     }
 
-    pub fn initFromSlice(slice: []u8, allocator: Allocator) LayerError!LoopbackLayer {
+    pub fn initFromSlice(slice: []u8, allocator: Allocator) LayerError!Self {
         if (slice.len < LoopbackHeaderSize) return LayerError.BufferTooSmall;
 
         const hdr_len = LoopbackHeaderSize;
 
-        return try initLayerFromSlice(slice, LoopbackLayer, hdr_len, LoopbackHeaderSize, LoopbackHeaderSize, allocator);
+        return try initLayerFromSlice(slice, Self, hdr_len, LoopbackHeaderSize, LoopbackHeaderSize, allocator);
     }
 
-    fn get_mutable_header(self: *const LoopbackLayer) *LoopbackHeader {
+    fn get_mutable_header(self: *const Self) *LoopbackHeader {
         const data = self.get_data();
         return @ptrCast(data.ptr);
     }
 
-    fn get_immutable_header(self: *const LoopbackLayer) *const LoopbackHeader {
+    fn get_immutable_header(self: *const Self) *const LoopbackHeader {
         const data: []const u8 = self.get_data();
 
         if (data.len < LoopbackHeaderSize) {
@@ -73,12 +73,12 @@ pub const LoopbackLayer = struct {
         return @ptrCast(data.ptr);
     }
 
-    pub fn get_data(self: *const LoopbackLayer) []u8 {
+    pub fn get_data(self: *const Self) []u8 {
         return self.owner.get_data();
     }
 
     /// return mutable slice of the payload
-    pub fn get_payload(self: *const LoopbackLayer) []const u8 { // needs to return RawData
+    pub fn get_payload(self: *const Self) []const u8 { // needs to return RawData
         const data = self.get_data();
         if (data.len > LoopbackHeaderSize) {
             return data[LoopbackHeaderSize..];
@@ -87,7 +87,7 @@ pub const LoopbackLayer = struct {
         }
     }
 
-    pub fn get_next_layer_type(self: *LoopbackLayer, layer: *PacketLayer) LayerError!?Layer {
+    pub fn get_next_layer_type(self: *Self, layer: *PacketLayer) LayerError!?Layer {
         const hdr = self.get_immutable_header();
         const protocol_type = hdr.get_protocol_type();
 
@@ -127,23 +127,23 @@ pub const LoopbackLayer = struct {
         }
     }
 
-    pub fn validate_layer(self: *LoopbackLayer) void {
+    pub fn validate_layer(self: *Self) void {
         _ = self;
         return;
     }
 
-    pub fn to_string(self: *LoopbackLayer, allocator: Allocator) []const u8 {
+    pub fn to_string(self: *Self, allocator: Allocator) []const u8 {
         _ = self;
         _ = allocator;
         return "loopback layer.\n";
     }
 
-    pub fn get_protocol(self: LoopbackLayer) tcp_ip_protocol {
+    pub fn get_protocol(self: Self) tcp_ip_protocol {
         _ = self;
-        return LoopbackLayer.Protocol;
+        return tcp_ip_protocol.loopback;
     }
 
-    pub fn deinit(self: *LoopbackLayer) void {
+    pub fn deinit(self: *Self) void {
         self.owner.deinit();
     }
 };

@@ -481,7 +481,7 @@ pub const Packet = struct {
             cur = next_layer.next_layer;
         }
 
-        l.layer_iface.deinit();
+        //l.layer_iface.deinit(); // this doesn't need to be called
 
         self.layer_allocator.destroy(l);
 
@@ -491,7 +491,7 @@ pub const Packet = struct {
     pub fn print_stack(self: *Packet) void {
         var cur = self.first_layer;
         while (cur) |layer| {
-            print("{any}. ", .{std.meta.activeTag(layer.layer_iface)});
+            print("{any}. ", .{activeTag(layer.layer_iface)});
             cur = layer.next_layer;
         }
 

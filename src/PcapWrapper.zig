@@ -1,6 +1,7 @@
 const std = @import("std");
 const IPv4Address = @import("IPv4.zig").IPv4Address;
 const IPv6Address = @import("IPv6.zig").IPv6Address;
+const IPAddress = @import("IPAddress.zig").IPAddress;
 
 const link_layer_type = @import("ProtocolEnums.zig").link_layer_type;
 
@@ -40,24 +41,6 @@ const sockaddr_in6 = extern struct {
     sin6_flowinfo: u_long,
     sin6_addr: in6_addr,
     sin6_scope_id: u_long,
-};
-
-pub const IPAddress = union(enum) {
-    v4: IPv4Address,
-    v6: IPv6Address,
-
-    pub fn eql(self: IPAddress, other: IPAddress) bool {
-        return switch (self) {
-            .v4 => |a| switch (other) {
-                .v4 => |b| a.to_u32() == b.to_u32(),
-                .v6 => false,
-            },
-            .v6 => |a| switch (other) {
-                .v6 => |b| std.mem.eql(u8, &a.array, &b.array),
-                .v4 => false,
-            },
-        };
-    }
 };
 
 pub const PcapError = error{
@@ -200,7 +183,7 @@ pub const Interfaces = struct {
 
         if (pcap.pcap_findalldevs(&alldevs, &errbuf) != 0) {
             std.debug.print("pcap_findalldevs failed: {s}\n", .{&errbuf});
-            return PcapError.FindAllDevsFailed; // <-- throw an error
+            return PcapError.FindAllDevsFailed;
         }
 
         return Interfaces{
@@ -228,7 +211,7 @@ pub const Interfaces = struct {
 
                     const ip_address = IPv4Address.init_from_u32(host_u32);
 
-                    try ips_list.append(self.allocator, IPAddress{ .v4 = ip_address });
+                    try ips_list.append(self.allocator, IPAddress{ .ipv4 = ip_address });
                 }
 
                 if (sa.*.sa_family == 23) { // AF_INET6
@@ -238,7 +221,7 @@ pub const Interfaces = struct {
 
                     const ip_address = IPv6Address.init_from_array(host);
 
-                    try ips_list.append(self.allocator, IPAddress{ .v6 = ip_address });
+                    try ips_list.append(self.allocator, IPAddress{ .ipv6 = ip_address });
                 }
             }
             address_ptr = addr.next;
@@ -295,9 +278,9 @@ pub const Interfaces = struct {
     }
 
     pub fn find_by_desc(self: Interfaces, wifiIfaceDesc: []u8) ?*Interface {
-        for (self.iface_list.items) |iface| {
+        for (self.iface_list.items) |*iface| {
             if (std.mem.eql(u8, std.mem.sliceTo(wifiIfaceDesc, 0), std.mem.sliceTo(iface.desc, 0))) {
-                return &iface;
+                return iface;
             }
         }
 
@@ -309,6 +292,14 @@ pub const Interfaces = struct {
             for (iface.ips.items) |ip_address| {
                 if (ip_address.eql(ip)) return iface;
             }
+        }
+
+        return null;
+    }
+
+    pub fn find_by_name(self: Interfaces, name: []const u8) ?*Interface {
+        for (self.iface_list.items) |*iface| {
+            if (std.mem.eql(u8, iface.name, name)) return iface;
         }
 
         return null;

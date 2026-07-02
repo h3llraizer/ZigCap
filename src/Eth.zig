@@ -111,18 +111,19 @@ pub const EthHeader = extern struct {
 
 pub const EthLayer = struct {
     owner: LayerOwner,
-    const Protocol = tcp_ip_protocol.eth;
 
-    pub fn init(allocator: Allocator) LayerError!EthLayer {
-        return try init_layer(EthLayer, allocator, EthHeader, default_hdr);
+    const Self = @This();
+
+    pub fn init(allocator: Allocator) LayerError!Self {
+        return try init_layer(Self, allocator, EthHeader, default_hdr);
     }
 
-    pub fn initFromSlice(slice: []u8, allocator: Allocator) LayerError!EthLayer {
+    pub fn initFromSlice(slice: []u8, allocator: Allocator) LayerError!Self {
         if (slice.len < EthHeaderSize) return LayerError.BufferTooSmall;
 
         const hdr_len = EthHeaderSize;
 
-        return try initLayerFromSlice(slice, EthLayer, hdr_len, EthHeaderSize, EthHeaderSize, allocator);
+        return try initLayerFromSlice(slice, Self, hdr_len, EthHeaderSize, EthHeaderSize, allocator);
     }
 
     pub fn zero_hdr() []u8 {
@@ -132,12 +133,12 @@ pub const EthLayer = struct {
         return data;
     }
 
-    pub fn get_mutable_header(self: *const EthLayer) *EthHeader {
+    pub fn get_mutable_header(self: *const Self) *EthHeader {
         const data = self.get_data();
         return @ptrCast(data.ptr);
     }
 
-    pub fn get_immutable_header(self: *const EthLayer) *const EthHeader {
+    pub fn get_immutable_header(self: *const Self) *const EthHeader {
         const data: []const u8 = self.get_data();
 
         if (data.len < EthHeaderSize) {
@@ -147,7 +148,7 @@ pub const EthLayer = struct {
         return @ptrCast(data.ptr);
     }
 
-    pub fn to_string(self: *const EthLayer, allocator: Allocator) []const u8 {
+    pub fn to_string(self: *const Self, allocator: Allocator) []const u8 {
         const hdr = self.get_immutable_header();
 
         // Allocate MAC strings
@@ -193,7 +194,7 @@ pub const EthLayer = struct {
         // Create final result
         const result = std.fmt.allocPrint(
             allocator,
-            "EthLayer: EthType: {s}, src: {s}, dst: {s}\n",
+            "Self: EthType: {s}, src: {s}, dst: {s}\n",
             .{ eth_type_str, src_mac, dst_mac },
         ) catch |err| {
             print("result allocPrint failed: {s}\n", .{@errorName(err)});
@@ -207,12 +208,12 @@ pub const EthLayer = struct {
     }
 
     /// get slice of data (hdr+payload)
-    pub fn get_data(self: *const EthLayer) []u8 {
+    pub fn get_data(self: *const Self) []u8 {
         return self.owner.get_data();
     }
 
     /// return mutable slice of the payload
-    pub fn get_payload(self: *EthLayer) []const u8 {
+    pub fn get_payload(self: *Self) []const u8 {
         const data = self.get_data();
 
         if (data.len > EthHeaderSize) {
@@ -222,7 +223,7 @@ pub const EthLayer = struct {
         }
     }
 
-    pub fn validate_layer(self: *EthLayer) void {
+    pub fn validate_layer(self: *Self) void {
         if (self.owner.is_packet_owned()) {
             if (self.owner.packet_layer.next_layer) |next_layer| {
                 const protocol = next_layer.layer_iface.get_protocol();
@@ -242,7 +243,7 @@ pub const EthLayer = struct {
     }
 
     /// return the next layer protocol type
-    pub fn get_next_layer_type(self: *EthLayer, layer: *PacketLayer) LayerError!?Layer {
+    pub fn get_next_layer_type(self: *Self, layer: *PacketLayer) LayerError!?Layer {
         const hdr = self.get_immutable_header();
         const eth_type = hdr.get_eth_type();
 
@@ -287,12 +288,12 @@ pub const EthLayer = struct {
         }
     }
 
-    pub fn get_protocol(self: EthLayer) tcp_ip_protocol {
+    pub fn get_protocol(self: Self) tcp_ip_protocol {
         _ = self;
-        return EthLayer.Protocol;
+        return tcp_ip_protocol.eth;
     }
 
-    pub fn deinit(self: *EthLayer) void {
+    pub fn deinit(self: *Self) void {
         self.owner.deinit();
     }
 };
