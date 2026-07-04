@@ -308,13 +308,13 @@ pub const UDPLayer = struct {
     }
 
     /// caller needs to free
-    pub fn to_string(self: *UDPLayer, allocator: Allocator) []const u8 {
+    pub fn to_string(self: *UDPLayer, allocator: Allocator) ![]const u8 {
         const hdr = self.get_immutable_header();
 
         const src_port = hdr.get_src_port();
         const dst_port = hdr.get_dst_port();
 
-        return std.fmt.allocPrint(allocator, "UDP Layer: src_port: {} dst_port: {}\n", .{ src_port, dst_port }) catch return "";
+        return try std.fmt.allocPrint(allocator, "UDP Layer: src_port: {} dst_port: {}\n", .{ src_port, dst_port });
     }
 
     pub fn get_next_layer_type(self: *UDPLayer, layer: *PacketLayer) LayerError!?Layer {
@@ -333,7 +333,7 @@ pub const UDPLayer = struct {
         return Layer{ .genericAppLayer = .{ .owner = .{ .packet_layer = layer } } };
     }
 
-    pub fn get_protocol(self:UDPLayer) tcp_ip_protocol {
+    pub fn get_protocol(self: UDPLayer) tcp_ip_protocol {
         _ = self;
         return UDPLayer.Protocol;
     }

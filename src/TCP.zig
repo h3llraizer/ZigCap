@@ -684,22 +684,17 @@ pub const TCPLayer = struct {
         }
     }
 
-    pub fn to_string(self: *TCPLayer, allocator: Allocator) []const u8 {
+    pub fn to_string(self: *TCPLayer, allocator: Allocator) ![]const u8 {
         const hdr = self.get_immutable_header();
 
         const src_port: u16 = hdr.get_src_port();
         const dst_port: u16 = hdr.get_dst_port();
 
         // TODO: add [syn] [syn-ack] [ack] [rst] etc
-        const result = std.fmt.allocPrint(allocator, "TCP Layer: src_port: {} dst_port: {}", .{ src_port, dst_port }) catch |err| {
-            print("TCP allocPrint failed: {s}\n", .{@errorName(err)});
-            return "";
-        };
-
-        return result;
+        return try std.fmt.allocPrint(allocator, "TCP Layer: src_port: {} dst_port: {}", .{ src_port, dst_port });
     }
 
-    pub fn get_protocol(self:TCPLayer) tcp_ip_protocol {
+    pub fn get_protocol(self: TCPLayer) tcp_ip_protocol {
         _ = self;
         return tcp_ip_protocol.tcp;
     }

@@ -1082,7 +1082,7 @@ pub const DNSLayer = struct {
         return .{ ptr, idx };
     }
 
-    pub fn to_string(self: *DNSLayer, allocator: Allocator) []const u8 {
+    pub fn to_string(self: *DNSLayer, allocator: Allocator) ![]const u8 {
         const hdr = self.get_mutable_header();
 
         const id = hdr.get_id();
@@ -1099,11 +1099,11 @@ pub const DNSLayer = struct {
         const nscount = hdr.get_nscount();
         const arcount = hdr.get_arcount();
 
-        return std.fmt.allocPrint(
+        return try std.fmt.allocPrint(
             allocator,
             "DNS Layer: id={} qr={} opcode={} aa={} tc={} rd={} ra={} z={} rcode={} qdcount={} ancount={} nscount={} arcount={}",
             .{ id, qr, opcode, aa, tc, rd, ra, z, rcode, qdcount, ancount, nscount, arcount },
-        ) catch return "Error.";
+        );
     }
 
     pub fn get_protocol(self: DNSLayer) tcp_ip_protocol {

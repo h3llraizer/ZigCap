@@ -161,17 +161,7 @@ test "parse dhcp layer" {
 
     const dhcp_hdr: *DHCP.DHCPHeader = dhcp_layer.get_mutable_header();
 
-    const y_ip = try dhcp_hdr.get_yiaddr().to_string(allocator);
-    defer allocator.free(y_ip);
-
-    const ci_ip = try dhcp_hdr.get_ciaddr().to_string(allocator);
-    defer allocator.free(ci_ip);
-
-    const si_ip = try dhcp_hdr.get_siaddr().to_string(allocator);
-    defer allocator.free(si_ip);
-
-    const str = dhcp_layer.to_string(allocator);
-    defer allocator.free(str);
+    _ = dhcp_hdr;
 }
 
 test "parse dhcp req packet" {

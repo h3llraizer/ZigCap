@@ -756,7 +756,7 @@ pub const DHCPLayer = struct {
         }
     }
 
-    pub fn to_string(self: *const DHCPLayer, allocator: std.mem.Allocator) []const u8 {
+    pub fn to_string(self: *const DHCPLayer, allocator: std.mem.Allocator) ![]const u8 {
         const hdr = self.get_immutable_header();
 
         const op_str = switch (hdr.get_op()) {
@@ -764,43 +764,29 @@ pub const DHCPLayer = struct {
             OPCode.BootReply => "BootReply",
         };
 
-        const htype_str = switch (hdr.get_htype()) {
-            HWTYPE.Eth => "Ethernet",
-            // Add other HWTYPE cases as needed
-        };
+        const ciaddr_str = try hdr.get_ciaddr().to_string(allocator);
+        defer allocator.free(ciaddr_str);
 
-        // Helper function to catch errors and return empty string
-        const catch_err = struct {
-            fn call(alloc: std.mem.Allocator, comptime fmt: []const u8, args: anytype) []const u8 {
-                return std.fmt.allocPrint(alloc, fmt, args) catch return "";
-            }
-        }.call;
+        const yiaddr_str = try hdr.get_yiaddr().to_string(allocator);
+        defer allocator.free(yiaddr_str);
 
-        _ = catch_err;
+        const siaddr_str = try hdr.get_siaddr().to_string(allocator);
+        defer allocator.free(siaddr_str);
 
-        const ciaddr_str = hdr.get_ciaddr().to_string(allocator) catch return "";
-        defer if (ciaddr_str.len > 0) allocator.free(ciaddr_str);
+        const giaddr_str = try hdr.get_giaddr().to_string(allocator);
+        defer allocator.free(giaddr_str);
 
-        const yiaddr_str = hdr.get_yiaddr().to_string(allocator) catch return "";
-        defer if (yiaddr_str.len > 0) allocator.free(yiaddr_str);
-
-        const siaddr_str = hdr.get_siaddr().to_string(allocator) catch return "";
-        defer if (siaddr_str.len > 0) allocator.free(siaddr_str);
-
-        const giaddr_str = hdr.get_giaddr().to_string(allocator) catch return "";
-        defer if (giaddr_str.len > 0) allocator.free(giaddr_str);
-
-        const chaddr_str = hdr.get_chaddr().to_string(allocator) catch return "";
-        defer if (chaddr_str.len > 0) allocator.free(chaddr_str);
+        const chaddr_str = try hdr.get_chaddr().to_string(allocator);
+        defer allocator.free(chaddr_str);
 
         const file = hdr.get_file();
 
         const name = hdr.get_sname();
 
-        const result = std.fmt.allocPrint(allocator,
+        return try std.fmt.allocPrint(allocator,
             \\DHCPHeader {{
             \\  op: {s} 
-            \\  htype: {s}
+            \\  htype: {any}
             \\  hlen: {any}
             \\  hops: {any}
             \\  xid: 0x{X:0>8}
@@ -817,7 +803,7 @@ pub const DHCPLayer = struct {
             \\}}
         , .{
             op_str,
-            htype_str,
+            hdr.get_htype(),
             hdr.get_hlen(),
             hdr.get_hops(),
             hdr.get_xid(),
@@ -831,9 +817,7 @@ pub const DHCPLayer = struct {
             file,
             name,
             hdr.get_magic_cookie(),
-        }) catch return "";
-
-        return result;
+        });
     }
 
     /// return the next layer protocol type (DHCP doesn't have a next layer)

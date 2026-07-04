@@ -673,25 +673,25 @@ pub const IPv6Layer = struct {
         }
     }
 
-    pub fn to_string(self: *IPv6Layer, allocator: Allocator) []const u8 {
+    pub fn to_string(self: *IPv6Layer, allocator: Allocator) ![]const u8 {
         const hdr = self.get_immutable_header();
 
-        const src_ip = IPv6Address.init_from_array(hdr.src_ip);
-        const dst_ip = IPv6Address.init_from_array(hdr.dst_ip);
+        const src_ip = hdr.get_src_ip();
+        const dst_ip = hdr.get_dst_ip();
 
-        const src_ip_str = src_ip.to_string(allocator) catch return "";
+        const src_ip_str = try src_ip.to_string(allocator);
         defer allocator.free(src_ip_str);
 
-        const dst_ip_str = dst_ip.to_string(allocator) catch return "";
+        const dst_ip_str = try dst_ip.to_string(allocator);
         defer allocator.free(dst_ip_str);
 
-        return std.fmt.allocPrint(allocator, "IPv6 Layer: src_ip: {s} dst_ip: {s}\n", .{
+        return try std.fmt.allocPrint(allocator, "IPv6 Layer: src_ip: {s} dst_ip: {s}\n", .{
             src_ip_str,
             dst_ip_str,
-        }) catch return "";
+        });
     }
 
-    pub fn get_protocol(self:IPv6Layer) tcp_ip_protocol {
+    pub fn get_protocol(self: IPv6Layer) tcp_ip_protocol {
         _ = self;
         return tcp_ip_protocol.ipv6;
     }

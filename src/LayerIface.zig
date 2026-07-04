@@ -165,7 +165,7 @@ pub const Layer = union(enum) {
 
     /// calls the concrete layers to_string method
     /// caller needs to free
-    pub fn to_string(self: *Layer, allocator: Allocator) []const u8 {
+    pub fn to_string(self: *Layer, allocator: Allocator) ![]const u8 {
         return switch (self.*) {
             inline else => |*layer| layer.to_string(allocator),
         };

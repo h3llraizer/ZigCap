@@ -56,7 +56,7 @@ test "build arp layer" {
 
     try expect(arp_layer_iface.arpLayer.get_opcode() == ARP.ARPOpcode.Request);
 
-    const str = arp_layer_iface.to_string(allocator);
+    const str = try arp_layer_iface.to_string(allocator);
     defer allocator.free(str);
 
     //print("{s}\n", .{str});

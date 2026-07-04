@@ -132,10 +132,10 @@ pub const LoopbackLayer = struct {
         return;
     }
 
-    pub fn to_string(self: *Self, allocator: Allocator) []const u8 {
-        _ = self;
-        _ = allocator;
-        return "loopback layer.\n";
+    pub fn to_string(self: *Self, allocator: Allocator) ![]const u8 {
+        const hdr: *const LoopbackHeader = self.get_immutable_header();
+
+        return try std.fmt.allocPrint(allocator, "LOOPBACK: {}\n", .{hdr.get_protocol_type()});
     }
 
     pub fn get_protocol(self: Self) tcp_ip_protocol {

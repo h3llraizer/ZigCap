@@ -585,22 +585,20 @@ pub const IPv4Layer = struct {
     }
 
     /// caller must free the memory
-    pub fn to_string(self: *const IPv4Layer, allocator: Allocator) []const u8 {
+    pub fn to_string(self: *const IPv4Layer, allocator: Allocator) ![]const u8 {
         const hdr = self.get_immutable_header();
 
-        const src_ip_str = hdr.get_src_ip().to_string(allocator) catch return "";
+        const src_ip_str = try hdr.get_src_ip().to_string(allocator);
         defer allocator.free(src_ip_str);
 
-        const dst_ip_str = hdr.get_dst_ip().to_string(allocator) catch return "";
+        const dst_ip_str = try hdr.get_dst_ip().to_string(allocator);
         defer allocator.free(dst_ip_str);
 
-        return std.fmt.allocPrint(
+        return try std.fmt.allocPrint(
             allocator,
             "IPv4 Layer : src: {s} dst: {s}\n",
             .{ src_ip_str, dst_ip_str },
-        ) catch {
-            return "";
-        };
+        );
     }
 
     /// get the IP protocol. E.g. TCP, UDP, ICMP

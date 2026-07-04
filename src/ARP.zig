@@ -310,31 +310,23 @@ pub const ARPLayer = struct {
         return hdr.is_reply();
     }
 
-    pub fn to_string(self: *ARPLayer, allocator: Allocator) []const u8 {
+    pub fn to_string(self: *ARPLayer, allocator: Allocator) ![]const u8 {
         const hdr = self.get_immutable_header();
 
-        const sender_mac = hdr.get_sender_mac().to_string(allocator) catch |err| blk: {
-            std.debug.print("sender_mac to_string failed: {s}\n", .{@errorName(err)});
-            break :blk "";
-        };
+        const sender_mac = try hdr.get_sender_mac().to_string(allocator);
+
         defer if (sender_mac.len != 0) allocator.free(sender_mac);
 
-        const sender_ip = hdr.get_sender_ip().to_string(allocator) catch |err| blk: {
-            std.debug.print("sender_ip to_string failed: {s}\n", .{@errorName(err)});
-            break :blk "";
-        };
+        const sender_ip = try hdr.get_sender_ip().to_string(allocator);
+
         defer if (sender_ip.len != 0) allocator.free(sender_ip);
 
-        const target_mac = hdr.get_target_mac().to_string(allocator) catch |err| blk: {
-            print("target_mac to_string failed: {s}\n", .{@errorName(err)});
-            break :blk "";
-        };
+        const target_mac = try hdr.get_target_mac().to_string(allocator);
+
         defer if (target_mac.len != 0) allocator.free(target_mac);
 
-        const target_ip = hdr.get_target_ip().to_string(allocator) catch |err| blk: {
-            std.debug.print("target_ip to_string failed: {s}\n", .{@errorName(err)});
-            break :blk "";
-        };
+        const target_ip = try hdr.get_target_ip().to_string(allocator);
+
         defer if (target_ip.len != 0) allocator.free(target_ip);
 
         const opcode = if (hdr.is_request()) "Request" else if (hdr.is_reply()) "Reply" else "Unknown";
@@ -342,16 +334,11 @@ pub const ARPLayer = struct {
         const ptype = hdr.get_protocol_type();
         const hwtype = hdr.get_hardware_type();
 
-        const result = std.fmt.allocPrint(
+        return try std.fmt.allocPrint(
             allocator,
             "ARP {s}: ptype: {s}, hwtype: {s}, sender_mac: {s}, sender_ip: {s}, target_mac: {s}, target_ip: {s}",
             .{ opcode, @tagName(ptype), @tagName(hwtype), sender_mac, sender_ip, target_mac, target_ip },
-        ) catch |err| {
-            std.debug.print("allocPrint failed: {s}\n", .{@errorName(err)});
-            return "";
-        };
-
-        return result;
+        );
     }
 
     pub fn validate_layer(self: *ARPLayer) void {

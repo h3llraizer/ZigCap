@@ -388,15 +388,13 @@ pub const ICMPLayer = struct {
         }
     }
 
-    pub fn to_string(self: *ICMPLayer, allocator: std.mem.Allocator) []const u8 {
+    pub fn to_string(self: *ICMPLayer, allocator: std.mem.Allocator) ![]const u8 {
         const hdr = self.get_immutable_header();
 
-        return std.fmt.allocPrint(allocator, "{any}", .{hdr.get_type()}) catch {
-            return "Error";
-        };
+        return try std.fmt.allocPrint(allocator, "{any}", .{hdr.get_type()});
     }
 
-    pub fn get_protocol(self:ICMPLayer) tcp_ip_protocol {
+    pub fn get_protocol(self: ICMPLayer) tcp_ip_protocol {
         _ = self;
         return tcp_ip_protocol.icmp;
     }

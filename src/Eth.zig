@@ -148,21 +148,15 @@ pub const EthLayer = struct {
         return @ptrCast(data.ptr);
     }
 
-    pub fn to_string(self: *const Self, allocator: Allocator) []const u8 {
+    pub fn to_string(self: *const Self, allocator: Allocator) ![]const u8 {
         const hdr = self.get_immutable_header();
 
         // Allocate MAC strings
-        const src_mac = hdr.get_src_mac().to_string(allocator) catch |err| {
-            print("src_mac to_string failed: {s}\n", .{@errorName(err)});
-            return "";
-        };
+        const src_mac = try hdr.get_src_mac().to_string(allocator);
         defer allocator.free(src_mac);
 
-        const dst_mac = hdr.get_dst_mac().to_string(allocator) catch |err| {
-            print("dst_mac to_string failed: {s}\n", .{@errorName(err)});
-            allocator.free(src_mac);
-            return "";
-        };
+        const dst_mac = try hdr.get_dst_mac().to_string(allocator);
+
         defer allocator.free(dst_mac);
 
         // Get EtherType in host byte order (network byte order from packet)
@@ -181,10 +175,7 @@ pub const EthLayer = struct {
         const eth_type_str = if (known_type) |kt|
             @tagName(kt)
         else
-            std.fmt.allocPrint(allocator, "0x{X}", .{eth_type_raw}) catch |err| {
-                print("eth_type allocPrint failed: {s}\n", .{@errorName(err)});
-                return "";
-            };
+            try std.fmt.allocPrint(allocator, "0x{X}", .{eth_type_raw});
 
         // Clean up if we allocated a hex string
         if (known_type == null) {
@@ -192,19 +183,11 @@ pub const EthLayer = struct {
         }
 
         // Create final result
-        const result = std.fmt.allocPrint(
+        return try std.fmt.allocPrint(
             allocator,
             "Self: EthType: {s}, src: {s}, dst: {s}\n",
             .{ eth_type_str, src_mac, dst_mac },
-        ) catch |err| {
-            print("result allocPrint failed: {s}\n", .{@errorName(err)});
-            if (known_type == null) {
-                allocator.free(@constCast(eth_type_str));
-            }
-            return "";
-        };
-
-        return result;
+        );
     }
 
     /// get slice of data (hdr+payload)

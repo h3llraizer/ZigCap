@@ -34,7 +34,7 @@ test "ipv4 init" {
 
     //print("{x}\n", .{ipv4_layer.get_data()});
 
-    var str = ipv4_layer.to_string(allocator);
+    var str = try ipv4_layer.to_string(allocator);
     //print("{s}\n", .{str});
     allocator.free(str);
 
@@ -44,7 +44,7 @@ test "ipv4 init" {
 
     //print("{x}\n", .{ipv4_layer_iface.get_data()});
 
-    str = ipv4_layer_iface.to_string(allocator);
+    str = try ipv4_layer_iface.to_string(allocator);
     //print("{s}\n", .{str});
     allocator.free(str);
 

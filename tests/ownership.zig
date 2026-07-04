@@ -67,6 +67,6 @@ test "packet ownership" {
         return;
     };
 
-    const str = dns_layer.to_string(allocator);
+    const str = try dns_layer.to_string(allocator);
     defer allocator.free(str);
 }
