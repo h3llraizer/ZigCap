@@ -117,4 +117,8 @@ test "parse tcp syn packet" {
     tcp_layer.validate_layer(); // doesn't do anything for independant layer
 
     try expect(tcp_layer.get_immutable_header().get_checksum() == 10193);
+
+    try expect(packet.get_transport_type().? == .tcp);
+
+    try expect(std.meta.activeTag(packet.get_transport_layer().?) == .tcp);
 }

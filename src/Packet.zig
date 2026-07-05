@@ -10,6 +10,9 @@ const GenericLayer = @import("GenericLayer.zig");
 const LayerOwner = @import("Owner.zig").LayerOwner;
 const Buffer = @import("Buffer.zig").Buffer;
 const PacketLayer = @import("PacketLayer.zig").Layer;
+const TransportLayer = @import("TransportLayer.zig").TransportLayer;
+const UDP = @import("UDP.zig");
+const TCP = @import("TCP.zig");
 
 const print = std.debug.print;
 const activeTag = std.meta.activeTag;
@@ -293,6 +296,30 @@ pub const Packet = struct {
         return null;
     }
 
+    pub fn get_transport_type(self: *Packet) ?tcp_ip_protocol {
+        if (self.get_layer_of_type(TCP.TCPLayer)) |_| {
+            return tcp_ip_protocol.tcp;
+        }
+
+        if (self.get_layer_of_type(UDP.UDPLayer)) |_| {
+            return tcp_ip_protocol.udp;
+        }
+
+        return null;
+    }
+
+    pub fn get_transport_layer(self: *Packet) ?TransportLayer {
+        if (self.get_layer_of_type(TCP.TCPLayer)) |tcp_layer| {
+            return TransportLayer{ .tcp = tcp_layer };
+        }
+
+        if (self.get_layer_of_type(UDP.UDPLayer)) |udp_layer| {
+            return TransportLayer{ .udp = udp_layer };
+        }
+
+        return null;
+    }
+
     /// calls each layers validate_layer method in backwards traversal
     pub fn validate_packet(self: *Packet) void {
         var cur = self.last_layer;
@@ -523,14 +550,14 @@ pub const Packet = struct {
         var buffer: std.ArrayList(u8) = .empty;
         var cur = self.first_layer;
         while (cur) |layer| {
-            const returned_str = layer.layer_iface.to_string(allocator);
+            const returned_str = try layer.layer_iface.to_string(allocator);
             defer allocator.free(returned_str);
             try buffer.appendSlice(allocator, returned_str);
 
             cur = layer.next_layer;
         }
 
-        return buffer.toOwnedSlice(allocator);
+        return try buffer.toOwnedSlice(allocator);
     }
 
     pub fn get_raw(self: *Packet) []const u8 {

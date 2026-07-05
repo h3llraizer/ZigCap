@@ -94,6 +94,10 @@ test "packet layer extract" {
     try expect(packet.has_protocol_layer(.ipv4));
     try expect(packet.has_protocol_layer(.udp));
     try expect(packet.has_protocol_layer(.dns));
+
+    try expect(packet.get_transport_type().? == .udp);
+
+    try expect(std.meta.activeTag(packet.get_transport_layer().?) == .udp);
 }
 
 test "packet dissection" {

@@ -28,6 +28,7 @@ pub const Packet = @import("Packet.zig").Packet;
 pub const TCP = @import("TCP.zig");
 pub const UDP = @import("UDP.zig");
 pub const ApplicationLayer = @import("GenericLayer.zig").ApplicationLayer;
+pub const TransportLayer = @import("TransportLayer.zig").TransportLayer;
 pub const ProtocolEnums = @import("ProtocolEnums.zig");
 pub const Owner = @import("Owner.zig");
 pub const Layer = @import("LayerIface.zig").Layer;
